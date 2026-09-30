@@ -11,7 +11,7 @@ for rel in ("include/lis.h", "src/esolver/lis_esolver.c", "test/Makefile.am"):
     if not (ROOT / rel).is_file():
         sys.exit(f"ERROR: {rel} not found; run from LIS repository root")
 
-lis_h = (ROOT / "include/lis.h").read_text(encoding="utf-8")
+lis_h = (ROOT / "include/lis.h").read_bytes().decode("utf-8")
 esolver_path = ROOT / "src/esolver/lis_esolver.c"
 makefile_path = ROOT / "test/Makefile.am"
 test_path = ROOT / "test/getestuser.c"
@@ -23,8 +23,10 @@ if "#define LIS_MATRIX_USER 22" not in lis_h:
 if "lis_matrix_set_user" not in lis_h:
     sys.exit("ERROR: lis_matrix_set_user() API not found")
 
-esolver = esolver_path.read_text(encoding="utf-8")
-makefile = makefile_path.read_text(encoding="utf-8")
+esolver = esolver_path.read_bytes().decode("utf-8")
+makefile = makefile_path.read_bytes().decode("utf-8")
+esolver_eol = "\r\n" if "\r\n" in esolver else "\n"
+makefile_eol = "\r\n" if "\r\n" in makefile else "\n"
 
 guard_marker = "matrix shifts are unavailable for LIS_MATRIX_USER"
 print_marker = "matrix storage format : user/shell"
@@ -60,7 +62,8 @@ if guard_marker not in esolver:
 		return LIS_ERR_NOT_IMPLEMENTED;
 	}
 '''
-    esolver = esolver.replace(anchor, anchor + "\n" + insertion.rstrip("\n"), 1)
+    insertion = insertion.rstrip("\n").replace("\n", esolver_eol)
+    esolver = esolver.replace(anchor, anchor + esolver_eol + insertion, 1)
 
 # ----------------------------------------------------------------------
 # 2. Avoid lis_estoragename[A->matrix_type-1] for USER=22.
@@ -83,6 +86,7 @@ if print_marker not in esolver:
             "ERROR: expected exactly one generic matrix-storage output line "
             "in lis_gesolve()"
         )
+    new = new.replace("\n", esolver_eol)
     esolver = esolver.replace(old, new, 1)
 
 # ----------------------------------------------------------------------
@@ -105,7 +109,7 @@ if "getestuser_SOURCES = getestuser.c" not in makefile:
         sys.exit("ERROR: testuser_SOURCES line not found uniquely")
     makefile = makefile.replace(
         source_line,
-        source_line + "\ngetestuser_SOURCES = getestuser.c",
+        source_line + makefile_eol + "getestuser_SOURCES = getestuser.c",
         1,
     )
 
@@ -286,18 +290,28 @@ fail:
 '''
 
 if test_path.exists():
-    if test_path.read_text(encoding="utf-8") != test_source:
+    if test_path.read_bytes().decode("utf-8") != test_source:
         sys.exit("ERROR: test/getestuser.c already exists with different content")
 else:
-    test_path.write_text(test_source, encoding="utf-8")
+    test_path.write_bytes(test_source.encode("utf-8"))
 
-# Write tracked files only after all expected anchors were found.
-esolver_path.write_text(esolver, encoding="utf-8")
-makefile_path.write_text(makefile, encoding="utf-8")
+# Make sure the snippets introduced by this generator contain no trailing
+# whitespace. Do not normalize the whole upstream file.
+for marker in (
+    "storage conversion is unavailable for LIS_MATRIX_USER",
+    "matrix shifts are unavailable for LIS_MATRIX_USER",
+    "matrix storage format : user/shell",
+):
+    if marker not in esolver:
+        sys.exit("ERROR: expected generated marker is missing: " + marker)
+
+# Write tracked files while preserving the upstream newline convention.
+esolver_path.write_bytes(esolver.encode("utf-8"))
+makefile_path.write_bytes(makefile.encode("utf-8"))
 
 # Final sanity checks.
-final_esolver = esolver_path.read_text(encoding="utf-8")
-final_makefile = makefile_path.read_text(encoding="utf-8")
+final_esolver = esolver_path.read_bytes().decode("utf-8")
+final_makefile = makefile_path.read_bytes().decode("utf-8")
 
 checks = [
     guard_marker in final_esolver,
