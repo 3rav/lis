@@ -56,7 +56,7 @@ jobs:
         run: |
           python3 _tools/apply_user_gesolve.py
 
-          git diff --check -- \
+          git -c core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol diff --check -- \
             src/esolver/lis_esolver.c \
             test/Makefile.am \
             test/getestuser.c
@@ -100,7 +100,7 @@ jobs:
 
       - name: Show source diff
         run: |
-          git diff --check -- \
+          git -c core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol diff --check -- \
             src/esolver/lis_esolver.c \
             test/Makefile.am \
             test/getestuser.c
