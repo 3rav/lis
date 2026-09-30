@@ -1,0 +1,114 @@
+name: Apply user matrix generalized eigensolver
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/user-matrix-gesolve
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout patch tool from master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          path: _tools
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            autoconf \
+            automake \
+            libtool \
+            libtool-bin \
+            pkg-config \
+            gfortran \
+            openmpi-bin \
+            libopenmpi-dev
+
+      - name: Apply stage-1 patch
+        run: |
+          python3 _tools/apply_user_gesolve.py
+
+          git diff --check -- \
+            src/esolver/lis_esolver.c \
+            test/Makefile.am \
+            test/getestuser.c
+
+          git diff --stat -- \
+            src/esolver/lis_esolver.c \
+            test/Makefile.am \
+            test/getestuser.c
+
+      - name: Generate configure files
+        run: autoreconf -fiv
+
+      - name: Build and test serial
+        run: |
+          mkdir -p build-serial
+          cd build-serial
+          ../configure
+          make -j2
+          make -C test getestuser testuser
+          ./test/testuser
+          ./test/getestuser
+
+      - name: Build and test OpenMP
+        run: |
+          mkdir -p build-omp
+          cd build-omp
+          ../configure --enable-omp
+          make -j2
+          make -C test getestuser testuser
+          OMP_NUM_THREADS=2 ./test/testuser
+          OMP_NUM_THREADS=2 ./test/getestuser
+
+      - name: Build and test MPI
+        run: |
+          mkdir -p build-mpi
+          cd build-mpi
+          CC=mpicc MPICC=mpicc ../configure --enable-mpi
+          make -j2
+          make -C test getestuser
+          mpirun --allow-run-as-root -np 2 ./test/getestuser
+
+      - name: Show source diff
+        run: |
+          git diff --check -- \
+            src/esolver/lis_esolver.c \
+            test/Makefile.am \
+            test/getestuser.c
+
+          git diff -- \
+            src/esolver/lis_esolver.c \
+            test/Makefile.am \
+            test/getestuser.c
+
+      - name: Commit tested changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            src/esolver/lis_esolver.c \
+            test/Makefile.am \
+            test/getestuser.c
+
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+          else
+            git commit -m "Enable user matrices in generalized eigensolvers"
+            git push origin HEAD:feature/user-matrix-gesolve
+          fi
