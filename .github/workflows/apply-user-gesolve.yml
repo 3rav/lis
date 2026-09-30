@@ -11,12 +11,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout feature branch
+      - name: Checkout fork master
         uses: actions/checkout@v4
         with:
-          ref: feature/user-matrix-gesolve
+          ref: master
           fetch-depth: 0
           persist-credentials: true
+
+      - name: Prepare feature branch from upstream master
+        run: |
+          git remote add upstream https://github.com/anishida/lis.git
+          git fetch upstream master
+          git fetch origin feature/user-matrix-gesolve || true
+
+          if git show-ref --verify --quiet refs/remotes/origin/feature/user-matrix-gesolve; then
+            echo "Using existing feature branch"
+            git checkout -B feature/user-matrix-gesolve origin/feature/user-matrix-gesolve
+          else
+            echo "Creating feature branch from anishida/lis:master"
+            git checkout -B feature/user-matrix-gesolve upstream/master
+          fi
 
       - name: Checkout patch tool from master
         uses: actions/checkout@v4
