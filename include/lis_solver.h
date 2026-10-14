@@ -260,6 +260,45 @@ extern "C"
 	extern LIS_INT lis_gcrodr_malloc_work(LIS_SOLVER solver);
 	extern LIS_INT lis_gcrodr_clear_recycle(LIS_SOLVER solver);
 
+/*******************/
+/* FGCRO-DR        */
+/*******************/
+        extern LIS_INT lis_fgcrodr(LIS_SOLVER solver);
+        extern LIS_INT lis_fgcrodr_quad(LIS_SOLVER solver);
+        extern LIS_INT lis_fgcrodr_check_params(LIS_SOLVER solver);
+        extern LIS_INT lis_fgcrodr_malloc_work(LIS_SOLVER solver);
+        extern LIS_INT lis_fgcrodr_clear_recycle(LIS_SOLVER solver);
+        extern LIS_INT lis_fgcrodr_state_destroy(LIS_SOLVER solver);
+        extern LIS_INT lis_fgcrodr_validate_recycle(
+                LIS_SOLVER solver, LIS_REAL *orth_error,
+                LIS_REAL *relation_error);
+
+
+
+extern LIS_INT lis_fgcrodr_get_lifecycle_state(
+        LIS_SOLVER solver,
+        LIS_INT *valid,
+        LIS_MATRIX *matrix,
+        LIS_UNSIGNED_INT *structure_generation,
+        LIS_UNSIGNED_INT *value_generation);
+extern LIS_INT lis_fgcrodr_get_stats(
+        LIS_SOLVER solver,
+        LIS_UNSIGNED_INT *builds,
+        LIS_UNSIGNED_INT *updates,
+        LIS_UNSIGNED_INT *uses,
+        LIS_UNSIGNED_INT *rejects);
+
+extern LIS_INT lis_fgcrodr_get_policy_stats(
+        LIS_SOLVER solver,
+        LIS_UNSIGNED_INT *cross_uses,
+        LIS_UNSIGNED_INT *keeps,
+        LIS_UNSIGNED_INT *transports,
+        LIS_UNSIGNED_INT *rejects);
+
+
+        extern LIS_INT lis_fgcrodr_set_option(
+                LIS_SOLVER solver, const char *name, const char *value);
+
 
 /*******************/
 /* IDR(s)          */
