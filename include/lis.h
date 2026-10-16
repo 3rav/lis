@@ -269,6 +269,10 @@ extern "C" {
 #define LIS_PRECON_TYPE_ADDS 11
 #define LIS_PRECON_TYPE_USERDEF LIS_PRECON_TYPE_LEN
 
+/* Sequence policy selection. */
+#define LIS_SEQUENCE_POLICY_MANUAL 0
+#define LIS_SEQUENCE_POLICY_AUTO 1
+
 #define LIS_MATRIX_ASSEMBLING 0
 #define LIS_MATRIX_CSR 1
 #define LIS_MATRIX_CSC 2
@@ -877,6 +881,9 @@ struct LIS_SOLVER_STRUCT
 	LIS_REAL tol_switch;
 	LIS_INT setup;
 
+	/* Policy controlling solver-owned sequence decisions. */
+	LIS_INT sequence_policy;
+
 	/* Persistent preconditioner state for related systems. */
 	LIS_PRECON sequence_precon;
 	LIS_MATRIX sequence_precon_matrix;
@@ -1199,6 +1206,8 @@ extern "C"
 	extern LIS_INT lis_solver_get_fgcrodr_recycle_update(
 	    LIS_SOLVER solver, LIS_INT *update);
 	extern LIS_INT lis_solver_get_sequence_diagnostics(LIS_SOLVER solver, LIS_SEQUENCE_DIAGNOSTICS *diag);
+	extern LIS_INT lis_solver_set_sequence_policy(LIS_SOLVER solver, LIS_INT policy);
+	extern LIS_INT lis_solver_get_sequence_policy(LIS_SOLVER solver, LIS_INT *policy);
 	extern LIS_INT lis_solver_set_num_threads(LIS_SOLVER solver, LIS_INT num_threads);
 	extern LIS_INT lis_solver_get_num_threads(LIS_SOLVER solver, LIS_INT *num_threads);
 	extern LIS_INT lis_solver_set_sequence_precon_max_age(LIS_SOLVER solver, LIS_INT max_age);
