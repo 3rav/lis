@@ -1270,6 +1270,10 @@ LIS_INT lis_solver_sequence_precon_destroy(LIS_SOLVER solver)
 	return err;
 }
 
+static LIS_INT
+lis_solver_sequence_clear_active_recycle(
+    LIS_SOLVER solver);
+
 #undef __FUNC__
 #define __FUNC__ "lis_solver_sequence_prepare_precon"
 LIS_INT lis_solver_sequence_prepare_precon(
@@ -1390,6 +1394,16 @@ LIS_INT lis_solver_sequence_prepare_precon(
 
                    lis_solver_sequence_precon_snapshot(solver);
 
+                   /*
+                    * Krylov recycle relations belong to the current
+                    * preconditioned operator.  A numerical update or
+                    * rebuild of the persistent preconditioner therefore
+                    * invalidates active cross-solve recycle state.
+                    */
+                   err = lis_solver_sequence_clear_active_recycle(
+                           solver);
+                   if( err ) return err;
+
                    solver->precon = solver->sequence_precon;
                    *precon = solver->sequence_precon;
 
@@ -1446,6 +1460,16 @@ LIS_INT lis_solver_sequence_prepare_precon(
 	solver->sequence_precon_type = precon_type;
 	solver->sequence_precon_age = 0;
 	lis_solver_sequence_precon_snapshot(solver);
+
+	/*
+	 * Krylov recycle relations belong to the current
+	 * preconditioned operator.  A numerical update or
+	 * rebuild of the persistent preconditioner therefore
+	 * invalidates active cross-solve recycle state.
+	 */
+	err = lis_solver_sequence_clear_active_recycle(
+	        solver);
+	if( err ) return err;
 
 	solver->precon = solver->sequence_precon;
 	*precon = solver->sequence_precon;
