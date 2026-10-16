@@ -174,6 +174,116 @@ cleanup:
     return err;
 }
 
+
+/*
+ * GCRODR_PROJECTED_RANK_PREFIX_REGRESSION
+ *
+ * The first four projected operator-image directions are independent.
+ * The fifth lies exactly in their span, while the sixth remains
+ * independent.  Selection of a leading subspace must therefore stop
+ * at the fifth candidate instead of refilling from the sixth.
+ */
+#ifndef _COMPLEX
+
+extern LIS_INT lis_gcrodr_rank_accept_projected(
+    LIS_INT q, LIS_INT p, const LIS_SCALAR *G,
+    const LIS_REAL *coef, LIS_SCALAR *basis,
+    LIS_INT keep, LIS_SCALAR *work);
+
+static int
+check_gcrodr_projected_rank_prefix(void)
+{
+    LIS_SCALAR G[36];
+    LIS_SCALAR basis[36];
+    LIS_SCALAR work[6];
+    LIS_REAL coef[36];
+
+    LIS_INT i,c;
+    LIS_INT keep;
+    LIS_INT first_reject;
+    LIS_INT later_independent;
+
+    for(i=0;i<36;i++)
+    {
+        G[i] = 0.0;
+        basis[i] = 0.0;
+        coef[i] = 0.0;
+    }
+
+    for(i=0;i<6;i++)
+    {
+        work[i] = 0.0;
+        G[i+i*6] = 1.0;
+    }
+
+    coef[0*6+0] = 1.0;
+    coef[1*6+1] = 1.0;
+    coef[2*6+2] = 1.0;
+    coef[3*6+3] = 1.0;
+
+    /*
+     * Candidate 4 is exactly in the span of candidates 0..3.
+     */
+    coef[4*6+0] =  1.0;
+    coef[4*6+1] =  2.0;
+    coef[4*6+2] = -3.0;
+    coef[4*6+3] =  0.5;
+
+    /*
+     * Candidate 5 is independent.  It must not be used to refill
+     * a leading prefix after candidate 4 has failed the rank test.
+     */
+    coef[5*6+4] = 1.0;
+
+    keep = 0;
+    first_reject = -1;
+
+    for(c=0;c<5;c++)
+    {
+        if( !lis_gcrodr_rank_accept_projected(
+                6,6,G,&coef[c*6],
+                basis,keep,work) )
+        {
+            first_reject = c;
+            break;
+        }
+
+        keep++;
+    }
+
+    later_independent =
+        lis_gcrodr_rank_accept_projected(
+            6,6,G,&coef[5*6],
+            basis,keep,work);
+
+    printf(
+        "GCRO-DR projected rank prefix "
+        "keep=%ld first_reject=%ld "
+        "later_independent=%ld\n",
+        (long)keep,
+        (long)first_reject,
+        (long)later_independent);
+
+    if( keep!=4 ||
+        first_reject!=4 ||
+        later_independent!=LIS_TRUE )
+    {
+        printf(
+            "GCRO-DR PROJECTED RANK PREFIX "
+            "REGRESSION FAILED\n");
+
+        return 1;
+    }
+
+    printf(
+        "GCRO-DR PROJECTED RANK PREFIX "
+        "REGRESSION PASSED\n");
+
+    return 0;
+}
+
+#endif
+
 int main(int argc, char *argv[])
 {
     LIS_Comm comm;
@@ -184,6 +294,15 @@ int main(int argc, char *argv[])
     const LIS_INT m=24,n=24;
 
     lis_initialize(&argc,&argv);
+
+#ifndef _COMPLEX
+    if( check_gcrodr_projected_rank_prefix() )
+    {
+        lis_finalize();
+        return 1;
+    }
+#endif
+
     comm=LIS_COMM_WORLD;
 
     err=lis_solver_create(&solver);

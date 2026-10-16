@@ -762,6 +762,74 @@ static LIS_INT lis_gcrodr_build_vector(LIS_SOLVER solver,
     return LIS_SUCCESS;
 }
 
+/*
+ * Test a harmonic Ritz candidate in the projected operator-image space.
+ *
+ * G maps coefficients in [U,V] to the orthonormal [C,Vnext] basis, so
+ * linear dependence of G*x is the same rank condition that would later
+ * be exposed while refreshing C = A M^{-1} U.
+ *
+ * The initial normalization makes the acceptance test scale invariant.
+ * Two-pass MGS matches the recycle refresh orthogonalization.
+ */
+LIS_INT lis_gcrodr_rank_accept_projected(
+    LIS_INT q, LIS_INT p, const LIS_SCALAR *G,
+    const LIS_REAL *coef, LIS_SCALAR *basis,
+    LIS_INT keep, LIS_SCALAR *work)
+{
+    LIS_INT i,j,l,pass;
+    LIS_SCALAR alpha,s;
+    LIS_REAL nrm2,nrm;
+
+    for(i=0;i<q;i++)
+    {
+        s = 0.0;
+        for(l=0;l<p;l++)
+            s += G[i+l*q]*(LIS_SCALAR)coef[l];
+        work[i] = s;
+    }
+
+    nrm2 = 0.0;
+    for(i=0;i<q;i++)
+        nrm2 += (LIS_REAL)(work[i]*work[i]);
+
+    nrm = sqrt(nrm2);
+
+    if( nrm<=GCRODR_REORTH_TINY || nrm!=nrm )
+        return LIS_FALSE;
+
+    for(i=0;i<q;i++)
+        work[i] /= nrm;
+
+    for(pass=0;pass<2;pass++)
+    {
+        for(j=0;j<keep;j++)
+        {
+            alpha = 0.0;
+
+            for(i=0;i<q;i++)
+                alpha += basis[i+j*q]*work[i];
+
+            for(i=0;i<q;i++)
+                work[i] -= alpha*basis[i+j*q];
+        }
+    }
+
+    nrm2 = 0.0;
+    for(i=0;i<q;i++)
+        nrm2 += (LIS_REAL)(work[i]*work[i]);
+
+    nrm = sqrt(nrm2);
+
+    if( nrm<=GCRODR_REORTH_TINY || nrm!=nrm )
+        return LIS_FALSE;
+
+    for(i=0;i<q;i++)
+        basis[i+keep*q] = work[i]/nrm;
+
+    return LIS_TRUE;
+}
+
 static LIS_INT lis_gcrodr_update_recycle(LIS_SOLVER solver,
                                          LIS_VECTOR *v, LIS_INT jdim,
                                          const LIS_SCALAR *hraw, LIS_INT hld,
@@ -773,6 +841,7 @@ static LIS_INT lis_gcrodr_update_recycle(LIS_SOLVER solver,
     LIS_SCALAR *G,*F,*AP,*BP,*T,*TQR,*QW,*RW,*AINV;
     LIS_GCRODR_EIG *eig;
     LIS_REAL *vr,*vi;
+    LIS_SCALAR *rank_basis,*rank_work;
     LIS_VECTOR *newu;
 
     kmax = _min(solver->recycle_target_dim, solver->options[LIS_OPTIONS_RESTART]-1);
@@ -796,13 +865,19 @@ static LIS_INT lis_gcrodr_update_recycle(LIS_SOLVER solver,
     eig  = (LIS_GCRODR_EIG *)lis_malloc((size_t)p*sizeof(*eig),"gcrodr::eig");
     vr   = (LIS_REAL *)lis_malloc((size_t)p*sizeof(LIS_REAL),"gcrodr::vr");
     vi   = (LIS_REAL *)lis_malloc((size_t)p*sizeof(LIS_REAL),"gcrodr::vi");
+    rank_basis = (LIS_SCALAR *)lis_malloc(
+                     (size_t)q*knew*sizeof(LIS_SCALAR),
+                     "gcrodr::rank_basis");
+    rank_work = (LIS_SCALAR *)lis_malloc(
+                    (size_t)q*sizeof(LIS_SCALAR),
+                    "gcrodr::rank_work");
     newu = (LIS_VECTOR *)lis_malloc((size_t)knew*sizeof(LIS_VECTOR),"gcrodr::newu");
     if( newu!=NULL )
         for(i=0;i<knew;i++) newu[i]=NULL;
 
     if( G==NULL || F==NULL || AP==NULL || BP==NULL || T==NULL || TQR==NULL ||
         QW==NULL || RW==NULL || AINV==NULL || eig==NULL || vr==NULL || vi==NULL ||
-        newu==NULL )
+        rank_basis==NULL || rank_work==NULL || newu==NULL )
     {
         err = LIS_ERR_OUT_OF_MEMORY;
         goto cleanup;
@@ -879,26 +954,66 @@ static LIS_INT lis_gcrodr_update_recycle(LIS_SOLVER solver,
         if( err ) goto cleanup;
     }
 
+    /*
+     * Select harmonic Ritz directions by both spectral ordering and
+     * numerical rank in the projected operator-image space.
+     *
+     * The leading harmonic Ritz subspace is retained only while its
+     * projected operator images remain numerically independent.
+     *
+     * A dependent candidate terminates selection instead of being
+     * replaced by a lower-ranked Ritz direction.  Thus recycle_dim is
+     * the revealed numerical rank of the leading selected subspace.
+     */
     nsel = 0;
     for(eidx=0;eidx<neig && nsel<knew;eidx++)
     {
+        LIS_INT rank_ok;
+
         if( eig[eidx].pair && nsel+2>knew ) continue;
-        err = lis_gcrodr_inverse_eigenvector(p,T,eig[eidx].lr,eig[eidx].li,vr,vi);
+
+        err = lis_gcrodr_inverse_eigenvector(
+                  p,T,eig[eidx].lr,eig[eidx].li,vr,vi);
+
         if( err==LIS_ERR_OUT_OF_MEMORY ) goto cleanup;
         if( err ) continue;
 
         if( eig[eidx].pair )
         {
-            err = lis_gcrodr_build_vector(solver,v,jdim,oldk,vr,newu[nsel]);
+            rank_ok = lis_gcrodr_rank_accept_projected(
+                          q,p,G,vr,rank_basis,nsel,rank_work);
+
+            if( !rank_ok ) break;
+
+            rank_ok = lis_gcrodr_rank_accept_projected(
+                          q,p,G,vi,rank_basis,nsel+1,rank_work);
+
+            if( !rank_ok ) break;
+
+            err = lis_gcrodr_build_vector(
+                      solver,v,jdim,oldk,vr,newu[nsel]);
+
             if( err ) continue;
-            err = lis_gcrodr_build_vector(solver,v,jdim,oldk,vi,newu[nsel+1]);
+
+            err = lis_gcrodr_build_vector(
+                      solver,v,jdim,oldk,vi,newu[nsel+1]);
+
             if( err ) continue;
+
             nsel += 2;
         }
         else
         {
-            err = lis_gcrodr_build_vector(solver,v,jdim,oldk,vr,newu[nsel]);
+            rank_ok = lis_gcrodr_rank_accept_projected(
+                          q,p,G,vr,rank_basis,nsel,rank_work);
+
+            if( !rank_ok ) break;
+
+            err = lis_gcrodr_build_vector(
+                      solver,v,jdim,oldk,vr,newu[nsel]);
+
             if( err ) continue;
+
             nsel++;
         }
     }
@@ -941,6 +1056,7 @@ cleanup:
     lis_free(G); lis_free(F); lis_free(AP); lis_free(BP); lis_free(T);
     lis_free(TQR); lis_free(QW); lis_free(RW); lis_free(AINV);
     lis_free(eig); lis_free(vr); lis_free(vi);
+    lis_free(rank_basis); lis_free(rank_work);
     return err;
 }
 
