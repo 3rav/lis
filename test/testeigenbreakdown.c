@@ -8083,7 +8083,7 @@ main(
 
 #ifdef _COMPLEX
     printf(
-        "SKIP: GLI shift-invert recovery is not implemented for complex scalar builds\n");
+        "SKIP: transformed generalized Lanczos recovery tests are not implemented for complex scalar builds\n");
 #else
     err = test_gli_shift_invert_singular_shift_recovery();
     if( err )
@@ -8093,7 +8093,6 @@ main(
         lis_finalize();
         return 1;
     }
-#endif
 
     err = test_gli_buckling_singular_shift_recovery();
     if( err )
@@ -8103,6 +8102,7 @@ main(
         lis_finalize();
         return 1;
     }
+#endif
 
     err = test_inverse_shift_recovery_exhaustion();
     if( err )
@@ -8169,6 +8169,10 @@ main(
         return 1;
     }
 
+#ifdef _COMPLEX
+    printf(
+        "SKIP: transformed generalized Lanczos clustered-spectrum test is not implemented for complex scalar builds\n");
+#else
     err = test_transformed_generalized_lanczos_clustered_spectrum();
     if( err )
     {
@@ -8178,6 +8182,7 @@ main(
         lis_finalize();
         return 1;
     }
+#endif
 
     err = test_standard_arnoldi_orthogonality();
     if( err )
@@ -8207,6 +8212,10 @@ main(
         return 1;
     }
 
+#ifdef _COMPLEX
+    printf(
+        "SKIP: transformed generalized Block Lanczos regressions are not implemented for complex scalar builds\n");
+#else
     if( check_generalized_block_lanczos_regression()!=LIS_SUCCESS )
     {
         printf("LIS_EIGEN_BLOCK_LANCZOS_REGRESSION FAILED\n");
@@ -8221,6 +8230,7 @@ main(
         lis_finalize();
         return 1;
     }
+#endif
 
 
     printf(
