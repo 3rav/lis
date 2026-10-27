@@ -35,6 +35,8 @@
 #endif
 #endif
 
+#include <math.h>
+
 #ifdef __cplusplus
 #undef HAVE_COMPLEX_H
 extern "C" {
