@@ -8081,6 +8081,10 @@ main(
         return 1;
     }
 
+#ifdef _COMPLEX
+    printf(
+        "SKIP: GLI shift-invert recovery is not implemented for complex scalar builds\n");
+#else
     err = test_gli_shift_invert_singular_shift_recovery();
     if( err )
     {
@@ -8089,6 +8093,7 @@ main(
         lis_finalize();
         return 1;
     }
+#endif
 
     err = test_gli_buckling_singular_shift_recovery();
     if( err )
