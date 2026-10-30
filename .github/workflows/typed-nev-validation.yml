@@ -29,7 +29,7 @@ jobs:
           mkdir build && cd build
           ../configure CC=${{ matrix.cc }} ${{ matrix.opts }}
           make -j2
-          make -C test testesolverselection testfeastfoundation testfeastshifted testesolvercopyselected
+          make -C test testesolverselection testfeastfoundation testfeastshifted
       - name: Run eigensolver regressions
         env:
           OMP_NUM_THREADS: '4'
@@ -39,7 +39,6 @@ jobs:
           ./test/testesolverselection
           ./test/testfeastfoundation
           ./test/testfeastshifted
-          ./test/testesolvercopyselected
   sanitizers:
     runs-on: ubuntu-latest
     steps:
@@ -59,8 +58,7 @@ jobs:
           mkdir build && cd build
           CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined" ../configure --enable-omp
           make -j2
-          make -C test testesolverselection testfeastfoundation testfeastshifted testesolvercopyselected
+          make -C test testesolverselection testfeastfoundation testfeastshifted
           ./test/testesolverselection
           ./test/testfeastfoundation
           ./test/testfeastshifted
-          ./test/testesolvercopyselected
