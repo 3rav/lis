@@ -288,7 +288,7 @@ main(
             check_solver->options[LIS_OPTIONS_PRECON]=LIS_PRECON_TYPE_ILU;
             err=lis_solver_check_nullspace_configuration(
                 check_solver,&issues);
-            if(err || issues!=LIS_NULLSPACE_CONFIG_NEAR_SOLVER)
+            if(err || issues!=LIS_NULLSPACE_CONFIG_NEAR_COMBINATION)
                 fail=1;
             check_solver->near_nullspace_dim=0;
             lis_solver_destroy(check_solver);

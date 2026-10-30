@@ -49,7 +49,10 @@ extern LIS_INT lis_solver_get_effective_capabilities(
 #define LIS_NULLSPACE_CONFIG_EXACT_SOLVER     0x01
 #define LIS_NULLSPACE_CONFIG_EXACT_SCALE      0x02
 #define LIS_NULLSPACE_CONFIG_EXACT_PRECISION  0x04
-#define LIS_NULLSPACE_CONFIG_NEAR_SOLVER      0x08
+/* Unsupported outer solver / effective preconditioner combination.
+ * The current solve kernel checks the top-level preconditioner type;
+ * nested Hybrid+MFAMG is not treated as direct MFAMG here. */
+#define LIS_NULLSPACE_CONFIG_NEAR_COMBINATION 0x08
 #define LIS_NULLSPACE_CONFIG_NEAR_PRECISION   0x10
 
 extern LIS_INT lis_solver_check_nullspace_configuration(

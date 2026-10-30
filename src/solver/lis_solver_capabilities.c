@@ -103,7 +103,7 @@ lis_solver_get_effective_capabilities(
 
 /*
  * Configuration-only nullspace preflight, mirroring the compatibility
- * conditions enforced by lis_solve_kernel().  Do not silently change the
+ * conditions consumed by lis_solve_kernel().  Do not silently change the
  * requested algorithm or discard any application nullspace vectors.
  */
 #undef __FUNC__
@@ -141,7 +141,7 @@ lis_solver_check_nullspace_configuration(
         if(nsolver!=LIS_SOLVER_FGMRES &&
            nsolver!=LIS_SOLVER_FGCRODR &&
            precon_type!=LIS_PRECON_TYPE_MFAMG)
-            flags |= LIS_NULLSPACE_CONFIG_NEAR_SOLVER;
+            flags |= LIS_NULLSPACE_CONFIG_NEAR_COMBINATION;
         if(precision!=LIS_PRECISION_DOUBLE)
             flags |= LIS_NULLSPACE_CONFIG_NEAR_PRECISION;
     }
