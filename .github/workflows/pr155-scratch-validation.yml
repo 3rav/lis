@@ -45,7 +45,7 @@ jobs:
           ./test/testmatrixpolicysolve
           ./test/testmatrixoperatorlifecycle
           ./test/testfrozenilut
-          if [ "\${{ matrix.label }}" = "real-openmp" ]; then
+          if [ "${{ matrix.label }}" = "real-openmp" ]; then
             echo '===== BEGIN MICROBENCH CSV ====='
             ./test/benchmatrixmaterializeomp
             echo '===== END MICROBENCH CSV ====='
