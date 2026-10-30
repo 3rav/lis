@@ -1,6 +1,9 @@
 #include "lis.h"
 #include <stdio.h>
 #include <math.h>
+#if defined(_COMPLEX) && defined(HAVE_COMPLEX_H)
+#include <complex.h>
+#endif
 
 int main(int argc,char **argv)
 {
