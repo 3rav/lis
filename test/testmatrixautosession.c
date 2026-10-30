@@ -247,7 +247,19 @@ int main(int argc,char **argv)
           "csr-refresh-preserves-sequence"))goto done;
     if(ctx.assert_precon_before_row)goto done;
 
+    /* An erroneous value-only generation mark cannot authorize reuse of
+     * an allocation when the row pattern actually changed.  The preflight
+     * must detect the mismatch and reset BEFORE the CSR is replaced. */
     ctx.dense=1;
+    err=lis_matrix_mark_values_changed(A);if(err)goto done;
+    err=test_matvec(&ctx,truth,b->value);if(err)goto done;
+    ctx.assert_reset_before_row=LIS_TRUE;
+    if(test_solve(session,solver,A,b,x,truth,
+          LIS_MATRIX_POLICY_CACHED_CSR,LIS_MATRIX_MATERIALIZE_REBUILD,
+          "csr-unmarked-structure-mismatch"))goto done;
+    if(ctx.assert_reset_before_row)goto done;
+
+    ctx.dense=0;
     err=lis_matrix_mark_structure_changed(A);if(err)goto done;
     err=test_matvec(&ctx,truth,b->value);if(err)goto done;
     ctx.assert_reset_before_row=LIS_TRUE;
