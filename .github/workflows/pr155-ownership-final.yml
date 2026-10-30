@@ -1,0 +1,70 @@
+name: PR155 final cached CSR ownership validation
+on:
+  push:
+    branches: [validation/pr155-ownership-final]
+  workflow_dispatch:
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: real-serial, configure: '', threads: 1}
+          - {label: real-openmp, configure: '--enable-omp', threads: 4}
+          - {label: complex-serial, configure: '--enable-complex', threads: 1}
+          - {label: complex-openmp, configure: '--enable-complex --enable-omp', threads: 4}
+          - {label: real-mpi-one-rank, configure: '--enable-mpi', threads: 1}
+    name: ${{ matrix.label }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran openmpi-bin libopenmpi-dev
+      - name: Compile
+        run: |
+          autoreconf -fiv
+          mkdir build
+          cd build
+          if [ "${{ matrix.label }}" = "real-mpi-one-rank" ]; then
+            ../configure CC=mpicc FC=mpifort ${{ matrix.configure }}
+          else
+            ../configure ${{ matrix.configure }}
+          fi
+          make -j2
+          make -C test testmatrixmaterializeomp testmatrixmaterialize testmatrixpolicysolve testmatrixoperatorlifecycle testfrozenilut
+      - name: Matrix materialization and dependent regressions
+        env:
+          OMP_NUM_THREADS: ${{ matrix.threads }}
+          OMP_DYNAMIC: 'FALSE'
+        run: |
+          cd build
+          ./test/testmatrixmaterializeomp
+          ./test/testmatrixmaterialize
+          ./test/testmatrixpolicysolve
+          ./test/testmatrixoperatorlifecycle
+          ./test/testfrozenilut
+  asan-ubsan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Build and test with sanitizers
+        env:
+          OMP_NUM_THREADS: '4'
+          OMP_DYNAMIC: 'FALSE'
+          ASAN_OPTIONS: 'detect_leaks=1:halt_on_error=1:abort_on_error=1'
+          UBSAN_OPTIONS: 'halt_on_error=1:print_stacktrace=1'
+        run: |
+          autoreconf -fiv
+          mkdir build
+          cd build
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined" ../configure --enable-omp
+          make -j2
+          make -C test testmatrixmaterializeomp testmatrixmaterialize
+          ./test/testmatrixmaterializeomp
+          ./test/testmatrixmaterialize
