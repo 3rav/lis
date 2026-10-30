@@ -479,6 +479,17 @@ int main(int argc,char **argv)
         if(failed)goto cleanup;
     }
 
+    /* Invalid owned input must never publish an old result pointer. */
+    {
+        LIS_MATRIX owned=A;
+        err=lis_matrix_materialize_csr_owned(NULL,&owned);
+        if(err==LIS_SUCCESS || owned!=NULL)
+        {
+            fprintf(stderr,"owned CSR invalid-input contract failed\\n");
+            failed=1;goto cleanup;
+        }
+    }
+
     err=lis_matrix_materialize_csr_cached(A,&acache,&csr,&action);
     if(err || action!=LIS_MATRIX_MATERIALIZE_REBUILD ||
        check_csr_matches_context(csr,&actx))

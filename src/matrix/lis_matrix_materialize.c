@@ -575,9 +575,9 @@ lis_matrix_materialize_csr_owned(
     LIS_MATRIX source,
     LIS_MATRIX *csr)
 {
-    if(source==NULL || csr==NULL)
-        return LIS_ERR_ILL_ARG;
+    if(csr==NULL) return LIS_ERR_ILL_ARG;
     *csr=NULL;
+    if(source==NULL) return LIS_ERR_ILL_ARG;
     return lis_matrix_materialize_build_csr(source,csr);
 }
 

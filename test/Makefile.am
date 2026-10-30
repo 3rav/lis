@@ -244,6 +244,9 @@ TESTS = test.sh testuserrow$(EXEEXT) testuserprecon$(EXEEXT) testmatvecblock$(EX
         testfgcrodr$(EXEEXT) testmfamg$(EXEEXT) testmfamggalerkin$(EXEEXT) testexactnullspace$(EXEEXT) \
         testhalfconfig$(EXEEXT) testhalfconvert$(EXEEXT) testnullspacecandidates$(EXEEXT) testesolverselection$(EXEEXT)
 
+# Explicitly run all new regression binaries under make check.
+TESTS += testmatrixautosession$(EXEEXT) testvectorreal64$(EXEEXT)
+
 if ENABLE_HALF_REAL_DOUBLE
 TESTS += testhalfstorage$(EXEEXT) testhalfprobe$(EXEEXT) testhalfdispatch$(EXEEXT) \
          testhalfilukmemory$(EXEEXT) testhalfiluksimd$(EXEEXT) \
