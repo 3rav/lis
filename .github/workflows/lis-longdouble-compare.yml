@@ -1,0 +1,57 @@
+name: Compare long-double eigen breakdown on upstream and PR159
+on:
+  push:
+    branches: [validation/pr159-longdouble-baseline-20261030]
+
+jobs:
+  compare:
+    name: longdouble ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: upstream-base
+            sha: "1738797dcac2c4358769c99f7b6189259221aae0"
+          - name: pr159-head
+            sha: "81970ddd4518672bdc3619818f0cff6e45d1fd4b"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.sha }}
+      - name: Setup
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Build and repeat focused eigensolver test
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          ../configure --enable-longdouble
+          make -j2
+          make -C test testeigenbreakdown
+          failures=0
+          for i in 1 2 3; do
+            echo "::group::EIGEN_BREAKDOWN iteration ${i}"
+            ./test/testeigenbreakdown > eigen-${i}.log 2>&1
+            rc=$?
+            echo "EIGEN_BREAKDOWN iteration=${i} exit=${rc}"
+            if [ "${rc}" -ne 0 ]; then
+              failures=$((failures+1))
+              grep -En "FAIL|FAILED|error|Error" eigen-${i}.log | tail -n 70 || true
+              tail -n 70 eigen-${i}.log
+            else
+              tail -n 8 eigen-${i}.log
+            fi
+            echo "::endgroup::"
+          done
+          echo "EIGEN_BREAKDOWN failures=${failures}/3"
+          [ "${failures}" -eq 0 ]
+      - name: Save detailed output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: longdouble-${{ matrix.name }}
+          path: build/eigen-*.log
+          if-no-files-found: ignore
