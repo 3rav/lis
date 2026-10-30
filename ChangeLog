@@ -1,3 +1,11 @@
+Unreleased
+
+  - Added typed nullspace preflight shared with solver kernel.
+  - Added owned one-shot CSR materialization for serial row-backed matrices.
+  - Added checked real64 vector import/export, including strided arrays.
+  - Retained conservative AUTO reset pending a separately validated
+    preconditioner-lifetime-safe numerical refresh design.
+
 Version 2.1.20 October 25, 2026
 
   - Added robust orthogonalization and subspace locking (thanks to Rafal Brzegowy).
