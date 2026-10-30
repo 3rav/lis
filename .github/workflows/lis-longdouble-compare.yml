@@ -31,6 +31,7 @@ jobs:
           ../configure --enable-longdouble
           make -j2
           make -C test testeigenbreakdown
+          set +e
           failures=0
           for i in 1 2 3; do
             echo "::group::EIGEN_BREAKDOWN iteration ${i}"
