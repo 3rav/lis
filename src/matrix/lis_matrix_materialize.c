@@ -570,49 +570,6 @@ done:
     return err;
 }
 
-/*
- * Probe whether a cached CSR can be safely updated in place.  The
- * calling session keeps its preconditioner alive only when the existing
- * CSR allocation is guaranteed not to be released by materialization.
- * Source rows must remain stable during one generation.
- */
-static LIS_INT
-lis_matrix_csr_cache_can_refresh_values(
-    LIS_MATRIX source,
-    LIS_MATRIX_CSR_CACHE cache,
-    LIS_INT *can_refresh)
-{
-    uint64_t structure_stamp,value_stamp;
-    LIS_INT err,matches;
-
-    if(source==NULL || can_refresh==NULL)
-        return LIS_ERR_ILL_ARG;
-    *can_refresh=LIS_FALSE;
-    if(cache==NULL || !cache->valid || cache->source!=source ||
-       cache->csr==NULL)
-        return LIS_SUCCESS;
-
-    err=lis_matrix_materialize_source_stamp(
-        source,&structure_stamp,&value_stamp,0);
-    if(err) return err;
-    if(cache->structure_stamp!=structure_stamp)
-        return LIS_SUCCESS;
-    if(cache->value_stamp==value_stamp)
-    {
-        *can_refresh=LIS_TRUE;
-        return LIS_SUCCESS;
-    }
-    err=lis_matrix_materialize_pattern_matches(
-        source,cache->csr,&matches);
-    if(err) return err;
-    *can_refresh=matches;
-    return LIS_SUCCESS;
-}
-
-/*
- * Build a fresh owned CSR directly.  Unlike the cache path, the returned
- * matrix is independent of source/cache lifetimes and requires no clone.
- */
 LIS_INT
 lis_matrix_materialize_csr_owned(
     LIS_MATRIX source,
@@ -1025,7 +982,8 @@ lis_matrix_auto_session_solve(
         must_reset=
             session->source!=source ||
             session->selected_policy!=desired_policy ||
-            session->structure_stamp!=structure_stamp;
+            session->structure_stamp!=structure_stamp ||
+            session->value_stamp!=value_stamp;
 
         if(!must_reset &&
            session->selected_policy==LIS_MATRIX_POLICY_CACHED_CSR)
@@ -1034,21 +992,6 @@ lis_matrix_auto_session_solve(
                 !session->cache->valid ||
                 session->cache->source!=source ||
                 session->selected_csr_epoch!=session->cache->epoch;
-
-            /*
-             * A value-only update preserves CSR storage, allowing the
-             * sequence solver's PSD refresh policy to run.  A changed
-             * pattern (even without a generation mark) requires reset
-             * before the old cached matrix can be freed.
-             */
-            if(!must_reset && session->value_stamp!=value_stamp)
-            {
-                LIS_INT can_refresh=LIS_FALSE;
-                err=lis_matrix_csr_cache_can_refresh_values(
-                    source,session->cache,&can_refresh);
-                if(err) goto fail; /* conservatively invalidate after callback error */
-                must_reset=!can_refresh;
-            }
         }
     }
 
@@ -1077,7 +1020,7 @@ lis_matrix_auto_session_solve(
        chosen_policy==LIS_MATRIX_POLICY_CACHED_CSR &&
        (session->cache==NULL ||
         session->cache->epoch!=session->selected_csr_epoch ||
-        chosen_action==LIS_MATRIX_MATERIALIZE_REBUILD))
+        chosen_action!=LIS_MATRIX_MATERIALIZE_REUSE))
     {
         err=lis_solver_reset_sequence(session->solver);
         if(err) goto fail;
