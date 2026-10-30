@@ -609,6 +609,21 @@ lis_matrix_csr_cache_can_refresh_values(
     return LIS_SUCCESS;
 }
 
+/*
+ * Build a fresh owned CSR directly.  Unlike the cache path, the returned
+ * matrix is independent of source/cache lifetimes and requires no clone.
+ */
+LIS_INT
+lis_matrix_materialize_csr_owned(
+    LIS_MATRIX source,
+    LIS_MATRIX *csr)
+{
+    if(source==NULL || csr==NULL)
+        return LIS_ERR_ILL_ARG;
+    *csr=NULL;
+    return lis_matrix_materialize_build_csr(source,csr);
+}
+
 LIS_INT
 lis_matrix_materialize_csr_cached(
     LIS_MATRIX source,
