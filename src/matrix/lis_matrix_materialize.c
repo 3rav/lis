@@ -968,7 +968,12 @@ lis_matrix_auto_session_solve(
     err=lis_matrix_prepare_solver_matrix(
         source,session->solver,&session->cache,&selected,
         &chosen_policy,&chosen_action);
-    if(err) return err;
+    if(err)
+    {
+        /* A failure may follow partial value refresh: force a fresh CSR. */
+        if(session->cache) session->cache->valid=LIS_FALSE;
+        return err;
+    }
 
     /*
      * DIRECT <-> CSR selection or source identity changed. Retain
