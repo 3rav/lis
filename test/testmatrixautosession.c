@@ -4,6 +4,9 @@
 #include "lis_solver_options.h"
 #include <math.h>
 #include <stdio.h>
+#ifdef _COMPLEX
+#include <complex.h>
+#endif
 
 typedef struct {
     LIS_REAL scale;
