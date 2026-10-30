@@ -225,7 +225,7 @@ lis_matrix_materialize_parallel_rows(
     {
         LIS_PRECON_ROW_SOURCE row;
         LIS_INT i,local_error,ready;
-        local_error=lis_precon_row_source_init(A,&row);
+        local_error=lis_precon_row_source_init_mode(A,&row,LIS_TRUE);
         ready=(local_error==LIS_SUCCESS);
 
         #pragma omp for schedule(static)
