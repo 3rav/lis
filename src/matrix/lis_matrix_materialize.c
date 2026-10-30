@@ -1046,7 +1046,7 @@ lis_matrix_auto_session_solve(
                 LIS_INT can_refresh=LIS_FALSE;
                 err=lis_matrix_csr_cache_can_refresh_values(
                     source,session->cache,&can_refresh);
-                if(err) return err; /* no cache mutation yet */
+                if(err) goto fail; /* conservatively invalidate after callback error */
                 must_reset=!can_refresh;
             }
         }
