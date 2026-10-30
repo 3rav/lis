@@ -1,0 +1,30 @@
+name: MPI single-rank debug of materialization regression
+on:
+  push:
+    branches: [validation/parallel-csr-mpi-debug]
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran openmpi-bin libopenmpi-dev gdb
+      - name: Debug build
+        run: |
+          autoreconf -fiv
+          mkdir build
+          cd build
+          CFLAGS="-O0 -g" ../configure --enable-mpi CC=mpicc FC=mpifort
+          make -j2
+          make -C test testmatrixmaterializeomp
+      - name: Direct MPI-linked binary stack
+        continue-on-error: true
+        run: |
+          cd build
+          gdb -batch -ex run -ex 'bt 16' --args ./test/testmatrixmaterializeomp
+      - name: Proper mpirun single-rank test
+        run: |
+          cd build
+          mpirun -np 1 ./test/testmatrixmaterializeomp
