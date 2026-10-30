@@ -45,6 +45,8 @@ jobs:
           ./test/testmatrixmaterialize
           ./test/testcapabilities
           ./test/testvectorreal64
+          make -C test check-TESTS 'TESTS=testmatrixautosession$(EXEEXT) testvectorreal64$(EXEEXT)'
+          make -C test check-TESTS 'TESTS=testmatrixautosession$(EXEEXT) testvectorreal64$(EXEEXT)'
 
   sanitizers:
     name: ASan / UBSan
@@ -107,3 +109,4 @@ jobs:
           ./test/testmatrixmaterialize.exe
           ./test/testcapabilities.exe
           ./test/testvectorreal64.exe
+          make -C test check-TESTS 'TESTS=testmatrixautosession$(EXEEXT) testvectorreal64$(EXEEXT)'
