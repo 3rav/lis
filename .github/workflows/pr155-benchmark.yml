@@ -1,0 +1,30 @@
+name: PR155 benchmark (separate validation branch)
+on:
+  push:
+    branches: [validation/pr155-benchmarks]
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Build
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          CFLAGS="-O2 -g" ../configure --enable-omp
+          make -j2
+          make -C test benchmatrixmaterializeomp testmatrixmaterializeomp testmatrixmaterialize
+      - name: Benchmark
+        env:
+          OMP_DYNAMIC: "FALSE"
+        run: |
+          cd build
+          ./test/testmatrixmaterializeomp
+          ./test/testmatrixmaterialize
+          echo '===== BEGIN MICROBENCH CSV ====='
+          ./test/benchmatrixmaterializeomp
+          echo '===== END MICROBENCH CSV ====='
