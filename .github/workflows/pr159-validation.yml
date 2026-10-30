@@ -46,7 +46,6 @@ jobs:
           ./test/testcapabilities
           ./test/testvectorreal64
           make -C test check-TESTS 'TESTS=testmatrixautosession$(EXEEXT) testvectorreal64$(EXEEXT)'
-          make -C test check-TESTS 'TESTS=testmatrixautosession$(EXEEXT) testvectorreal64$(EXEEXT)'
 
   sanitizers:
     name: ASan / UBSan
@@ -72,6 +71,7 @@ jobs:
           ./test/testmatrixmaterialize
           ./test/testcapabilities
           ./test/testvectorreal64
+          make -C test check-TESTS 'TESTS=testmatrixautosession$(EXEEXT) testvectorreal64$(EXEEXT)'
 
   msys2-ucrt64:
     name: Windows UCRT64 ${{ matrix.name }}
