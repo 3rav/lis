@@ -1,6 +1,6 @@
-# PR #159: C API contracts and validation
+# Generic C API interoperability: contracts and validation
 
-This draft adds three optional C interfaces. Public headers are already installed
+These APIs provide three optional C interfaces. Public headers are already installed
 by `include/Makefile.am`.
 
 ## Nullspace preflight
@@ -50,7 +50,8 @@ preconditioner-lifetime-safe design, with benchmarks.
 
 Run `autoreconf -fiv`, configure and build LIS, and then run `make check`.
 `testmatrixautosession` and `testvectorreal64` are in the actual
-Automake `TESTS` list. The CI workflow also executes the four targeted
-regressions directly and verifies the test harness. Target configurations:
+Automake `TESTS` list. For targeted regression coverage, run `testmatrixautosession`,
+`testmatrixmaterialize`, `testcapabilities`, and `testvectorreal64`
+directly after building. Recommended validation configurations include
 Linux real/complex i4/i8, OpenMP, long-double, sanitizer, and MSYS2 UCRT64
-i4/i8. Check the GitHub Actions run before claiming the tests passed.
+i4/i8. CI configuration and run status are maintained outside this source PR.
