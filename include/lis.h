@@ -1227,6 +1227,11 @@ extern "C"
  * Strided application real64 transfers for default-precision local vectors.
  * Import/export validate input before modifying the destination. REJECT_LOSS
  * refuses nonreal complex values or nonrepresentable outputs.
+ * NULL src/dst is permitted for zero-length vectors and valid stride/policy.
+ * Nonfinite input, including ignored imaginary parts under ALLOW_LOSS,
+ * is rejected rather than exporting potentially divergent solver values.
+ * The transfer remains serial to preserve validate-before-write behavior.
+ * This PR provides C-only APIs; Fortran wrappers are not included.
  */
 #define LIS_VECTOR_REAL64_REJECT_LOSS 0
 #define LIS_VECTOR_REAL64_ALLOW_LOSS  1

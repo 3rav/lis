@@ -1,5 +1,6 @@
 #include "lis.h"
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
 #if defined(_COMPLEX) && defined(HAVE_COMPLEX_H)
 #include <complex.h>
@@ -34,6 +35,16 @@ int main(int argc,char **argv)
         v,invalid,3,1,LIS_VECTOR_REAL64_REJECT_LOSS);
     if(err || invalid[0]!=1 || invalid[1]!=-2 || invalid[2]!=3.5)
         goto done;
+    /* Zero-length transfers may use NULL buffers. */
+    {
+        struct LIS_VECTOR_STRUCT empty;
+        memset(&empty,0,sizeof(empty));
+        empty.precision=LIS_PRECISION_DEFAULT;
+        if(lis_vector_import_real64(&empty,NULL,0,1)!=LIS_SUCCESS ||
+           lis_vector_export_real64(&empty,NULL,0,1,
+               LIS_VECTOR_REAL64_REJECT_LOSS)!=LIS_SUCCESS)
+            goto done;
+    }
     if(lis_vector_import_real64(v,src,2,1)==LIS_SUCCESS)
         goto done;
     if(lis_vector_export_real64(
