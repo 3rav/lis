@@ -25,6 +25,8 @@ lis_vector_real64_validate(LIS_VECTOR v,LIS_INT length,LIS_INT stride)
     return LIS_SUCCESS;
 }
 
+#undef __FUNC__
+#define __FUNC__ "lis_vector_import_real64"
 LIS_INT
 lis_vector_import_real64(
     LIS_VECTOR v,const double *src,LIS_INT length,LIS_INT stride)
@@ -66,6 +68,8 @@ lis_vector_import_real64(
     return LIS_SUCCESS;
 }
 
+#undef __FUNC__
+#define __FUNC__ "lis_vector_export_real64"
 LIS_INT
 lis_vector_export_real64(
     LIS_VECTOR v,double *dst,LIS_INT length,LIS_INT stride,
