@@ -2787,9 +2787,18 @@ LIS_INT lis_solver_sequence_prepare_precon(
                solver->sequence_precon_refresh_policy==
                    LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN &&
                precon_type==LIS_PRECON_TYPE_ILUT;
+           jacobi_update =
+               solver->sequence_precon_refresh_policy==
+                   LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN &&
+               precon_type==LIS_PRECON_TYPE_JACOBI;
            if( frozen_update )
            {
                    err = lis_precon_update_ilut_frozen(
+                           solver,solver->sequence_precon);
+           }
+           else if( jacobi_update )
+           {
+                   err = lis_precon_update_jacobi(
                            solver,solver->sequence_precon);
            }
            else
@@ -2827,7 +2836,7 @@ LIS_INT lis_solver_sequence_prepare_precon(
             * a failed frozen numerical refresh leaves the old object alive.
             * Release that object exactly once before recreating factors.
             */
-           if( frozen_update )
+           if( frozen_update || jacobi_update )
            {
                    LIS_INT destroy_err =
                        lis_solver_sequence_precon_destroy(solver);
