@@ -1,0 +1,47 @@
+name: Validate complex double-double rejection
+on:
+  push:
+    branches: [validation/unsupported-complex-quad-ci-20261031]
+  workflow_dispatch:
+jobs:
+  asan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { mode: real, opts: "" }
+          - { mode: complex, opts: "--enable-complex" }
+          - { mode: quad-real, opts: "--enable-quad" }
+          - { mode: quad-complex, opts: "--enable-quad --enable-complex" }
+    env:
+      ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1:abort_on_error=1"
+      UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Configure and build
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined" ../configure ${{ matrix.opts }}
+          make -j2
+      - name: Full ASan UBSan regression
+        run: |
+          cd build
+          set -o pipefail
+          timeout 25m make -j2 check 2>&1 | tee full-suite.log
+      - name: Preserve logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: complex-quad-rejection-${{ matrix.mode }}
+          path: |
+            build/full-suite.log
+            build/**/test-suite.log
+          if-no-files-found: ignore
