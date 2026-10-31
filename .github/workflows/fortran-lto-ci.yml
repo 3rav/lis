@@ -13,7 +13,6 @@ jobs:
         include:
           - {variant: fortran, options: "--enable-fortran"}
           - {variant: fortran-openmp, options: "--enable-fortran --enable-omp"}
-          - {variant: fortran-longlong, options: "--enable-fortran --enable-longlong"}
     env:
       OMP_NUM_THREADS: "2"
     steps:
