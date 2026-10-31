@@ -82,7 +82,7 @@ int main(int argc,char **argv)
     err=lis_initialize(&argc,&argv);
     if(err) return 1;
     if(test_vector_set_values_indices()) {
-        fprintf(stderr,"VECTOR_SET_VALUES_INDICES=FAIL\\n");
+        fprintf(stderr,"VECTOR_SET_VALUES_INDICES=FAIL\n");
         lis_finalize();
         return 1;
     }
