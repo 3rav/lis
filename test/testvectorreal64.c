@@ -183,7 +183,57 @@ int main(int argc,char **argv)
     err=lis_vector_export_real64(
         v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS);
     if(err || invalid[1]!=-2)goto done;
+
+    /* A tolerance over the WHOLE vector rejects significant imaginary
+       amplitudes, even when ALLOW_LOSS would otherwise discard them. */
+    invalid[0]=7;invalid[1]=8;invalid[2]=9;
+    err=lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)0.25,(LIS_REAL)0.0);
+    if(err==LIS_SUCCESS || invalid[0]!=7 || invalid[1]!=8 ||
+       invalid[2]!=9)goto done;
+    err=lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)0.30,(LIS_REAL)0.0);
+    if(err || invalid[0]!=1 || invalid[1]!=-2 ||
+       invalid[2]!=3.5)goto done;
+
+    /* Absolute floor is useful for near-zero real eigenvectors. */
+    err=lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)0.0,(LIS_REAL)1.0);
+    if(err)goto done;
+
+    invalid[0]=7;invalid[1]=8;invalid[2]=9;
+    err=lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_REJECT_LOSS,
+        (LIS_REAL)1.0,(LIS_REAL)1.0);
+    if(err==LIS_SUCCESS || invalid[0]!=7 || invalid[1]!=8 ||
+       invalid[2]!=9)goto done;
 #endif
+    /* Tolerance parameters and invalid layouts are checked atomically. */
+    invalid[0]=7;invalid[1]=8;invalid[2]=9;
+    if(lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)-1,(LIS_REAL)0)==LIS_SUCCESS ||
+       invalid[0]!=7 || invalid[1]!=8 || invalid[2]!=9)goto done;
+    if(lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)0,(LIS_REAL)NAN)==LIS_SUCCESS ||
+       invalid[0]!=7 || invalid[1]!=8 || invalid[2]!=9)goto done;
+    if(lis_vector_export_real64_tolerant(
+        v,invalid,3,0,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)0,(LIS_REAL)0)==LIS_SUCCESS ||
+       invalid[0]!=7 || invalid[1]!=8 || invalid[2]!=9)goto done;
+    {
+        struct LIS_VECTOR_STRUCT empty;
+        memset(&empty,0,sizeof(empty));
+        empty.precision=LIS_PRECISION_DEFAULT;
+        if(lis_vector_export_real64_tolerant(
+            &empty,NULL,0,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+            (LIS_REAL)0,(LIS_REAL)0)!=LIS_SUCCESS)
+            goto done;
+    }
     fail=0;
 done:
     if(v)lis_vector_destroy(v);
