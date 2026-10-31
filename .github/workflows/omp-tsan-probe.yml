@@ -1,0 +1,34 @@
+name: OpenMP USER row ThreadSanitizer probe
+on:
+  push:
+    branches: [validation/omp-tsan-memory-fix-20261031]
+  workflow_dispatch:
+jobs:
+  tsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: "4"
+      OMP_DYNAMIC: "FALSE"
+      TSAN_OPTIONS: "halt_on_error=1:exitcode=66:report_signal_unsafe=0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Compile TSan OpenMP
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          CFLAGS="-O1 -g -fsanitize=thread -fno-omit-frame-pointer" LDFLAGS="-fsanitize=thread" ../configure --enable-omp
+          make -j2
+      - name: ThreadSanitizer USER operator stress
+        run: |
+          cd build
+          for t in 2 4 8; do
+            export OMP_NUM_THREADS=$t
+            echo "TSan OMP_NUM_THREADS=$t"
+            timeout 120s ./test/testoperatorrowprecon
+            timeout 120s ./test/testmatrixmaterializeomp
+          done
