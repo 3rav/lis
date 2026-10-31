@@ -1,0 +1,37 @@
+name: Reproduce quad work leak using solver callback regression
+on:
+  push:
+    branches: [validation/quad-unset-solver-baseline-20261031]
+  workflow_dispatch:
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Build quad without fix
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          ../configure --enable-quad
+          make -j2
+      - name: Reproduce leaked work buffer
+        run: |
+          cd build
+          if ./test/testsolvercallbackpaths > baseline.log 2>&1; then
+            cat baseline.log
+            echo "Unexpected original-code pass"
+            exit 1
+          fi
+          cat baseline.log
+          grep -q "QUAD_VECTOR_UNSET_REUSE=FAIL" baseline.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quad-work-leak-baseline
+          path: build/baseline.log
+          if-no-files-found: ignore
