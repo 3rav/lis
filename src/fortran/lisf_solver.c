@@ -116,7 +116,7 @@ void lis_solve_f(LIS_MATRIX_F *A, LIS_VECTOR_F b, LIS_VECTOR_F x, LIS_SOLVER_F *
 
 #undef __FUNC__
 #define __FUNC__ "lis_solver_set_option_f"
-void lis_solver_set_option_f(char *text, LIS_SOLVER_F *solver, LIS_INT *ierr, LIS_INT len)
+void lis_solver_set_option_f(char *text, LIS_SOLVER_F *solver, LIS_INT *ierr, LIS_FORTRAN_CHARLEN len)
 {
 	char buf[1024];
 	LIS_DEBUG_FUNC_IN;
@@ -236,7 +236,7 @@ void lis_solver_get_rhistory_f(LIS_SOLVER_F *solver, LIS_VECTOR_F v, LIS_INT *ie
 
 #undef __FUNC__
 #define __FUNC__ "lis_solver_get_solvername_f"
-void lis_solver_get_solvername_f(LIS_INT *solver, char *name, LIS_INT *ierr, LIS_INT len)
+void lis_solver_get_solvername_f(LIS_INT *solver, char *name, LIS_INT *ierr, LIS_FORTRAN_CHARLEN len)
 {
 	char buf[1024];
 	LIS_DEBUG_FUNC_IN;
@@ -290,7 +290,7 @@ void lis_solver_get_precon_f(LIS_SOLVER_F *solver, LIS_INT *nsol, LIS_INT *ierr)
 
 #undef __FUNC__
 #define __FUNC__ "lis_solver_get_preconname_f"
-void lis_solver_get_preconname_f(LIS_INT *solver, char *name, LIS_INT *ierr, LIS_INT len)
+void lis_solver_get_preconname_f(LIS_INT *solver, char *name, LIS_INT *ierr, LIS_FORTRAN_CHARLEN len)
 {
 	char buf[1024];
 	LIS_DEBUG_FUNC_IN;
