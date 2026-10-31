@@ -1,0 +1,37 @@
+name: Reproduce vector ADD uninitialized buffer on pristine develop
+on:
+  push:
+    branches: [validation/vector-add-before-fix-baseline-20261031]
+  workflow_dispatch:
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Build original vector code with new test only
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          ../configure
+          make -j2
+      - name: Reproduce incorrect ADD result
+        run: |
+          cd build
+          if MALLOC_PERTURB_=165 ./test/testvectorreal64 > baseline.log 2>&1; then
+            cat baseline.log
+            echo "Unexpected pass of original vector setter"
+            exit 1
+          fi
+          cat baseline.log
+          grep -q 'VECTOR_ADD_AFTER_UNSET=FAIL' baseline.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pre-fix-vector-add-baseline
+          path: build/baseline.log
+          if-no-files-found: ignore
