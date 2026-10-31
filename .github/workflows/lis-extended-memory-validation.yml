@@ -1,0 +1,167 @@
+name: LIS extended MPI quad and OpenMP stress
+on:
+  push:
+    branches: [fix/lis-sanitizer-leaks-20261031]
+  workflow_dispatch:
+jobs:
+  mpi:
+    name: MPI ASan UBSan ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { mode: real, opts: "" }
+          - { mode: complex, opts: "--enable-complex" }
+    env:
+      # OpenMPI 4.x allocations retained after MPI_Finalize trigger external LSAN reports.
+      # Keep ASan/UBSan on for MPI; non-MPI jobs separately enforce detect_leaks=1.
+      ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1:abort_on_error=1"
+      UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran libopenmpi-dev openmpi-bin
+      - name: Configure and compile MPI
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
+          LDFLAGS="-fsanitize=address,undefined" \
+          MPICC=mpicc MPIRUN=mpirun MPINP=-np \
+            ../configure --enable-mpi ${{ matrix.opts }}
+          grep -q -- '-DUSE_MPI' Makefile
+          make -j2
+      - name: Exercise distributed kernels with 2 and 4 ranks
+        run: |
+          cd build
+          set -euo pipefail
+          for np in 2 4; do
+            for binary in testvectornrm2mpi testmatrixoperatormpi; do
+              echo "MPI ranks=$np executable=$binary"
+              timeout 90s mpirun --oversubscribe -np "$np" "./test/$binary"
+            done
+          done
+      - name: Run whole MPI build regression
+        run: |
+          cd build
+          set -o pipefail
+          timeout 25m make -j2 check 2>&1 | tee mpi-asan-check.log
+      - name: Preserve MPI logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extended-mpi-${{ matrix.mode }}
+          path: |
+            build/mpi-asan-check.log
+            build/**/test-suite.log
+          if-no-files-found: ignore
+
+  quad:
+    name: Quad ASan UBSan ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { mode: real, opts: "" }
+          - { mode: complex, opts: "--enable-complex" }
+    env:
+      ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1:abort_on_error=1"
+      UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Configure and compile double-double precision
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
+          LDFLAGS="-fsanitize=address,undefined" \
+            ../configure --enable-quad ${{ matrix.opts }}
+          grep -Eq '^#define USE_QUAD_PRECISION 1' include/lis_config.h
+          make -j2
+      - name: Full quad-enabled regression (includes quad solver in test.sh)
+        run: |
+          cd build
+          set -o pipefail
+          timeout 25m make -j2 check 2>&1 | tee quad-asan-check.log
+      - name: Preserve quad logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extended-quad-${{ matrix.mode }}
+          path: |
+            build/quad-asan-check.log
+            build/**/test-suite.log
+          if-no-files-found: ignore
+
+  omp-stress:
+    name: OpenMP repeated ASan UBSan ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { mode: real, opts: "" }
+          - { mode: complex, opts: "--enable-complex" }
+    env:
+      ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1:abort_on_error=1"
+      UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+      OMP_DYNAMIC: "FALSE"
+      OMP_PROC_BIND: "FALSE"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Configure and compile OpenMP
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
+          LDFLAGS="-fsanitize=address,undefined" \
+            ../configure --enable-omp ${{ matrix.opts }}
+          grep -q -- '-fopenmp' Makefile
+          make -j2
+      - name: Repeated 2/4/8-thread user-row and CSR materialization
+        run: |
+          cd build
+          set -euo pipefail
+          for threads in 2 4 8; do
+            export OMP_NUM_THREADS="$threads"
+            echo "===== OMP_NUM_THREADS=$threads ====="
+            for iteration in $(seq 1 50); do
+              for test in testoperatorrowprecon testmatrixmaterializeomp; do
+                if ! timeout 50s "./test/$test" > stress-last.log 2>&1; then
+                  echo "FAIL: threads=$threads iteration=$iteration executable=$test"
+                  cat stress-last.log
+                  exit 1
+                fi
+              done
+              if (( iteration % 10 == 0 )); then
+                echo "PASS: threads=$threads iteration=$iteration/50 (both executables)"
+              fi
+            done
+          done
+          echo "PASS: 300 individual executions (3 thread counts x 50 rounds x 2 tests)"
+      - name: Preserve OpenMP stress logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extended-omp-stress-${{ matrix.mode }}
+          path: |
+            build/stress-last.log
+          if-no-files-found: ignore

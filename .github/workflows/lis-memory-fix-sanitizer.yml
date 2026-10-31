@@ -1,0 +1,54 @@
+name: LIS sanitizer memory fixes
+on:
+  push:
+    branches:
+      - fix/lis-sanitizer-leaks-20261031
+  workflow_dispatch:
+
+jobs:
+  asan:
+    name: ASan UBSan ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: real-i4
+            opts: ""
+          - name: complex-i4
+            opts: "--enable-complex"
+          - name: real-i4-omp
+            opts: "--enable-omp"
+          - name: complex-i4-omp
+            opts: "--enable-complex --enable-omp"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Configure and build
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined" ../configure ${{ matrix.opts }}
+          make -j2
+      - name: Run full regression with sanitizers
+        env:
+          ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1:abort_on_error=1"
+          UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+          OMP_NUM_THREADS: "2"
+        run: |
+          cd build
+          set -o pipefail
+          timeout 25m make -j2 check 2>&1 | tee full-asan-check.log
+      - name: Keep full logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitizer-${{ matrix.name }}
+          path: |
+            build/full-asan-check.log
+            build/**/test-suite.log
+          if-no-files-found: ignore
