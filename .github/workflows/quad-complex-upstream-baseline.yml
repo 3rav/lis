@@ -1,0 +1,38 @@
+name: Quad complex upstream baseline verification
+on:
+  push:
+    branches: [validation/quad-complex-upstream-baseline-20261031]
+  workflow_dispatch:
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1:abort_on_error=1"
+      UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Configure and build
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined" ../configure --enable-quad --enable-complex
+          grep -Eq '^#define USE_QUAD_PRECISION 1' include/lis_config.h
+          make -j2
+      - name: Compare GMRES_SW behavior on unmodified upstream
+        run: |
+          cd build
+          set -o pipefail
+          timeout 3m ./test/testsolvercallbackpaths 2>&1 | tee quad-complex-baseline.log
+      - name: Preserve baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quad-complex-upstream-baseline
+          path: build/quad-complex-baseline.log
+          if-no-files-found: ignore
