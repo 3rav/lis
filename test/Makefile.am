@@ -30,7 +30,9 @@ test_PROGRAMS = testesubspaceretry etest1 etest2 etest3 etest4 etest5 etest5b et
 	testblockorthogonal testblockrank
 
 # Keep optional session tests separate from the long test_PROGRAMS list.
-test_PROGRAMS += testmatrixautosession testvectorreal64
+test_PROGRAMS += testmatrixautosession testvectorreal64 testabi
+
+testabi_SOURCES = testabi.c
 
 testgcrodroptions_SOURCES = testgcrodroptions.c
 testfeastfoundation_SOURCES = testfeastfoundation.c
