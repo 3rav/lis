@@ -754,7 +754,7 @@ LIS_INT lis_vector_set_values2(LIS_INT flag, LIS_INT start, LIS_INT count, LIS_S
 
 	if( v==NULL )
 	{
-		LIS_SETERR(LIS_ERR_ILL_ARG,"vector is NULL\\n");
+		LIS_SETERR(LIS_ERR_ILL_ARG,"vector is NULL\n");
 		return LIS_ERR_ILL_ARG;
 	}
 	np = v->np;
@@ -767,7 +767,7 @@ LIS_INT lis_vector_set_values2(LIS_INT flag, LIS_INT start, LIS_INT count, LIS_S
 	    (count>0 && value==NULL) )
 	{
 		LIS_SETERR3(LIS_ERR_ILL_ARG,
-		            "start(=%D), count(=%D) outside local vector range ending at %D\\n",
+		            "start(=%D), count(=%D) outside local vector range ending at %D\n",
 		            start,count,ie);
 		return LIS_ERR_ILL_ARG;
 	}
