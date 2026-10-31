@@ -116,7 +116,7 @@ void lis_gesolve_f(LIS_MATRIX_F *A, LIS_MATRIX_F *B, LIS_VECTOR_F x, LIS_SCALAR 
 
 #undef __FUNC__
 #define __FUNC__ "lis_esolver_set_option_f"
-void lis_esolver_set_option_f(char *text, LIS_ESOLVER_F *esolver, LIS_INT *ierr, LIS_INT len)
+void lis_esolver_set_option_f(char *text, LIS_ESOLVER_F *esolver, LIS_INT *ierr, LIS_FORTRAN_CHARLEN len)
 {
 	char	buf[1024];
 	LIS_DEBUG_FUNC_IN;
@@ -340,7 +340,7 @@ void lis_esolver_get_esolver_f(LIS_ESOLVER_F *esolver, LIS_INT *nsol, LIS_INT *i
 
 #undef __FUNC__
 #define __FUNC__ "lis_esolver_get_esolvername_f"
-void lis_esolver_get_esolvername_f(LIS_INT *esolver, char *name, LIS_INT *ierr, LIS_INT len)
+void lis_esolver_get_esolvername_f(LIS_INT *esolver, char *name, LIS_INT *ierr, LIS_FORTRAN_CHARLEN len)
 {
 	char	buf[1024];
 	LIS_DEBUG_FUNC_IN;
