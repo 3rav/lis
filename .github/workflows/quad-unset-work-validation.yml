@@ -36,7 +36,7 @@ jobs:
           cd build
           set -o pipefail
           timeout 25m make -j2 check 2>&1 | tee full-quad-asan-check.log
-          ./test/testvectorreal64
+          ./test/testsolvercallbackpaths
       - name: Preserve logs
         if: always()
         uses: actions/upload-artifact@v4

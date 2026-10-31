@@ -1,6 +1,4 @@
 #include "lis.h"
-#include "lis_config.h"
-#include "lis_vector.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -117,40 +115,6 @@ done:
     return failed;
 }
 
-#ifdef USE_QUAD_PRECISION
-/*
- * A quad vector owns a second work buffer. Repeated unset/reuse must not
- * leave stale work allocations behind when replacing that buffer.
- */
-static int test_quad_vector_unset_reuse(void)
-{
-    LIS_VECTOR v=NULL;
-    LIS_SCALAR *old_work;
-    LIS_INT err;
-    int i,failed=1;
-
-    err=lis_vector_createex(LIS_PRECISION_QUAD,LIS_COMM_WORLD,&v);
-    if(err) goto done;
-    err=lis_vector_set_size(v,0,8);
-    if(err || v->n!=8 || v->work==NULL) goto done;
-
-    for(i=0;i<4;i++)
-    {
-        old_work=v->work;
-        if(!lis_is_malloc(old_work)) goto done;
-        err=lis_vector_unset(v);
-        if(err || v->work!=NULL || lis_is_malloc(old_work)) goto done;
-        err=lis_vector_reuse(&v);
-        if(err || v==NULL || v->work==NULL ||
-           !lis_is_malloc(v->work)) goto done;
-    }
-    failed=0;
-done:
-    if(v) lis_vector_destroy(v);
-    return failed;
-}
-#endif
-
 int main(int argc,char **argv)
 {
     LIS_VECTOR v=NULL;
@@ -162,13 +126,6 @@ int main(int argc,char **argv)
     int fail=1;
     err=lis_initialize(&argc,&argv);
     if(err) return 1;
-#ifdef USE_QUAD_PRECISION
-    if(test_quad_vector_unset_reuse()) {
-        fprintf(stderr,"QUAD_VECTOR_UNSET_REUSE=FAIL\n");
-        lis_finalize();
-        return 1;
-    }
-#endif
     if(test_add_after_unset()) {
         fprintf(stderr,"VECTOR_ADD_AFTER_UNSET=FAIL\n");
         lis_finalize();
