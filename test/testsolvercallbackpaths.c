@@ -524,6 +524,23 @@ main(
             "-tol 1e-8 "
             "-print none");
 
+    failed |=
+        run_case(
+            "SW0",
+            "-i gmres -p jacobi -f switch -restart 8 -switch_maxiter 0 -switch_tol 9e-1 -maxiter 2000 -tol 1e-8 -print none");
+    failed |=
+        run_case(
+            "SW4",
+            "-i gmres -p jacobi -f switch -restart 8 -switch_maxiter 4 -switch_tol 1e-8 -maxiter 2000 -tol 1e-8 -print none");
+    failed |=
+        run_case(
+            "SWD",
+            "-i gmres -p jacobi -f switch -restart 8 -switch_maxiter 2000 -switch_tol 1e-8 -maxiter 2000 -tol 1e-8 -print none");
+    failed |=
+        run_case(
+            "QUAD",
+            "-i gmres -p jacobi -f quad -restart 8 -maxiter 2000 -tol 1e-8 -print none");
+
 #endif
 
 #ifndef _COMPLEX
