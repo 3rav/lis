@@ -1,0 +1,40 @@
+name: Check Intel linker flag and Fortran GNU build
+on:
+  push:
+    branches: [validation/ifx-nofor-main-20261031]
+  workflow_dispatch:
+jobs:
+  fortran-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {mode: fortran, flags: "--enable-fortran"}
+          - {mode: fortran-openmp, flags: "--enable-f90 --enable-fortran --enable-omp"}
+    env:
+      OMP_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Check generated configure and Autoconf fix
+        run: |
+          set -e
+          bash -n configure
+          grep -Fq 'FCLDFLAGS="-nofor-main"' configure.ac
+          grep -Fq 'FCLDFLAGS="-nofor-main"' configure
+          if grep -Fq 'FCLDFLAGS="-nofor_main"' configure.ac; then exit 1; fi
+          grep -Fq 'Defend against' configure
+          grep -Fq 'loopopt=0' configure
+          sed -n '7278,7292p' configure
+      - name: GNU Fortran configure build and test
+        run: |
+          mkdir build
+          cd build
+          ../configure ${{ matrix.flags }}
+          make -j2
+          timeout 20m make -j2 check
