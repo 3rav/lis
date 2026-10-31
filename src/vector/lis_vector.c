@@ -662,6 +662,8 @@ LIS_INT lis_vector_set_value(LIS_INT flag, LIS_INT i, LIS_SCALAR value, LIS_VECT
 			LIS_SETERR_MEM(np*sizeof(LIS_SCALAR));
 			return LIS_OUT_OF_MEMORY;
 		}
+		/* ADD must not use uninitialized storage after vector_unset(). */
+		memset(v->value,0,np*sizeof(LIS_SCALAR));
 		v->is_copy = LIS_TRUE;
 		v->status  = LIS_VECTOR_ASSEMBLING;
 	}
