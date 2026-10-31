@@ -948,6 +948,67 @@ lis_matrix_auto_session_get_solver(
     return LIS_SUCCESS;
 }
 
+/*
+ * The only opt-in value-refresh fast path currently supported for cached
+ * CSR is Jacobi. Its diagonal vector is independently owned and can be
+ * recomputed by lis_precon_update_jacobi().  Other preconditioners may
+ * retain borrowed CSR/DLU pointers, so they must be reset before refresh.
+ *
+ * Verify the *actual* CSR row pattern before retaining any preconditioner:
+ * stale or incorrectly published source generations must not allow a
+ * rebuild to free cache storage while a preconditioner still exists.
+ */
+static LIS_INT
+lis_matrix_auto_session_can_refresh_jacobi(
+    LIS_MATRIX_AUTO_SESSION session,
+    LIS_MATRIX source,
+    uint64_t structure_stamp,
+    uint64_t value_stamp)
+{
+    LIS_SOLVER solver=session->solver;
+    LIS_MATRIX csr;
+    LIS_UNSIGNED_INT sg,vg;
+    LIS_INT nsolver;
+
+    if(!session->has_selection || session->cache==NULL ||
+       !session->cache->valid || session->cache->csr==NULL ||
+       session->source!=source ||
+       session->cache->source!=source ||
+       session->selected_policy!=LIS_MATRIX_POLICY_CACHED_CSR ||
+       session->structure_stamp!=structure_stamp ||
+       session->value_stamp==value_stamp ||
+       session->selected_csr_epoch!=session->cache->epoch ||
+       solver->sequence_precon_refresh_policy!=
+           LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN ||
+       solver->options[LIS_OPTIONS_PRECON]!=LIS_PRECON_TYPE_JACOBI ||
+       solver->options[LIS_OPTIONS_PRECISION]!=LIS_PRECISION_DEFAULT ||
+       solver->precon_half_mode!=LIS_PRECON_HALF_OFF ||
+       solver->nullspace_dim!=0 ||
+       solver->left_nullspace_dim!=0 ||
+       solver->near_nullspace_dim!=0 ||
+       solver->sequence_precon==NULL ||
+       solver->sequence_precon_type!=LIS_PRECON_TYPE_JACOBI ||
+       solver->sequence_precon->D==NULL)
+        return LIS_FALSE;
+
+    nsolver=solver->options[LIS_OPTIONS_SOLVER];
+    if(nsolver!=LIS_SOLVER_GMRES && nsolver!=LIS_SOLVER_FGMRES)
+        return LIS_FALSE;
+
+    csr=session->cache->csr;
+    if(csr->matrix_type!=LIS_MATRIX_CSR ||
+       csr->is_splited || csr->WD!=NULL || csr->use_wd ||
+       csr->is_scaled || solver->sequence_precon_matrix!=csr ||
+       solver->sequence_precon_matrix_type!=LIS_MATRIX_CSR ||
+       solver->sequence_precon_is_scaled)
+        return LIS_FALSE;
+
+    if(lis_matrix_get_generation(csr,&sg,&vg)!=LIS_SUCCESS)
+        return LIS_FALSE;
+    return solver->sequence_precon_structure_generation==sg &&
+           solver->sequence_precon_value_generation==vg;
+}
+
 #undef __FUNC__
 #define __FUNC__ "lis_matrix_auto_session_solve"
 LIS_INT
@@ -963,6 +1024,8 @@ lis_matrix_auto_session_solve(
     uint64_t structure_stamp,value_stamp;
     LIS_INT desired_policy,chosen_policy,chosen_action,err,reset_err;
     LIS_INT must_reset=LIS_FALSE;
+    LIS_INT keep_jacobi=LIS_FALSE;
+    LIS_INT pattern_matches=LIS_FALSE;
 
     if(session==NULL || session->solver==NULL ||
        source==NULL || b==NULL || x==NULL)
@@ -996,11 +1059,21 @@ lis_matrix_auto_session_solve(
     }
 
     /*
-     * The cache's next prepare may mutate values or free its old CSR.
-     * Reset FIRST, using the policy decision and the effective nested
-     * source stamps rather than a potentially recycled CSR address.
+     * Only a verified value-only change on an explicitly opted-in Jacobi
+     * session may keep its independently owned diagonal preconditioner.
      */
-    if(must_reset)
+    if(must_reset && desired_policy==LIS_MATRIX_POLICY_CACHED_CSR &&
+       lis_matrix_auto_session_can_refresh_jacobi(
+           session,source,structure_stamp,value_stamp))
+    {
+        err=lis_matrix_materialize_pattern_matches(
+            source,session->cache->csr,&pattern_matches);
+        if(err) goto fail;
+        keep_jacobi=pattern_matches;
+    }
+
+    /* Reset before the cache can modify or free borrowed CSR storage. */
+    if(must_reset && !keep_jacobi)
     {
         err=lis_solver_reset_sequence(session->solver);
         if(err) return err;
@@ -1020,7 +1093,9 @@ lis_matrix_auto_session_solve(
        chosen_policy==LIS_MATRIX_POLICY_CACHED_CSR &&
        (session->cache==NULL ||
         session->cache->epoch!=session->selected_csr_epoch ||
-        chosen_action!=LIS_MATRIX_MATERIALIZE_REUSE))
+        (chosen_action!=LIS_MATRIX_MATERIALIZE_REUSE &&
+         !(keep_jacobi &&
+           chosen_action==LIS_MATRIX_MATERIALIZE_VALUES))))
     {
         err=lis_solver_reset_sequence(session->solver);
         if(err) goto fail;
