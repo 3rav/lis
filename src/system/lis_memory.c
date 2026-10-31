@@ -307,10 +307,6 @@ void *lis_malloc( size_t size, char *tag )
 		return NULL;
 	}
 	lis_malloc_address_hash_prepare();
-	ma->next = &malloc_address_top;
-	ma->prev = malloc_address_top.prev;
-	ma->prev->next = ma;
-	ma->next->prev = ma;
 	ma->hash_next = NULL;
 	ma->real_address = addr.ptr;
 	ma->size = size;
@@ -330,6 +326,11 @@ void *lis_malloc( size_t size, char *tag )
 		strcpy(ma->tag,tag);
 	#endif
  
+	ma->next = &malloc_address_top;
+	ma->prev = malloc_address_top.prev;
+	ma->prev->next = ma;
+	ma->next->prev = ma;
+
   lis_malloc_address_hash_insert(ma);
   malloc_address_count++;
 
@@ -362,10 +363,6 @@ void *lis_calloc( size_t size, char *tag )
 		return NULL;
 	}
 	lis_malloc_address_hash_prepare();
-	ma->next = &malloc_address_top;
-	ma->prev = malloc_address_top.prev;
-	ma->prev->next = ma;
-	ma->next->prev = ma;
 	ma->hash_next = NULL;
 	ma->real_address = addr.ptr;
 	ma->size = size;
@@ -385,6 +382,11 @@ void *lis_calloc( size_t size, char *tag )
 		}
 		strcpy(ma->tag,tag);
 	#endif
+
+	ma->next = &malloc_address_top;
+	ma->prev = malloc_address_top.prev;
+	ma->prev->next = ma;
+	ma->next->prev = ma;
 
   lis_malloc_address_hash_insert(ma);
   malloc_address_count++;
