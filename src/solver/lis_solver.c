@@ -2692,6 +2692,7 @@ LIS_INT lis_solver_sequence_prepare_precon(
 	LIS_INT err;
 	LIS_INT precon_type;
 	LIS_INT frozen_update;
+	LIS_INT jacobi_update;
 	LIS_UNSIGNED_INT structure_generation;
 	LIS_UNSIGNED_INT value_generation;
 
