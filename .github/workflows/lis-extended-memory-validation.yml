@@ -15,7 +15,9 @@ jobs:
           - { mode: real, opts: "" }
           - { mode: complex, opts: "--enable-complex" }
     env:
-      ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1:abort_on_error=1"
+      # OpenMPI 4.x allocations retained after MPI_Finalize trigger external LSAN reports.
+      # Keep ASan/UBSan on for MPI; non-MPI jobs separately enforce detect_leaks=1.
+      ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1:abort_on_error=1"
       UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
       OMPI_MCA_rmaps_base_oversubscribe: "1"
       OMP_NUM_THREADS: "1"
@@ -35,11 +37,6 @@ jobs:
             ../configure --enable-mpi ${{ matrix.opts }}
           grep -q -- '-DUSE_MPI' Makefile
           make -j2
-      - name: Run whole MPI build regression
-        run: |
-          cd build
-          set -o pipefail
-          timeout 25m make -j2 check 2>&1 | tee mpi-asan-check.log
       - name: Exercise distributed kernels with 2 and 4 ranks
         run: |
           cd build
@@ -50,6 +47,11 @@ jobs:
               timeout 90s mpirun --oversubscribe -np "$np" "./test/$binary"
             done
           done
+      - name: Run whole MPI build regression
+        run: |
+          cd build
+          set -o pipefail
+          timeout 25m make -j2 check 2>&1 | tee mpi-asan-check.log
       - name: Preserve MPI logs
         if: always()
         uses: actions/upload-artifact@v4
