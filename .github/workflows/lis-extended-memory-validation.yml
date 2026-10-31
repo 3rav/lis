@@ -87,7 +87,7 @@ jobs:
           CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
           LDFLAGS="-fsanitize=address,undefined" \
             ../configure --enable-quad ${{ matrix.opts }}
-          grep -Eq '^#define USE_QUAD_PRECISION 1' lis_config.h
+          grep -Eq '^#define USE_QUAD_PRECISION 1' include/lis_config.h
           make -j2
       - name: Full quad-enabled regression (includes quad solver in test.sh)
         run: |
