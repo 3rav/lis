@@ -6,7 +6,7 @@
 int main(void)
 {
     LIS_ABI_INFO info,old;
-    unsigned char extended[sizeof(LIS_ABI_INFO)+8];
+    union { LIS_ABI_INFO aligned; unsigned char bytes[sizeof(LIS_ABI_INFO)+8]; } extended;
     LIS_ABI_INFO short_result;
     int fail=0;
     memset(&info,0x5a,sizeof(info));
@@ -66,10 +66,10 @@ int main(void)
        short_result.endianness!=UINT32_C(0x5a5a5a5a))
         fail=1;
     /* A longer client buffer must have its unknown tail untouched. */
-    memset(extended,0x5a,sizeof(extended));
-    if(lis_abi_get_info((LIS_ABI_INFO *)extended,sizeof(extended))!=LIS_ABI_SUCCESS ||
-       extended[sizeof(LIS_ABI_INFO)]!=0x5a ||
-       extended[sizeof(extended)-1]!=0x5a)
+    memset(extended.bytes,0x5a,sizeof(extended.bytes));
+    if(lis_abi_get_info(&extended.aligned,sizeof(extended.bytes))!=LIS_ABI_SUCCESS ||
+       extended.bytes[sizeof(LIS_ABI_INFO)]!=0x5a ||
+       extended.bytes[sizeof(extended.bytes)-1]!=0x5a)
         fail=1;
     if(!lis_abi_is_compatible(&info,
         (uint32_t)sizeof(LIS_INT),(uint32_t)sizeof(LIS_SCALAR),
