@@ -1,0 +1,75 @@
+name: PR167 readiness regression and benchmark
+on:
+  push:
+    branches: [validation/pr167-single-pattern-pass-20261101]
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: real-i4-benchmark, opts: "", cflags: "-O2 -g", ldflags: "", bench: "full", mpi: false}
+          - {name: complex-i4-benchmark, opts: "--enable-complex", cflags: "-O2 -g", ldflags: "", bench: "full", mpi: false}
+          - {name: real-i8, opts: "--enable-longlong", cflags: "-O2 -g", ldflags: "", bench: "short", mpi: false}
+          - {name: complex-i8, opts: "--enable-longlong --enable-complex", cflags: "-O2 -g", ldflags: "", bench: "short", mpi: false}
+          - {name: real-longdouble, opts: "--enable-longdouble", cflags: "-O2 -g", ldflags: "", bench: "short", mpi: false}
+          - {name: real-openmp, opts: "--enable-omp", cflags: "-O2 -g", ldflags: "", bench: "full", mpi: false}
+          - {name: complex-asan-ubsan, opts: "--enable-complex", cflags: "-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer", ldflags: "-fsanitize=address,undefined", bench: "short", mpi: false}
+          - {name: real-mpi-single-rank, opts: "--enable-mpi", cflags: "-O2 -g", ldflags: "", bench: "short", mpi: true}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y autoconf automake libtool libtool-bin build-essential gfortran openmpi-bin libopenmpi-dev
+      - name: Configure and build
+        env:
+          OMP_NUM_THREADS: '2'
+          ASAN_OPTIONS: 'detect_leaks=1:halt_on_error=1'
+          UBSAN_OPTIONS: 'halt_on_error=1:print_stacktrace=1'
+        run: |
+          autoreconf -fiv
+          mkdir build && cd build
+          if [ "${{ matrix.mpi }}" = "true" ]; then export CC=mpicc FC=mpifort F77=mpifort; fi
+          CFLAGS="${{ matrix.cflags }} -Werror=implicit-function-declaration" LDFLAGS="${{ matrix.ldflags }}" ../configure ${{ matrix.opts }}
+          make -j2
+          make -C test testmatrixautosession benchautojacobirefresh testmatrixmaterialize testmatrixpolicysolve testpreconreuse testjacobiuser testpreconpolicy testsequence
+      - name: Run safety and numerical regressions
+        working-directory: build
+        env:
+          OMP_NUM_THREADS: '2'
+          ASAN_OPTIONS: 'detect_leaks=1:halt_on_error=1'
+          UBSAN_OPTIONS: 'halt_on_error=1:print_stacktrace=1'
+        run: |
+          ./test/testmatrixautosession
+          ./test/testmatrixmaterialize
+          ./test/testmatrixpolicysolve
+          ./test/testpreconreuse
+          ./test/testjacobiuser
+          ./test/testpreconpolicy
+          ./test/testsequence
+      - name: Benchmark order-balanced sizes (not a performance assertion)
+        if: matrix.bench == 'full'
+        working-directory: build
+        env:
+          OMP_NUM_THREADS: '2'
+        run: |
+          for params in '3000 300' '30000 80' '100000 30'; do
+            set -- $params
+            echo "BENCH_SCENARIO n=$1 updates=$2"
+            ./test/benchautojacobirefresh "$1" "$2"
+            ./test/benchautojacobirefresh "$1" "$2" reversed
+            ./test/benchautojacobirefresh "$1" "$2"
+          done
+      - name: Benchmark correctness smoke
+        if: matrix.bench == 'short'
+        working-directory: build
+        env:
+          OMP_NUM_THREADS: '2'
+          ASAN_OPTIONS: 'detect_leaks=1:halt_on_error=1'
+          UBSAN_OPTIONS: 'halt_on_error=1:print_stacktrace=1'
+        run: |
+          ./test/benchautojacobirefresh 3000 20
