@@ -2789,7 +2789,7 @@ LIS_INT lis_solver_sequence_prepare_precon(
                precon_type==LIS_PRECON_TYPE_ILUT;
            jacobi_update =
                solver->sequence_precon_refresh_policy==
-                   LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN &&
+                   LIS_SEQUENCE_PRECON_REFRESH_JACOBI_NUMERIC &&
                precon_type==LIS_PRECON_TYPE_JACOBI;
            if( frozen_update )
            {
@@ -3077,7 +3077,8 @@ LIS_INT lis_solver_set_sequence_precon_refresh_policy(
 {
     if( solver==NULL ||
         (policy!=LIS_SEQUENCE_PRECON_REFRESH_SAFE &&
-         policy!=LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN) )
+         policy!=LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN &&
+         policy!=LIS_SEQUENCE_PRECON_REFRESH_JACOBI_NUMERIC) )
     {
         LIS_SETERR(
             LIS_ERR_ILL_ARG,
