@@ -77,7 +77,7 @@ static LIS_INT
 lis_vector_export_real64_impl(
     LIS_VECTOR v,double *dst,LIS_INT length,LIS_INT stride,
     LIS_INT loss_policy,LIS_INT check_imag_tolerance,
-    LIS_REAL relative_imag_tolerance,LIS_REAL absolute_imag_tolerance)
+    LIS_REAL absolute_imag_tolerance,LIS_REAL relative_imag_tolerance)
 {
     LIS_INT i,err=lis_vector_real64_validate(v,length,stride);
     LIS_REAL max_real=(LIS_REAL)0,max_imag=(LIS_REAL)0;
@@ -136,7 +136,7 @@ lis_vector_export_real64_impl(
     }
 
     /*
-     * Compare maxima of the WHOLE vector, not per-element ratios.  Use
+     * Compare maxima over the LOCAL vector (v->n); no MPI collective is\n     * performed. Compare global-to-this-buffer maxima, not per-element\n     * ratios. Use
      * subtraction/division to avoid overflow in atol+rtol*max_real.
      */
     if(check_imag_tolerance &&
@@ -146,7 +146,7 @@ lis_vector_export_real64_impl(
             relative_imag_tolerance))
     {
         LIS_SETERR(LIS_ERR_ILL_ARG,
-            "real64 export imaginary norm exceeds tolerance\n");
+            "real64 export maximum imaginary magnitude exceeds tolerance\n");
         return LIS_ERR_ILL_ARG;
     }
 
@@ -185,5 +185,5 @@ lis_vector_export_real64_tolerant(
 {
     return lis_vector_export_real64_impl(
         v,dst,length,stride,loss_policy,LIS_TRUE,
-        relative_imag_tolerance,absolute_imag_tolerance);
+        absolute_imag_tolerance,relative_imag_tolerance);
 }
