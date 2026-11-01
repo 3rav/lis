@@ -139,6 +139,15 @@ int main(int argc,char **argv)
            steps,&optimized,&opt_calls))goto done;
     printf("AUTO_JACOBI_BENCH n=%lld steps=%d safe_cpu_s=%.6f refresh_cpu_s=%.6f safe_row_callbacks=%llu refresh_row_callbacks=%llu\n",
            (long long)n,steps,baseline,optimized,base_calls,opt_calls);
+    /* The verified fast path must never cause an extra callback scan.
+     * SAFE performs the normal pattern verification and value refresh.
+     */
+    if(opt_calls!=base_calls)
+    {
+        fprintf(stderr,"Jacobi performed an extra CSR row scan (%llu vs %llu)\n",
+                opt_calls,base_calls);
+        goto done;
+    }
     /* Timing varies across machines; do not impose a success threshold. */
     failed=0;
 done:
