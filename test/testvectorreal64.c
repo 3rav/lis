@@ -189,20 +189,53 @@ int main(int argc,char **argv)
     invalid[0]=7;invalid[1]=8;invalid[2]=9;
     err=lis_vector_export_real64_tolerant(
         v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
-        (LIS_REAL)0.25,(LIS_REAL)0.0);
+        (LIS_REAL)0.0,(LIS_REAL)0.25);
     if(err==LIS_SUCCESS || invalid[0]!=7 || invalid[1]!=8 ||
        invalid[2]!=9)goto done;
     err=lis_vector_export_real64_tolerant(
         v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
-        (LIS_REAL)0.30,(LIS_REAL)0.0);
+        (LIS_REAL)0.0,(LIS_REAL)0.30);
     if(err || invalid[0]!=1 || invalid[1]!=-2 ||
        invalid[2]!=3.5)goto done;
 
     /* Absolute floor is useful for near-zero real eigenvectors. */
     err=lis_vector_export_real64_tolerant(
         v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
-        (LIS_REAL)0.0,(LIS_REAL)1.0);
+        (LIS_REAL)1.0,(LIS_REAL)0.0);
     if(err)goto done;
+
+    /* Exact relative boundary: 0.875 == 0.25*max_real(3.5). */
+#if defined(HAVE_COMPLEX_H)
+    v->value[1]=(LIS_SCALAR)(-2.0+0.875*I);
+#else
+    v->value[1][1]=(LIS_REAL)0.875;
+#endif
+    err=lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)0.0,(LIS_REAL)0.25);
+    if(err || invalid[1]!=-2)goto done;
+    invalid[0]=7;invalid[1]=8;invalid[2]=9;
+    err=lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)0.0,(LIS_REAL)0.125);
+    if(err==LIS_SUCCESS || invalid[0]!=7 || invalid[1]!=8 ||
+       invalid[2]!=9)goto done;
+#if defined(HAVE_COMPLEX_H)
+    v->value[1]=(LIS_SCALAR)(-2.0+1.0*I);
+#else
+    v->value[1][1]=(LIS_REAL)1.0;
+#endif
+    /* Absolute tolerance: accept equality, reject just below boundary. */
+    err=lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)1.0,(LIS_REAL)0.0);
+    if(err)goto done;
+    invalid[0]=7;invalid[1]=8;invalid[2]=9;
+    err=lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)0.75,(LIS_REAL)0.0);
+    if(err==LIS_SUCCESS || invalid[0]!=7 || invalid[1]!=8 ||
+       invalid[2]!=9)goto done;
 
     invalid[0]=7;invalid[1]=8;invalid[2]=9;
     err=lis_vector_export_real64_tolerant(
@@ -211,6 +244,20 @@ int main(int argc,char **argv)
     if(err==LIS_SUCCESS || invalid[0]!=7 || invalid[1]!=8 ||
        invalid[2]!=9)goto done;
 #endif
+    /* Nonfinite data in a later entry must not write any output. */
+#if defined(_COMPLEX) && !defined(HAVE_COMPLEX_H)
+    v->value[1][1]=(LIS_REAL)NAN;
+#else
+    v->value[1]=(LIS_SCALAR)NAN;
+#endif
+    invalid[0]=7;invalid[1]=8;invalid[2]=9;
+    err=lis_vector_export_real64_tolerant(
+        v,invalid,3,1,LIS_VECTOR_REAL64_ALLOW_LOSS,
+        (LIS_REAL)10.0,(LIS_REAL)10.0);
+    if(err==LIS_SUCCESS || invalid[0]!=7 || invalid[1]!=8 ||
+       invalid[2]!=9)goto done;
+    err=lis_vector_import_real64(v,src,3,3);
+    if(err)goto done;
     /* Tolerance parameters and invalid layouts are checked atomically. */
     invalid[0]=7;invalid[1]=8;invalid[2]=9;
     if(lis_vector_export_real64_tolerant(
