@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
+#include <stdlib.h>
 #ifdef _COMPLEX
 #include <complex.h>
 #endif
@@ -115,8 +116,9 @@ done:
 
 int main(int argc,char **argv)
 {
-    const LIS_INT n=3000;
-    const int steps=20;
+    LIS_INT n=3000;
+    int steps=20;
+    int reversed=0;
     BENCH_CTX ctx;
     LIS_MATRIX A=NULL;
     LIS_VECTOR b=NULL,x=NULL;
@@ -124,6 +126,11 @@ int main(int argc,char **argv)
     unsigned long long base_calls=0,opt_calls=0;
     LIS_INT err;
     int failed=1;
+    /* Validation-only benchmark parameters; production PR is unchanged. */
+    if(argc>1) n=(LIS_INT)atol(argv[1]);
+    if(argc>2) steps=atoi(argv[2]);
+    if(argc>3) reversed=(argv[3][0]=='r');
+    if(n<3 || n>200000 || steps<1 || steps>1500) return 2;
     err=lis_initialize(&argc,&argv);if(err)return 1;
     ctx.n=n;ctx.scale=(LIS_REAL)1;ctx.row_callbacks=0;
     err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err)goto done;
@@ -133,19 +140,25 @@ int main(int argc,char **argv)
     err=lis_matrix_set_user_row_thread_safe(A,LIS_TRUE);if(err)goto done;
     err=lis_vector_duplicate(A,&b);if(err)goto done;
     err=lis_vector_duplicate(A,&x);if(err)goto done;
-    if(run(&ctx,A,b,x,LIS_SEQUENCE_PRECON_REFRESH_SAFE,
-           steps,&baseline,&base_calls))goto done;
-    if(run(&ctx,A,b,x,LIS_SEQUENCE_PRECON_REFRESH_JACOBI_NUMERIC,
-           steps,&optimized,&opt_calls))goto done;
+    if(!reversed)
+    {
+        if(run(&ctx,A,b,x,LIS_SEQUENCE_PRECON_REFRESH_SAFE,
+               steps,&baseline,&base_calls))goto done;
+        if(run(&ctx,A,b,x,LIS_SEQUENCE_PRECON_REFRESH_JACOBI_NUMERIC,
+               steps,&optimized,&opt_calls))goto done;
+    }
+    else
+    {
+        if(run(&ctx,A,b,x,LIS_SEQUENCE_PRECON_REFRESH_JACOBI_NUMERIC,
+               steps,&optimized,&opt_calls))goto done;
+        if(run(&ctx,A,b,x,LIS_SEQUENCE_PRECON_REFRESH_SAFE,
+               steps,&baseline,&base_calls))goto done;
+    }
     printf("AUTO_JACOBI_BENCH n=%lld steps=%d safe_cpu_s=%.6f refresh_cpu_s=%.6f safe_row_callbacks=%llu refresh_row_callbacks=%llu\n",
            (long long)n,steps,baseline,optimized,base_calls,opt_calls);
-    /* The verified fast path must never cause an extra callback scan.
-     * SAFE performs the normal pattern verification and value refresh.
-     */
     if(opt_calls!=base_calls)
     {
-        fprintf(stderr,"Jacobi performed an extra CSR row scan (%llu vs %llu)\n",
-                opt_calls,base_calls);
+        fprintf(stderr,"Extra callback scan: %llu vs %llu\n",opt_calls,base_calls);
         goto done;
     }
     /* Timing varies across machines; do not impose a success threshold. */
