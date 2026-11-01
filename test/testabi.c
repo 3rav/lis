@@ -6,11 +6,13 @@
 int main(void)
 {
     LIS_ABI_INFO info,old;
+    unsigned char extended[sizeof(LIS_ABI_INFO)+8];
+    LIS_ABI_INFO short_result;
     int fail=0;
     memset(&info,0x5a,sizeof(info));
     old=info;
     if(lis_abi_get_info(NULL,sizeof(info))==0 ||
-       lis_abi_get_info(&info,sizeof(info)-1)==0 ||
+       lis_abi_get_info(&info,LIS_ABI_INFO_V1_SIZE-1)==LIS_ABI_SUCCESS ||
        memcmp(&old,&info,sizeof(info))!=0)
         fail=1;
     if(lis_abi_get_info(&info,sizeof(info))!=0 ||
@@ -19,7 +21,10 @@ int main(void)
        info.lis_int_bytes!=sizeof(LIS_INT) ||
        info.lis_scalar_bytes!=sizeof(LIS_SCALAR) ||
        info.lis_real_bytes!=sizeof(LIS_REAL) ||
-       info.reserved!=0)
+       info.reserved!=0 ||
+       info.pointer_bytes!=sizeof(void *) ||
+       (info.endianness!=LIS_ABI_ENDIAN_LITTLE &&
+        info.endianness!=LIS_ABI_ENDIAN_BIG))
         fail=1;
 #ifdef _COMPLEX
     if(info.scalar_kind!=LIS_ABI_SCALAR_COMPLEX) fail=1;
@@ -51,6 +56,29 @@ int main(void)
 #else
     if(info.flags & LIS_ABI_FLAG_FLOAT128) fail=1;
 #endif
+    /* A future-library-style v2 result must fit an old v1 buffer. */
+    memset(&short_result,0x5a,sizeof(short_result));
+    if(lis_abi_get_info(&short_result,LIS_ABI_INFO_V1_SIZE)!=LIS_ABI_SUCCESS ||
+       short_result.version!=LIS_ABI_INFO_VERSION ||
+       short_result.struct_size!=sizeof(LIS_ABI_INFO) ||
+       short_result.lis_int_bytes!=sizeof(LIS_INT) ||
+       short_result.pointer_bytes!=UINT32_C(0x5a5a5a5a) ||
+       short_result.endianness!=UINT32_C(0x5a5a5a5a))
+        fail=1;
+    /* A longer client buffer must have its unknown tail untouched. */
+    memset(extended,0x5a,sizeof(extended));
+    if(lis_abi_get_info((LIS_ABI_INFO *)extended,sizeof(extended))!=LIS_ABI_SUCCESS ||
+       extended[sizeof(LIS_ABI_INFO)]!=0x5a ||
+       extended[sizeof(extended)-1]!=0x5a)
+        fail=1;
+    if(!lis_abi_is_compatible(&info,
+        (uint32_t)sizeof(LIS_INT),(uint32_t)sizeof(LIS_SCALAR),
+        (uint32_t)sizeof(LIS_REAL),info.scalar_kind) ||
+       lis_abi_is_compatible(&info,
+        (uint32_t)sizeof(LIS_INT)+1,(uint32_t)sizeof(LIS_SCALAR),
+        (uint32_t)sizeof(LIS_REAL),info.scalar_kind) ||
+       lis_abi_is_compatible(NULL,1,1,1,LIS_ABI_SCALAR_REAL))
+        fail=1;
     printf("LIS_ABI_INFO=%s\n",fail?"FAIL":"PASS");
     return fail;
 }
