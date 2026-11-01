@@ -979,7 +979,7 @@ lis_matrix_auto_session_can_refresh_jacobi(
        session->value_stamp==value_stamp ||
        session->selected_csr_epoch!=session->cache->epoch ||
        solver->sequence_precon_refresh_policy!=
-           LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN ||
+           LIS_SEQUENCE_PRECON_REFRESH_JACOBI_NUMERIC ||
        solver->options[LIS_OPTIONS_PRECON]!=LIS_PRECON_TYPE_JACOBI ||
        solver->options[LIS_OPTIONS_PRECISION]!=LIS_PRECISION_DEFAULT ||
        solver->precon_half_mode!=LIS_PRECON_HALF_OFF ||
