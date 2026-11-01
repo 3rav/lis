@@ -384,6 +384,16 @@ int main(int argc,char **argv)
           "jacobi-csr-structural-reset"))goto done;
     if(ctx.assert_reset_before_row)goto done;
 
+    /* Even if the application incorrectly marks a structural modification
+     * as values-only, the actual pattern check must detect it, reset the
+     * persistent Jacobi and rebuild the cache before solving. */
+    ctx.dense=!ctx.dense;
+    err=lis_matrix_mark_values_changed(A);if(err)goto done;
+    err=test_matvec(&ctx,truth,b->value);if(err)goto done;
+    if(test_solve(jacobi_session,jacobi_solver,A,b,x,truth,
+          LIS_MATRIX_POLICY_CACHED_CSR,LIS_MATRIX_MATERIALIZE_REBUILD,
+          "jacobi-csr-underreported-structure"))goto done;
+
     /* A failed row callback must drop retained state and invalidate cache. */
     ctx.scale+=(LIS_REAL)0.5;
     err=lis_matrix_mark_values_changed(A);if(err)goto done;
@@ -404,8 +414,8 @@ int main(int argc,char **argv)
           "jacobi-csr-failure-recovery"))goto done;
 
     /* Verify error handling after a *partial* CSR value write.  Row 0
-     * changes in the value pass, then row 1 fails; the preceding two
-     * pattern checks must not trigger this failure prematurely. */
+     * changes in the value pass, then row 1 fails. The sole pattern check
+     * must finish before this callback failure is injected. */
     ctx.scale+=(LIS_REAL)0.25;
     err=lis_matrix_mark_values_changed(A);if(err)goto done;
     err=test_matvec(&ctx,truth,b->value);if(err)goto done;
