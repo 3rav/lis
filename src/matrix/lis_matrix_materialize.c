@@ -581,12 +581,28 @@ lis_matrix_materialize_csr_owned(
     return lis_matrix_materialize_build_csr(source,csr);
 }
 
-LIS_INT
-lis_matrix_materialize_csr_cached(
+/* A per-call proof, never stored in the cache or exposed to callers.
+ * The AUTO session checks the complete row pattern before retaining the
+ * Jacobi preconditioner. That exact check may be consumed only by the
+ * immediately following materialization for the same source/cache/epoch.
+ */
+typedef struct
+{
+    LIS_MATRIX source;
+    LIS_MATRIX csr;
+    LIS_MATRIX_CSR_CACHE cache;
+    uint64_t structure_stamp;
+    uint64_t value_stamp;
+    uint64_t epoch;
+} LIS_MATRIX_PATTERN_PROOF;
+
+static LIS_INT
+lis_matrix_materialize_csr_cached_impl(
     LIS_MATRIX source,
     LIS_MATRIX_CSR_CACHE *cache_io,
     LIS_MATRIX *csr,
-    LIS_INT *action)
+    LIS_INT *action,
+    const LIS_MATRIX_PATTERN_PROOF *proof)
 {
     LIS_MATRIX_CSR_CACHE cache;
     LIS_MATRIX fresh=NULL;
@@ -606,6 +622,24 @@ lis_matrix_materialize_csr_cached(
     if(err) return err;
 
     cache=*cache_io;
+
+    /*
+     * A proof is consumed only for the exact CSR and effective generation
+     * stamps verified earlier in the SAME AUTO solve. A changed cache,
+     * source, epoch or stamp fails closed rather than risking a rebuild
+     * while the retained Jacobi still references the cached matrix.
+     */
+    if(proof!=NULL &&
+       (cache==NULL || !cache->valid || cache->csr==NULL ||
+        cache!=proof->cache || cache->csr!=proof->csr ||
+        cache->source!=proof->source || source!=proof->source ||
+        cache->epoch!=proof->epoch ||
+        cache->structure_stamp!=structure_stamp ||
+        cache->structure_stamp!=proof->structure_stamp ||
+        cache->value_stamp==value_stamp ||
+        value_stamp!=proof->value_stamp))
+        return LIS_ERR_ILL_ARG;
+
     if(cache==NULL)
     {
         err=lis_matrix_materialize_build_csr(source,&fresh);
@@ -642,9 +676,14 @@ lis_matrix_materialize_csr_cached(
     if(cache->valid && cache->source==source &&
        cache->structure_stamp==structure_stamp)
     {
-        err=lis_matrix_materialize_pattern_matches(
-            source,cache->csr,&matches);
-        if(err) return err;
+        if(proof!=NULL)
+            matches=LIS_TRUE;
+        else
+        {
+            err=lis_matrix_materialize_pattern_matches(
+                source,cache->csr,&matches);
+            if(err) return err;
+        }
 
         if(matches)
         {
@@ -680,6 +719,19 @@ lis_matrix_materialize_csr_cached(
     *csr=fresh;
     if(action) *action=LIS_MATRIX_MATERIALIZE_REBUILD;
     return LIS_SUCCESS;
+}
+
+/* Public cache API always validates the pattern itself. Only the private
+ * AUTO path can consume a scoped prior verification. */
+LIS_INT
+lis_matrix_materialize_csr_cached(
+    LIS_MATRIX source,
+    LIS_MATRIX_CSR_CACHE *cache_io,
+    LIS_MATRIX *csr,
+    LIS_INT *action)
+{
+    return lis_matrix_materialize_csr_cached_impl(
+        source,cache_io,csr,action,NULL);
 }
 
 void
@@ -1026,7 +1078,9 @@ lis_matrix_auto_session_solve(
     LIS_INT must_reset=LIS_FALSE;
     LIS_INT keep_jacobi=LIS_FALSE;
     LIS_INT pattern_matches=LIS_FALSE;
+    LIS_MATRIX_PATTERN_PROOF proof;
 
+    memset(&proof,0,sizeof(proof));
     if(session==NULL || session->solver==NULL ||
        source==NULL || b==NULL || x==NULL)
         return LIS_ERR_ILL_ARG;
@@ -1070,6 +1124,15 @@ lis_matrix_auto_session_solve(
             source,session->cache->csr,&pattern_matches);
         if(err) goto fail;
         keep_jacobi=pattern_matches;
+        if(keep_jacobi)
+        {
+            proof.source=source;
+            proof.cache=session->cache;
+            proof.csr=session->cache->csr;
+            proof.epoch=session->cache->epoch;
+            proof.structure_stamp=structure_stamp;
+            proof.value_stamp=value_stamp;
+        }
     }
 
     /* Reset before the cache can modify or free borrowed CSR storage. */
@@ -1083,9 +1146,21 @@ lis_matrix_auto_session_solve(
 
     chosen_policy=LIS_MATRIX_POLICY_DIRECT;
     chosen_action=LIS_MATRIX_POLICY_ACTION_DIRECT;
-    err=lis_matrix_prepare_solver_matrix(
-        source,session->solver,&session->cache,&selected,
-        &chosen_policy,&chosen_action);
+    if(keep_jacobi)
+    {
+        /* The policy was already selected and the pattern verified above.
+         * Consume that one-call proof, rather than re-reading all rows.
+         */
+        err=lis_matrix_materialize_csr_cached_impl(
+            source,&session->cache,&selected,&chosen_action,&proof);
+        chosen_policy=LIS_MATRIX_POLICY_CACHED_CSR;
+    }
+    else
+    {
+        err=lis_matrix_prepare_solver_matrix(
+            source,session->solver,&session->cache,&selected,
+            &chosen_policy,&chosen_action);
+    }
     if(err) goto fail;
 
     /* A cache rebuild is a new object, even if malloc recycles an address. */
