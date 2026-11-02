@@ -1,0 +1,53 @@
+name: Validate OpenMP USER row scratch allocations
+
+on:
+  push:
+    branches: [fix/openmp-user-row-allocator-race-20261102]
+  pull_request:
+    paths:
+      - src/matvec/lis_matvec.c
+      - src/matrix/lis_matrix_ops.c
+      - test/testuserrow.c
+      - .github/workflows/check-user-row-openmp.yml
+
+jobs:
+  user-row:
+    name: ${{ matrix.mode }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: normal
+            sanitize: "false"
+          - mode: asan-ubsan
+            sanitize: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Configure with OpenMP
+        run: |
+          autoreconf -fiv
+          mkdir build
+          cd build
+          if [ "${{ matrix.sanitize }}" = "true" ]; then
+            CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address,undefined" \
+            ../configure --enable-omp
+          else
+            ../configure --enable-omp
+          fi
+      - name: Build
+        run: make -C build -j2
+      - name: Validate USER row regression (one and four threads)
+        env:
+          OMP_DYNAMIC: "FALSE"
+          ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1:abort_on_error=1"
+          UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+        run: |
+          cd build
+          OMP_NUM_THREADS=1 ./test/testuserrow
+          OMP_NUM_THREADS=4 ./test/testuserrow

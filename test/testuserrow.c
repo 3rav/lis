@@ -541,6 +541,25 @@ int main(int argc, char *argv[])
                 err = lis_matrix_get_diagonal(A,d);
                 if( err ) goto serial_fallback_fail;
 
+#ifdef _OPENMP
+                /*
+                 * Repeatedly exercise thread-safe USER row callbacks with
+                 * concurrent row-buffer allocations. The usual result checks
+                 * below also validate the final matvec and diagonal values.
+                 */
+                if( omp_get_max_threads()>1 )
+                {
+                        LIS_INT trial;
+                        for(trial=0;trial<128;trial++)
+                        {
+                                err = lis_matvec(A,x,y);
+                                if( err ) goto serial_fallback_fail;
+                                err = lis_matrix_get_diagonal(A,d);
+                                if( err ) goto serial_fallback_fail;
+                        }
+                }
+#endif
+
                 {
                         LIS_REAL inf_norm;
                         LIS_REAL expected_norm;
