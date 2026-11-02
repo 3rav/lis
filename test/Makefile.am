@@ -1,4 +1,4 @@
-LDADD = -L$(top_builddir)/src -llis@LIBSUFFIX@
+LDADD = -L$(top_builddir)/src -llis@LIBSUFFIX@ $(ARPACK_LIBS)
 AM_CPPFLAGS = -I$(top_builddir) -I$(top_srcdir)/include
 AM_FFLAGS = -I$(top_builddir) -I$(top_srcdir)/include
 AM_LDFLAGS = $(AMDEFS)
@@ -12,6 +12,10 @@ test_DATA = testmat.mtx testmat2.mtx testmat3.mtx testmat4.mtx testmat0.mtx test
 test_SCRIPTS = defs test.sh
 
 test_PROGRAMS = etest1 etest2 etest3 etest4 etest5 etest5b etest6 etest7 getest1 getest5 getest5b spmvtest1 spmvtest2 spmvtest2b spmvtest3 spmvtest3b spmvtest4 spmvtest5 test1 test2 test2b test3 test3b test3c test4 test5 test6 test7 testuser
+if ENABLE_ARPACK
+test_PROGRAMS += test_arpack_modes
+test_arpack_modes_SOURCES = test_arpack_modes.c
+endif
 if ENABLE_FORTRAN
   test_PROGRAMS += etest1f etest4f test1f test4f test7f
 endif
