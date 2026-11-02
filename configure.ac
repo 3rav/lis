@@ -1246,6 +1246,31 @@ else
 fi
 
 
+# Optional ARPACK-NG C interface (serial local-double eigenproblems).
+# Default off to preserve existing LIS dependency/ABI behavior.
+AC_ARG_WITH([arpack],
+    [AS_HELP_STRING([--with-arpack],
+      [build optional ARPACK-NG generalized eigenbridge (default=no)])],
+    [with_arpack=$withval], [with_arpack=no])
+if test "x$with_arpack" != xyes && test "x$with_arpack" != xno; then
+    AC_MSG_ERROR([--with-arpack accepts yes or no])
+fi
+ARPACK_CFLAGS=
+ARPACK_LIBS=
+if test "x$with_arpack" = xyes; then
+    AC_PATH_PROG([PKG_CONFIG], [pkg-config])
+    if test -z "$PKG_CONFIG" || ! "$PKG_CONFIG" --exists arpack; then
+        AC_MSG_ERROR([ARPACK-NG >= 3.9 with C API and arpack.pc is required])
+    fi
+    ARPACK_CFLAGS=$("$PKG_CONFIG" --cflags arpack)
+    ARPACK_LIBS=$("$PKG_CONFIG" --libs arpack)
+    AC_DEFINE([LIS_HAVE_ARPACK], [1], [Build ARPACK-NG eigensolver bridge])
+fi
+AC_SUBST([ARPACK_CFLAGS])
+AC_SUBST([ARPACK_LIBS])
+AM_CONDITIONAL([ENABLE_ARPACK], [test "x$with_arpack" = xyes])
+
+
 # Configurations for Autotools
 
 AC_DISABLE_SHARED
