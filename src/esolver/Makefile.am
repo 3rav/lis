@@ -8,7 +8,10 @@ lis_esolver_pi.c \
 lis_esolver_rqi.c \
 lis_esolver_si.c	
 
-AM_CFLAGS = -I$(top_srcdir)/include
+if ENABLE_ARPACK
+libesolver_la_SOURCES += lis_arpack.c
+endif
+AM_CFLAGS = -I$(top_srcdir)/include $(ARPACK_CFLAGS)
 CLEANFILES = *.il
 
 PPF77COMPILE = $(F77) $(AMDEFS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \

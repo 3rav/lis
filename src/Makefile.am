@@ -26,4 +26,7 @@ if ENABLE_FORTRAN
   liblis@LIBSUFFIX@_la_LIBADD += fortran/libfortran.la
 endif
 endif
+if ENABLE_ARPACK
+liblis@LIBSUFFIX@_la_LIBADD += $(ARPACK_LIBS)
+endif
 liblis@LIBSUFFIX@_la_SOURCES = 
