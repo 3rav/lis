@@ -1,0 +1,47 @@
+name: ARPACK-NG eigenbridge validation
+
+on:
+  push:
+    branches:
+      - feature/arpack-rci-frequency-buckling
+    paths:
+      - 'configure.ac'
+      - 'src/**'
+      - 'include/**'
+      - 'test/**'
+      - 'doc/arpack-eigenbridge.md'
+      - '.github/workflows/arpack-eigen.yml'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  eigenbridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARPACK-NG and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran libarpack2-dev liblapack-dev
+      - name: Regenerate autotools inputs
+        run: autoreconf -fiv
+      - name: Compile and validate with ARPACK-NG
+        run: |
+          mkdir build-arpack
+          cd build-arpack
+          ../configure --with-arpack
+          make -j2
+          make -C test test_arpack_modes test_arpack_sparse
+          ./test/test_arpack_modes
+          ./test/test_arpack_sparse
+          nm src/.libs/liblis.a | grep 'lis_arpack_symmetric'
+      - name: Ensure baseline LIS still builds without ARPACK-NG
+        run: |
+          mkdir build-plain
+          cd build-plain
+          ../configure --without-arpack
+          make -j2
