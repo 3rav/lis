@@ -1,0 +1,71 @@
+name: Native Krylov OpenMP regression and sanitizers (CI only)
+on:
+  push:
+    branches: [ci/krylov-openmp-validation]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [gcc64, gcc64-openmp, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran clang
+      - name: Autotools and build
+        run: |
+          autoreconf -fiv
+          mkdir build
+          cd build
+          case "${{ matrix.config }}" in
+            gcc64) ../configure --enable-longlong;;
+            gcc64-openmp) ../configure --enable-longlong --enable-omp;;
+            clang) ../configure CC=clang;;
+          esac
+          make -j2
+      - name: Check LIS_INT width
+        if: startsWith(matrix.config, 'gcc64')
+        run: |
+          printf '%s\n' '#include "lis.h"' 'typedef char lis_int_must_be_64_bit[(sizeof(LIS_INT)==8)?1:-1];' 'int main(void){return 0;}' > /tmp/intwidth.c
+          cc -D_LONG__LONG -Ibuild/include -Iinclude /tmp/intwidth.c -o /tmp/intwidth
+          /tmp/intwidth
+      - name: Full LIS regression
+        run: |
+          cd build
+          OMP_NUM_THREADS=2 make check -j2
+      - name: Focused Krylov regression
+        if: always()
+        run: |
+          cd build
+          OMP_NUM_THREADS=2 make -C test check TESTS="test_krylov_modes test_krylov_sparse test_krylov_regression test_krylov_lis test_krylov_semidefinite test_krylov_stress test_krylov_inertia test_krylov_window test_krylov_openmp"
+  asan_ubsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Standalone sanitized numerical suites
+        run: |
+          set -eu
+          for suite in modes sparse regression semidefinite stress inertia window openmp; do
+            cc -g -O1 -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Iinclude src/esolver/lis_krylov.c test/test_krylov_${suite}.c -lm -o /tmp/krylov_${suite}
+            ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 /tmp/krylov_${suite}
+          done
+  openmp_ubsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Threaded undefined-behavior checks
+        run: |
+          cc -O1 -g -std=c99 -Wall -Wextra -Werror -fopenmp \
+            -fsanitize=undefined -fno-omit-frame-pointer -Iinclude \
+            src/esolver/lis_krylov.c test/test_krylov_openmp.c -lm \
+            -o /tmp/test_krylov_openmp_ubsan
+          OMP_NUM_THREADS=4 OMP_DYNAMIC=FALSE /tmp/test_krylov_openmp_ubsan
