@@ -29,10 +29,12 @@ static int solve(void *ctx,int n,const double *x,double *y) {
 static int check(int transform,double sigma,const double *expect,int nev) {
     diag_ctx d={0};
     lis_krylov_problem p;
-    lis_krylov_options o={nev,24,400,1e-9,"LM"};
+    lis_krylov_options o={0};
     lis_krylov_stats s={0};
     double val[NEV],vec[N*NEV],res[NEV];
     int i,j,rc;
+    lis_krylov_options_default(&o);
+    o.nev=nev; o.ncv=24; o.maxiter=400; o.tol=1e-9;
     for(i=0;i<N;i++) {
         if(transform==LIS_KRYLOV_SHIFT_INVERT_B) {
             d.b[i]=1.+0.025*i;

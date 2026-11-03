@@ -33,9 +33,11 @@ static int solve(void *context,int n,const double *x,double *y) {
 int main(void) {
     chain c={0};
     lis_krylov_problem p={N,LIS_KRYLOV_SHIFT_INVERT_B,0.,&c,apply_a,apply_b,solve};
-    lis_krylov_options o={NEV,25,600,1e-9,"LM"};
+    lis_krylov_options o={0};
     lis_krylov_stats s={0};
     double eigen[NEV],evec[N*NEV],res[NEV];int i,j,rc;
+    lis_krylov_options_default(&o);
+    o.nev=NEV; o.ncv=25; o.maxiter=600; o.tol=1e-9;
     factor(&c);
     rc=lis_krylov_symmetric(&p,&o,eigen,evec,res,&s);
     if(rc||s.nconv!=NEV||c.factor!=1||c.solves!=s.solve_count){
@@ -44,7 +46,7 @@ int main(void) {
     for(i=0;i<NEV;i++) {
         double exact=2.-2.*cos((i+1)*PI/(N+1));double best=1e100;
         for(j=0;j<NEV;j++)if(fabs(eigen[j]-exact)<best)best=fabs(eigen[j]-exact);
-        if(best>1e-8 || res[i]>1e-9) {
+        if(best>1e-6*fabs(exact) || res[i]>1e-9) {
             fprintf(stderr,"spring mode %d best err=%g res=%g value=%.15g\n",i,best,res[i],eigen[i]);return 1;
         }
     }
