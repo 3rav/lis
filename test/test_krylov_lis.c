@@ -38,22 +38,30 @@ static int solve_check(LIS_MATRIX A, LIS_MATRIX B,
     LIS_SCALAR eig0, eig1;
     LIS_INT err, status;
     int fail = 1;
+    const char *phase = "allocate vector";
 
     err = lis_vector_duplicate(A, &x);
     if (err) goto cleanup;
+    phase = "initialize vector";
     err = lis_vector_set_all(1.0, x);
     if (err) goto cleanup;
+    phase = "create eigensolver";
     err = lis_esolver_create(&es);
     if (err) goto cleanup;
+    phase = "set options";
     err = lis_esolver_set_option((char *)options, es);
     if (err) goto cleanup;
+    phase = "solve eigenproblem";
     err = B ? lis_gesolve(A, B, x, &eig0, es) :
               lis_esolve(A, x, &eig0, es);
     if (err) goto cleanup;
+    phase = "get status";
     err = lis_esolver_get_status(es, &status);
     if (err || status != LIS_SUCCESS) goto cleanup;
+    phase = "get second eigenvalue";
     err = lis_esolver_get_specific_evalue(es, 1, &eig1);
     if (err) goto cleanup;
+    phase = "verify eigenvalues";
     if (fabs((double)eig0 - first) > 1.0e-5 ||
         fabs((double)eig1 - second) > 1.0e-5) {
         fprintf(stderr,"LIS Krylov unexpected Ritz values %g %g\n",
@@ -64,7 +72,7 @@ static int solve_check(LIS_MATRIX A, LIS_MATRIX B,
            (double)eig0, (double)eig1);
     fail = 0;
 cleanup:
-    if (fail) fprintf(stderr,"FAIL LIS API: error=%lld\n",(long long)err);
+    if (fail) fprintf(stderr,"FAIL LIS API at %s: error=%lld status=%lld options=%s\n",phase,(long long)err,(long long)(es?es->retcode:-1),options);
     if (es) lis_esolver_destroy(es);
     if (x) lis_vector_destroy(x);
     return fail;
