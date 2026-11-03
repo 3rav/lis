@@ -1921,10 +1921,22 @@ LIS_INT lis_esolver_set_option2(char* arg1, char *arg2, LIS_ESOLVER esolver)
         /* Krylov options are independent of public numeric option IDs. */
         if( strcmp(arg1,"-kwhich")==0 )
         {
-            if( strcmp(arg2,"LM") && strcmp(arg2,"SM") &&
-                strcmp(arg2,"LA") && strcmp(arg2,"SA") )
-                return LIS_ERR_ILL_ARG;
-            strcpy(esolver->krylov_which,arg2);
+            /*
+             * lis_text2args() lowercases option values. Normalize the
+             * internal selector to the uppercase form expected by
+             * the native projected eigensolver.
+             */
+            char first, second;
+            if( strlen(arg2)!=2 ) return LIS_ERR_ILL_ARG;
+            first = arg2[0];
+            second = arg2[1];
+            if( first>='a' && first<='z' ) first -= 'a'-'A';
+            if( second>='a' && second<='z' ) second -= 'a'-'A';
+            if( first!='L' && first!='S' ) return LIS_ERR_ILL_ARG;
+            if( second!='M' && second!='A' ) return LIS_ERR_ILL_ARG;
+            esolver->krylov_which[0] = first;
+            esolver->krylov_which[1] = second;
+            esolver->krylov_which[2] = '\0';
             return LIS_SUCCESS;
         }
         if( strcmp(arg1,"-kncv")==0 )
