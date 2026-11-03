@@ -77,6 +77,8 @@ lis_ekrylov_solve(void *state,int n,const double *x,double *y)
     return 0;
 }
 
+#undef __FUNC__
+#define __FUNC__ "lis_ekrylov_check_params"
 LIS_INT lis_ekrylov_check_params(LIS_ESOLVER esolver)
 {
     LIS_INT ss, nev;
@@ -126,6 +128,8 @@ lis_ekrylov_status(int status,LIS_KRYLOV_ADAPTER *ctx)
     return LIS_BREAKDOWN;
 }
 
+#undef __FUNC__
+#define __FUNC__ "lis_ekrylov"
 LIS_INT lis_ekrylov(LIS_ESOLVER esolver)
 {
     LIS_KRYLOV_ADAPTER ctx;
