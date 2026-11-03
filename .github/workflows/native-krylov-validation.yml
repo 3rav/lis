@@ -1,0 +1,47 @@
+name: Native Krylov validation (temporary test branch)
+on:
+  push:
+    branches: [ci/native-krylov-develop-validation]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  serial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [standard, openmp]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Autotools and full library compilation
+        run: |
+          autoreconf -fiv
+          mkdir build
+          cd build
+          if [ "${{ matrix.config }}" = openmp ]; then
+            ../configure --enable-omp
+          else
+            ../configure
+          fi
+          make -j2
+          make -C test test_krylov_modes test_krylov_sparse
+          ./test/test_krylov_modes
+          ./test/test_krylov_sparse
+          nm src/.libs/liblis.a | grep 'lis_krylov_symmetric'
+  sanitizers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native solver memory safety with ASan and UBSan
+        run: |
+          cc -O1 -g -std=c99 -Wall -Wextra -Werror             -fsanitize=address,undefined -fno-omit-frame-pointer             -Iinclude src/esolver/lis_krylov.c test/test_krylov_modes.c             -lm -o /tmp/krylov-modes
+          /tmp/krylov-modes
+          cc -O1 -g -std=c99 -Wall -Wextra -Werror             -fsanitize=address,undefined -fno-omit-frame-pointer             -Iinclude src/esolver/lis_krylov.c test/test_krylov_sparse.c             -lm -o /tmp/krylov-sparse
+          /tmp/krylov-sparse
