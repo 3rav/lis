@@ -1,0 +1,59 @@
+name: Native Krylov PSD metric full validation (CI-only)
+on:
+  push:
+    branches:
+      - ci/krylov-psd-validation
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  full_regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [serial, openmp]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Configure and build from clean checkout
+        run: |
+          autoreconf -fiv
+          mkdir build
+          cd build
+          if [ "${{ matrix.mode }}" = "openmp" ]; then
+            ../configure --enable-omp
+          else
+            ../configure
+          fi
+          make -j2
+      - name: Debug LIS Krylov API regression
+        run: |
+          cd build
+          OMP_NUM_THREADS=2 ./test/test_krylov_lis
+      - name: Run full LIS check suite
+        run: |
+          cd build
+          OMP_NUM_THREADS=2 make check -j2
+      - name: Run all native Krylov focused suites
+        if: always()
+        run: |
+          cd build
+          make -C test test_krylov_modes test_krylov_sparse test_krylov_regression test_krylov_lis test_krylov_semidefinite
+          OMP_NUM_THREADS=2 make -C test check TESTS="test_krylov_modes test_krylov_sparse test_krylov_regression test_krylov_lis test_krylov_semidefinite"
+  sanitized_numerics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: ASan and UBSan standalone
+        run: |
+          set -eu
+          for suite in modes sparse regression semidefinite; do
+            cc -O1 -g -std=c99 -Wall -Wextra -Werror               -fsanitize=address,undefined -fno-omit-frame-pointer               -Iinclude src/esolver/lis_krylov.c test/test_krylov_${suite}.c               -lm -o /tmp/test_krylov_${suite}
+            ASAN_OPTIONS=detect_leaks=1:abort_on_error=1               /tmp/test_krylov_${suite}
+          done
