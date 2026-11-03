@@ -257,3 +257,21 @@ outside this helper's contract.
   ABI is implemented in this version.
 - No performance claim for large sparse matrices without timed benchmarks
   that include the cost of the application's inverse operation.
+
+## Composable experimental extension API
+
+This integration branch demonstrates how to combine a reusable Krylov
+workspace, adaptive active subspace growth, optional multi-direction
+restart seeding, and thresholded Rayleigh–Ritz diagonalization, without
+changing the original public option/statistics struct layouts.
+
+The new versioned configuration and diagnostics structs are described
+in [Native Krylov API integration design](native-krylov-api-integration.md).
+`lis_krylov_symmetric()` remains unchanged. A new
+`lis_krylov_symmetric_ex()` is the single entry point that accepts all
+optional controls and a nullable reusable workspace.
+
+The caller remains responsible for ensuring its shifted inverse
+corresponds to every supplied `sigma`; numerical factorization is
+not retained by the workspace. The workspace cannot be shared across
+concurrent solves. Extended restart seeding is not block Lanczos.
