@@ -12,7 +12,7 @@ lis_esolver_rqi.c \
 lis_esolver_feast.c \
 lis_esolver_si.c	
 
-libesolver_la_SOURCES += lis_krylov.c
+libesolver_la_SOURCES += lis_krylov.c lis_esolver_krylov.c
 
 AM_CFLAGS = -I$(top_srcdir)/include
 CLEANFILES = *.il
