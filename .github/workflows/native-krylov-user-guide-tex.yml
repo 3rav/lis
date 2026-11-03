@@ -1,0 +1,29 @@
+name: Validate native Krylov LaTeX guide (CI only)
+on:
+  push:
+    branches: [ci/native-krylov-user-guide-tex]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  latex_section:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install LaTeX compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y texlive-latex-base
+      - name: Check guide anchors and compile integrated section
+        run: |
+          set -eu
+          test "$(grep -c 'subsubsection{Native Restarted Krylov Eigensolver}' doc/lis-ug-en.tex)" = 1
+          test "$(grep -c 'Native Krylov.*krylov|18' doc/lis-ug-en.tex)" = 2
+          mkdir -p /tmp/krylov-guide
+          sed -n '/^\\subsubsection{Native Restarted Krylov Eigensolver}/,/^\\subsubsection{Half Precision Preconditioner Storage}/p' doc/lis-ug-en.tex \
+            | sed '$d' > /tmp/krylov-guide/section.tex
+          printf '\\documentclass{article}\n\\begin{document}\n\\input{section.tex}\n\\end{document}\n' > /tmp/krylov-guide/main.tex
+          cd /tmp/krylov-guide
+          latex -interaction=nonstopmode -halt-on-error -file-line-error main.tex
+          test -s main.dvi
