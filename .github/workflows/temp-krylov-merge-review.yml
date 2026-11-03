@@ -1,0 +1,41 @@
+name: Temporary four-PR integration conflicts
+
+on:
+  push:
+    branches: [validation/krylov-four-pr-merge-review-20261103]
+
+jobs:
+  merge-tree:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Test all pairwise combinations without modifying branches
+        shell: bash
+        run: |
+          set -uo pipefail
+          git fetch origin '+refs/heads/feature/krylov-*:refs/remotes/origin/feature/krylov-*'
+          branches=(
+            feature/krylov-adaptive-restart-20261103
+            feature/krylov-reusable-workspace-20261103
+            feature/krylov-rr-threshold-20261103
+            feature/krylov-block-restart-20261103
+          )
+          failures=0
+          for ((i=0; i<4; ++i)); do
+            for ((j=i+1; j<4; ++j)); do
+              a="origin/${branches[i]}"
+              b="origin/${branches[j]}"
+              echo "=== $a plus $b ==="
+              if git merge-tree --write-tree "$a" "$b" > merge-report.txt; then
+                echo "CLEAN MERGE"
+              else
+                echo "CONFLICT"
+                grep -E '^(CONFLICT|Auto-merging|  [0-9]+|  [0-9]+|[[:space:]]+[0-9]+)' merge-report.txt | head -40 || true
+                grep '^CONFLICT' merge-report.txt || true
+                failures=$((failures+1))
+              fi
+            done
+          done
+          echo "PAIRWISE_CONFLICTS=$failures"
