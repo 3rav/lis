@@ -268,3 +268,8 @@ testthreads_SOURCES = testthreads.c
 testfgcrodr_SOURCES = testfgcrodr.c
 
 testgesolvepair_SOURCES = testgesolvepair.c
+
+# Native restarted Krylov eigensolver numerical regressions.
+test_PROGRAMS += test_krylov_modes test_krylov_sparse
+test_krylov_modes_SOURCES = test_krylov_modes.c
+test_krylov_sparse_SOURCES = test_krylov_sparse.c
