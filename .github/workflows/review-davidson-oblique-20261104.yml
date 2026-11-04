@@ -1,0 +1,95 @@
+name: Davidson diagonal oblique correction review
+on:
+  push:
+    branches:
+      - ci/davidson-oblique-correction-20261104
+jobs:
+  numerical:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: gcc, cc: gcc, flags: "-O2 -Wall -Wextra"}
+          - {name: clang, cc: clang, flags: "-O2 -Wall -Wextra"}
+          - {name: openmp, cc: gcc, flags: "-O2 -fopenmp"}
+          - {name: sanitizers, cc: gcc, flags: "-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer"}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test oblique diagonal correction and full eigenproblem
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          FLAGS: ${{ matrix.flags }}
+          ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1"
+          UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+          OMP_NUM_THREADS: "4"
+        run: |
+          set -euo pipefail
+          "$CC" -std=c99 $FLAGS test/test_krylov_davidson_prototype.c -lm -o davidson_test
+          ./davidson_test > davidson.log
+          grep -q '^DAVIDSON SUMMARY 36 successes 0 failures' davidson.log
+          grep -q 'PASS oblique diagonal JD correction differs from projected Davidson' davidson.log
+          grep -q 'PASS zero-denominator fallback for indefinite diagonal M' davidson.log
+          tail -n 8 davidson.log
+          "$CC" -std=c99 $FLAGS -Iinclude src/esolver/lis_krylov.c test/bench_krylov_davidson_compare.c -lm -o davidson_native_compare
+          ./davidson_native_compare > compare.log
+          cat compare.log
+  autotools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential libtool libtool-bin gfortran
+      - name: Configure and compile full LIS plus Davidson focused check
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir build && cd build
+          ../configure --enable-omp
+          make -j2
+          make -C test test_krylov_davidson_prototype test_krylov_unified
+          make -C test check-TESTS TESTS='test_krylov_davidson_prototype'
+          ./test/test_krylov_unified
+  comparison:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Compare original Davidson and projected-corrector numerical results
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show 7818ea3e9764811df9cb0178e0fee55e862be4be:test/test_krylov_davidson_prototype.c > original.c
+          gcc -std=c99 -O2 original.c -lm -o before
+          gcc -std=c99 -O2 test/test_krylov_davidson_prototype.c -lm -o after
+          ./before > before.log
+          ./after > after.log
+          python3 - <<'PY'
+          import re
+          def parse(path):
+              rows=[]
+              for line in open(path):
+                  if line.startswith("CASE "):
+                      d=dict(re.findall(r"(\w+)=([^\s]+)",line))
+                      rows.append(d)
+              assert len(rows)==36, (path,len(rows))
+              assert all(int(x["rc"])==1 for x in rows), (path,[x for x in rows if int(x["rc"])!=1])
+              return rows
+          before=parse("before.log")
+          after=parse("after.log")
+          for x,y in zip(before,after):
+              assert tuple(x[k] for k in ("kind","cap","init"))==tuple(y[k] for k in ("kind","cap","init"))
+              for k in ("lambda0","lambda1","lambda2"):
+                  assert abs(float(x[k])-float(y[k]))<3e-6,(k,x[k],y[k])
+          oblique=sum(int(x["oblique"]) for x in after)
+          regular=sum(int(x["standard"]) for x in after)
+          assert oblique>0,(oblique,regular)
+          print("PASSED 36 old/new converged cases with eigenvalue agreement")
+          print("Oblique correction steps:",oblique, "regular fallbacks:",regular)
+          print("Operator calls original/new:",sum(int(x["ops"]) for x in before),sum(int(x["ops"]) for x in after))
+          print("Restarts original/new:",sum(int(x["restarts"]) for x in before),sum(int(x["restarts"]) for x in after))
+          PY
