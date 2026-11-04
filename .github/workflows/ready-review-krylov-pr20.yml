@@ -1,0 +1,57 @@
+name: Ready review PR20 November 2026
+on:
+  push:
+    branches: [ci/ready-krylov-pr20-20261104]
+jobs:
+  numerical:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: gcc, cc: gcc, flags: "-O2 -Wall -Wextra"}
+          - {name: clang, cc: clang, flags: "-O2 -Wall -Wextra"}
+          - {name: openmp, cc: gcc, flags: "-O2 -fopenmp"}
+          - {name: sanitizers, cc: gcc, flags: "-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer"}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Numerical and regression verification
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          FLAGS: ${{ matrix.flags }}
+          ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1"
+          UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+          OMP_NUM_THREADS: "4"
+        run: |
+          set -euo pipefail
+          "$CC" -std=c99 $FLAGS -Iinclude src/esolver/lis_krylov.c test/test_krylov_spectral_restart.c -lm -o test_target
+          ./test_target > target.log
+          tail -n 3 target.log
+          for test in modes regression sparse semidefinite stress inertia window openmp projected workspace unified adaptive_ex api_contract; do
+            "$CC" -std=c99 $FLAGS -Iinclude src/esolver/lis_krylov.c "test/test_krylov_$test.c" -lm -o "check_$test"
+            "./check_$test" > "out_$test.log"
+          done
+  autotools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential libtool libtool-bin gfortran
+      - name: Build with committed Makefile.in and focused make check
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir build && cd build
+          ../configure --enable-omp
+          make -j2
+          make -C test test_krylov_spectral_restart test_krylov_lis test_krylov_unified test_krylov_api_contract
+          make -C test check-TESTS TESTS='test_krylov_spectral_restart'
+          ./test/test_krylov_lis
+          ./test/test_krylov_unified
+          ./test/test_krylov_api_contract
+          ./test/test_krylov_spectral_restart
