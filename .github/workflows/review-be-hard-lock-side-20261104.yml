@@ -48,6 +48,6 @@ jobs:
           mkdir build && cd build
           ../configure --enable-omp
           make -j2
-          make -C test test_krylov_both_ends test_krylov_unified
-          make -C test check-TESTS TESTS='test_krylov_both_ends'
+          make -C test test_krylov_both_ends test_krylov_be_lock_order test_krylov_unified
+          make -C test check-TESTS TESTS='test_krylov_both_ends test_krylov_be_lock_order'
           ./test/test_krylov_unified
