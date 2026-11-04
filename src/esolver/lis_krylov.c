@@ -412,6 +412,7 @@ static int diagonalize(int m, double *a, double *q,
     for (sweep = 0; sweep < KRYLOV_MAX_SWEEPS; ++sweep) {
         double largest = 0.0;
         double diagonal_norm = 0.0;
+        double pivot_threshold;
         for (p = 0; p < m; ++p) {
             diagonal_norm += fabs(a[(size_t)p * stride + p]);
             for (r = p + 1; r < m; ++r) {
@@ -422,14 +423,22 @@ static int diagonalize(int m, double *a, double *q,
         if (largest <= KRYLOV_JACOBI_EPS *
                        (diagonal_norm + DBL_MIN)) break;
 
+        /* Thresholded cyclic Jacobi: prioritize significant pivots in
+         * the first few sweeps. Skipping tiny rotations avoids needless
+         * updates of m basis and Ritz-vector entries per pair. Later
+         * sweeps use the original machine-precision cutoff so clusters
+         * and near-multiple eigenvalues still receive full refinement.
+         * A zero threshold from sweep 3 onward prevents stagnation. */
+        pivot_threshold = sweep < 3 ? 0.05 * largest : 0.0;
         for (p = 0; p < m; ++p) {
             for (r = p + 1; r < m; ++r) {
                 double apr = a[(size_t)p * stride + r];
                 double app = a[(size_t)p * stride + p];
                 double arr = a[(size_t)r * stride + r];
                 double tau, angle, cosine, sine;
-                if (fabs(apr) <= DBL_EPSILON *
-                                (fabs(app) + fabs(arr) + DBL_MIN))
+                if (fabs(apr) <= pivot_threshold ||
+                    fabs(apr) <= DBL_EPSILON *
+                                 (fabs(app) + fabs(arr) + DBL_MIN))
                     continue;
                 tau = (arr - app) / (2.0 * apr);
                 angle = copysign(1.0, tau) /
@@ -692,14 +701,22 @@ int lis_krylov_symmetric(const lis_krylov_problem *p,
           (nev < (p->n - 8) / 3 ? 3 * nev + 8 : p->n);
     if (ncv <= nev || ncv > p->n || p->n > INT_MAX / 8 ||
         ncv > INT_MAX / 8) return LIS_KRYLOV_BAD_ARGUMENT;
-    basis_size = (size_t)p->n * (size_t)ncv;
-    dense_size = (size_t)ncv * (size_t)ncv;
-    scratch_size = (size_t)p->n * (size_t)
-                   (nev > ncv / 2 ? nev : ncv / 2);
-    if (basis_size > SIZE_MAX / sizeof(double) ||
-        dense_size > SIZE_MAX / sizeof(double) ||
-        scratch_size > SIZE_MAX / sizeof(double))
-        return LIS_KRYLOV_BAD_ARGUMENT;
+    /* Check each factor before multiplication. Otherwise size_t can
+     * wrap on 32-bit targets and a small or zero buffer may be
+     * allocated for a much larger basis. The locked-basis allocation
+     * is covered too, since nev <= ncv. */
+    {
+        const size_t max_doubles = SIZE_MAX / sizeof(double);
+        const size_t scratch_columns =
+            (size_t)(nev > ncv / 2 ? nev : ncv / 2);
+        if ((size_t)p->n > max_doubles / (size_t)ncv ||
+            (size_t)ncv > max_doubles / (size_t)ncv ||
+            (size_t)p->n > max_doubles / scratch_columns)
+            return LIS_KRYLOV_BAD_ARGUMENT;
+        basis_size = (size_t)p->n * (size_t)ncv;
+        dense_size = (size_t)ncv * (size_t)ncv;
+        scratch_size = (size_t)p->n * scratch_columns;
+    }
 
     s.n = p->n;
     s.ncv = ncv;
