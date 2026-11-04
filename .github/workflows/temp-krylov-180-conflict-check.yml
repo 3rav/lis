@@ -1,0 +1,76 @@
+name: Temporary PR 180 conflict-resolution validation
+
+on:
+  push:
+    branches: [validation/updated-upstream-develop-20261104]
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: gcc, compiler: gcc, flags: "-O2"}
+          - {name: clang, compiler: clang, flags: "-O2"}
+          - {name: sanitizers, compiler: gcc, flags: "-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer"}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4990601c5da5fde70d189681e67007b24cf468e6
+      - name: Run allocation regression and existing Krylov numerical tests
+        shell: bash
+        env:
+          CC: ${{ matrix.compiler }}
+          FLAGS: ${{ matrix.flags }}
+          ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1"
+          UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "4990601c5da5fde70d189681e67007b24cf468e6"
+          for name in alloc_bounds projected modes regression sparse semidefinite stress inertia window; do
+            "$CC" -std=c99 $FLAGS -Iinclude src/esolver/lis_krylov.c "test/test_krylov_${name}.c" -lm -o krylov_test
+            ./krylov_test
+          done
+  ilp32:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4990601c5da5fde70d189681e67007b24cf468e6
+      - name: Install 32-bit toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib libc6-dev-i386
+      - name: Confirm overflow is rejected before allocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "4990601c5da5fde70d189681e67007b24cf468e6"
+          gcc -m32 -O2 -std=c99 -Wall -Wextra -Iinclude src/esolver/lis_krylov.c test/test_krylov_alloc_bounds.c -lm -o check32
+          file check32
+          ./check32
+  autotools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4990601c5da5fde70d189681e67007b24cf468e6
+      - name: Install Autotools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin gfortran
+      - name: Full LIS build and native adapter smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "4990601c5da5fde70d189681e67007b24cf468e6"
+          autoreconf -fiv
+          mkdir build && cd build
+          ../configure --enable-omp
+          make -j2
+          make -C test test_krylov_alloc_bounds test_krylov_projected test_krylov_lis
+          ./test/test_krylov_alloc_bounds
+          ./test/test_krylov_projected
+          ./test/test_krylov_lis
