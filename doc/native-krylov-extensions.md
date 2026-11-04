@@ -73,6 +73,28 @@ workspace memory compared with fixed `ncv=ncv_max`; a different
 convergence trajectory may increase operator work. Equal-capacity
 fixed-`ncv` runs are essential performance baselines.
 
+## Guarded clustered Ritz restarts
+
+For a B-metric shift-invert problem with a positive-definite metric and
+single-direction restarts, the solver can retain **up to two additional
+Ritz vectors** when transformed Ritz values are tightly clustered across
+the requested-spectrum boundary. This is an internal, automatically
+selected restart policy inspired by convergence-aware Lanczos restarts.
+It does not add a new option or modify the API/ABI.
+
+The spectral-gap heuristic influences only which basis vectors survive a
+restart; it **never** determines whether an eigenpair is converged. Full
+original-problem residual checks and their existing tolerances are unchanged.
+
+The established half-subspace policy is retained for semidefinite metrics,
+block-enriched restarts, other transforms, and cases without a clearly
+detected cluster. To keep the original workspace memory bound, a large
+retained subspace is compressed in bounded row tiles using existing
+scratch storage. Consequently a tight cluster may reduce the number of
+expensive solves, but a modest increase in restart work is possible.
+The behavior should be assessed with fixed initial `ncv` and equal
+iteration/solve budgets.
+
 ## Reusable allocation
 
 Use a workspace when multiple solves share a compatible solver shape:

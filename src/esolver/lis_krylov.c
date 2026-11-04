@@ -640,27 +640,128 @@ static void update_projected(struct krylov_workspace *s,
     }
 }
 
+/* Keep extra Ritz directions when a cluster straddles the wanted
+ * spectrum boundary or when some active Ritz pairs are already converged.
+ * This is a conservative, bounded analogue of convergence-aware restart
+ * sizing in implicitly restarted Lanczos implementations.  The physical
+ * acceptance criterion is NOT changed.
+ *
+ * IMPORTANT: sort_ritz() orders the transformed spectrum; use exactly
+ * the same ordering metric when measuring gaps, including LM and SM.
+ */
+static double ritz_sort_coordinate(double mu, const char *which)
+{
+    if (which[1] == 'M') return fabs(mu);
+    return mu;
+}
+
+static int choose_restart_keep(const struct krylov_workspace *s,
+                               int m, int nev, const char *which,
+                               int converged_active, int restart_directions)
+{
+    int keep = m / 2, wanted = nev - s->nlocked;
+    int ceiling = m - 2;
+    double boundary, neighbor, scale, next, limit;
+    int near = 0, j, extra;
+
+    if (keep < nev) keep = nev;
+    if (keep >= m) return m - 1;
+    if (ceiling < keep) return keep;
+
+    /* This first experiment is restricted to B-metric shift-invert with
+     * an SPD metric and a scalar seed. Block-enriched restarts and PSD
+     * metrics need their own retention analysis, not an unconditional
+     * change to the established algorithm. */
+    if (s->problem->transform != LIS_KRYLOV_SHIFT_INVERT_B ||
+        s->options->allow_semidefinite_metric ||
+        restart_directions != 1 || wanted < 1 || wanted >= ceiling)
+        return keep;
+
+    boundary = ritz_sort_coordinate(s->eval[s->order[wanted - 1]], which);
+    neighbor = ritz_sort_coordinate(s->eval[s->order[wanted]], which);
+    scale = fmax(1.0, fabs(boundary));
+
+    /* Only respond to a genuinely tight Ritz boundary. A wide spectral
+     * gap retains the legacy policy, limiting runtime regressions. */
+    if (fabs(neighbor - boundary) > 2.0e-4 * scale)
+        return keep;
+
+    limit = 8.0e-4 * scale;
+    for (j = wanted; j < ceiling; ++j) {
+        next = ritz_sort_coordinate(s->eval[s->order[j]], which);
+        if (fabs(next - boundary) > limit) break;
+        ++near;
+    }
+    /* A single nearby Ritz value does not justify keeping extra vectors.
+     * Allow at most two additional directions and preserve free slots. */
+    if (near < 2) return keep;
+    extra = (m - keep - 2) / 2;
+    if (extra > 2) extra = 2;
+    if (extra > near) extra = near;
+    if (converged_active > 0 && extra > converged_active + 1)
+        extra = converged_active + 1;
+    return keep + extra;
+}
+
+/* Rotate and compact the chosen Ritz basis.
+ * The legacy fast path uses column-major contiguous kernels and scratch
+ * of max(nev, ncv_capacity/2) complete vectors. A larger adaptive keep
+ * uses scratch in row tiles, so the public and reusable workspace sizes
+ * remain unchanged. Each row tile is fully materialized before updating
+ * that same tile of the original set; subsequent input rows stay intact.
+ */
 static void restart_basis(struct krylov_workspace *s,
                           int m, int retain)
 {
     double *sets[3];
     int count = 0, k, j, i;
+    int scratch_columns = s->ncv / 2;
+
+    if (scratch_columns < s->options->nev)
+        scratch_columns = s->options->nev;
     sets[count++] = s->basis;
     if (s->metric_basis != s->basis)
         sets[count++] = s->metric_basis;
     sets[count++] = s->images;
     for (k = 0; k < count; ++k) {
-        for (j = 0; j < retain; ++j)
-            rotate_column(s, sets[k], m, s->order[j],
-                          s->scratch + (size_t)j * s->n);
+        if (retain <= scratch_columns) {
+            for (j = 0; j < retain; ++j)
+                rotate_column(s, sets[k], m, s->order[j],
+                              s->scratch + (size_t)j * s->n);
 #ifdef _OPENMP
-        #pragma omp parallel for schedule(static) \
-            if((size_t)retain * (size_t)s->n >= KRYLOV_OMP_MIN_N)
+            #pragma omp parallel for schedule(static) \
+                if((size_t)retain * (size_t)s->n >= KRYLOV_OMP_MIN_N)
 #endif
-        for (j = 0; j < retain; ++j)
-            memcpy(sets[k] + (size_t)j * s->n,
-                   s->scratch + (size_t)j * s->n,
-                   (size_t)s->n * sizeof(double));
+            for (j = 0; j < retain; ++j)
+                memcpy(sets[k] + (size_t)j * s->n,
+                       s->scratch + (size_t)j * s->n,
+                       (size_t)s->n * sizeof(double));
+        } else {
+            size_t available = (size_t)scratch_columns * (size_t)s->n;
+            size_t tile_capacity = available / (size_t)retain;
+            int tile = (int)(tile_capacity > 256 ? 256 : tile_capacity);
+            int begin, stop, row;
+            if (tile < 1) tile = 1;
+            for (begin = 0; begin < s->n; begin += tile) {
+                stop = s->n - begin < tile ? s->n - begin : tile;
+                for (j = 0; j < retain; ++j) {
+                    double *out = s->scratch + (size_t)j * tile;
+                    int idx = s->order[j];
+                    for (row = 0; row < stop; ++row) {
+                        double sum = 0.0;
+                        int col;
+                        for (col = 0; col < m; ++col)
+                            sum += s->ritz[(size_t)col * s->ncv + idx] *
+                                   sets[k][(size_t)col * s->n + begin + row];
+                        out[row] = sum;
+                    }
+                }
+                for (j = 0; j < retain; ++j)
+                    memcpy(sets[k] + (size_t)j * s->n + begin,
+                           s->scratch + (size_t)j * tile,
+                           (size_t)stop * sizeof(double));
+            }
+        }
     }
     for (i = 0; i < retain; ++i) {
         for (j = 0; j < retain; ++j)
@@ -1148,9 +1249,9 @@ static int lis_krylov_symmetric_core(lis_krylov_workspace *reuse,
                 }
             }
             if (m >= ncv) {
-                int keep = m / 2;
-                if (keep < nev) keep = nev;
-                if (keep >= m) keep = m - 1;
+                int keep = choose_restart_keep(
+                    &s, m, nev, which, stats->nconv - s.nlocked,
+                    restart_directions);
                 restart_basis(&s, m, keep);
                 ++stats->restarts;
                 m = keep;

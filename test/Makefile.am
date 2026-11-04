@@ -3,7 +3,7 @@ AM_CPPFLAGS = -I$(top_builddir) -I$(top_srcdir)/include
 AM_FFLAGS = -I$(top_builddir) -I$(top_srcdir)/include
 AM_LDFLAGS = $(AMDEFS)
 
-EXTRA_DIST = defs test.sh testmat.mtx testmat2.mtx testmat3.mtx testmat4.mtx testmat0.mtx testvec0.mtx
+EXTRA_DIST = defs test.sh testmat.mtx testmat2.mtx testmat3.mtx testmat4.mtx testmat0.mtx testvec0.mtx bench_krylov_spectra_restart.c
 
 testdir = ${prefix}/share/examples/lis
 
@@ -270,7 +270,7 @@ testfgcrodr_SOURCES = testfgcrodr.c
 testgesolvepair_SOURCES = testgesolvepair.c
 
 # Native restarted Krylov eigensolver numerical regressions.
-test_PROGRAMS += test_krylov_modes test_krylov_sparse test_krylov_regression test_krylov_lis test_krylov_semidefinite test_krylov_stress test_krylov_inertia test_krylov_window test_krylov_openmp test_krylov_projected test_krylov_workspace test_krylov_unified test_krylov_adaptive_ex test_krylov_api_contract
+test_PROGRAMS += test_krylov_modes test_krylov_sparse test_krylov_regression test_krylov_lis test_krylov_semidefinite test_krylov_stress test_krylov_inertia test_krylov_window test_krylov_openmp test_krylov_projected test_krylov_workspace test_krylov_unified test_krylov_adaptive_ex test_krylov_api_contract test_krylov_spectra_restart
 test_krylov_modes_SOURCES = test_krylov_modes.c
 test_krylov_sparse_SOURCES = test_krylov_sparse.c
 
@@ -286,6 +286,7 @@ test_krylov_workspace_SOURCES = test_krylov_workspace.c
 test_krylov_unified_SOURCES = test_krylov_unified.c
 test_krylov_adaptive_ex_SOURCES = test_krylov_adaptive_ex.c
 test_krylov_api_contract_SOURCES = test_krylov_api_contract.c
+test_krylov_spectra_restart_SOURCES = test_krylov_spectra_restart.c
 TESTS += test_krylov_modes$(EXEEXT) test_krylov_sparse$(EXEEXT) \
          test_krylov_regression$(EXEEXT) test_krylov_lis$(EXEEXT) \
          test_krylov_semidefinite$(EXEEXT) test_krylov_stress$(EXEEXT) \
@@ -294,4 +295,5 @@ TESTS += test_krylov_modes$(EXEEXT) test_krylov_sparse$(EXEEXT) \
          test_krylov_workspace$(EXEEXT) \
          test_krylov_unified$(EXEEXT) \
          test_krylov_adaptive_ex$(EXEEXT) \
-         test_krylov_api_contract$(EXEEXT)
+         test_krylov_api_contract$(EXEEXT) \
+         test_krylov_spectra_restart$(EXEEXT)
