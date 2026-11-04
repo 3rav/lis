@@ -168,10 +168,33 @@ static int run(int transform, int locking, int fixed_scale,
             printf(" %.17g", vectors[(size_t)k*N+i]);
     printf("\n");
 
-    /* REPLACE WITH CALIBRATED HARD-LOCKING BUDGET after comparison.
-     * This permanent test must detect accidental loss of caching. */
+    /* Deterministic operator-call regression: these thresholds are
+     * below the unoptimized develop counts but above optimized counts.
+     * They are intentionally generous across compilers. Do not hide
+     * this check in a temporary workflow: make check enforces it.
+     *
+     * Baseline / optimized apply_a, apply_b on GCC:
+     * standard 1228/0 -> 762/0; B-invert 186/394 -> 95/303;
+     * PSD B-invert 164/354 -> 84/274; A-invert 1071/528 -> 809/266.
+     */
 #ifndef KRYLOV_BASELINE_COMPARISON
-    (void)locking;
+    if (api == 0 && locking && fixed_scale && long_run) {
+        long max_a = 0, max_b = 0;
+        if (transform == LIS_KRYLOV_STANDARD) {
+            max_a = 995; max_b = 0;
+        } else if (transform == LIS_KRYLOV_SHIFT_INVERT_B) {
+            max_a = psd ? 125 : 150;
+            max_b = psd ? 320 : 350;
+        } else {
+            max_a = 960; max_b = 390;
+        }
+        if (c.calls_a > max_a || c.calls_b > max_b) {
+            fprintf(stderr,
+                    "FAIL residual cache callback budget: A=%ld/%ld B=%ld/%ld\n",
+                    c.calls_a, max_a, c.calls_b, max_b);
+            return 1;
+        }
+    }
 #endif
     return 0;
 }
