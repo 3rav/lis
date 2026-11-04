@@ -1,0 +1,56 @@
+name: Ready review Cayley PR24 20261104
+on:
+  push:
+    branches: [ci/ready-krylov-cayley-pr24-20261104]
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: gcc, cc: gcc, flags: "-O2 -Wall -Wextra -Werror -pedantic"}
+          - {name: clang, cc: clang, flags: "-O2 -Wall -Wextra -Werror -pedantic"}
+          - {name: openmp, cc: gcc, flags: "-O2 -Wall -Wextra -fopenmp"}
+          - {name: sanitizers, cc: gcc, flags: "-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer"}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cayley standalone and native Krylov
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          FLAGS: ${{ matrix.flags }}
+          ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1"
+          UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+          OMP_NUM_THREADS: "4"
+        run: |
+          set -euo pipefail
+          "$CC" -std=c99 $FLAGS -DCAYLEY_ACTION_ONLY test/test_krylov_cayley_prototype.c -lm -o test_cayley_action
+          ./test_cayley_action
+          "$CC" -std=c99 $FLAGS -Iinclude src/esolver/lis_krylov.c test/test_krylov_cayley_prototype.c -lm -o test_cayley_full
+          ./test_cayley_full
+          for test in modes regression unified api_contract; do
+            "$CC" -std=c99 $FLAGS -Iinclude src/esolver/lis_krylov.c "test/test_krylov_$test.c" -lm -o "run_$test"
+            "./run_$test" > "out_$test.log"
+            tail -n 1 "out_$test.log"
+          done
+  autotools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential libtool libtool-bin gfortran
+      - name: Validate committed Makefile.in and LIS integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir build && cd build
+          ../configure --enable-omp
+          make -j2
+          make -C test test_krylov_cayley_prototype test_krylov_lis
+          make -C test check-TESTS TESTS='test_krylov_cayley_prototype test_krylov_lis'
+          ./test/test_krylov_cayley_prototype
