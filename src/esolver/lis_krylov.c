@@ -399,6 +399,38 @@ static void seed_vector(int n, double *x, unsigned seed)
     }
 }
 
+/* Append extra mutually metric-orthogonal seed directions. The caller
+ * owns the first legacy seed, so a block size of one does not change
+ * the original operation sequence or convergence decisions.
+ * Positive return: accepted vectors; negative: callback/breakdown. */
+static int append_extra_seeds(struct krylov_workspace *s, int *count,
+                              int capacity, int additional,
+                              unsigned start_seed)
+{
+    int accepted = 0, extra, trial;
+    if (additional <= 0) return 0;
+    for (extra = 0; extra < additional && *count < capacity; ++extra) {
+        int found = 0;
+        for (trial = 0; trial < 12; ++trial) {
+            int rc;
+            seed_vector(s->n, s->x, start_seed +
+                        (unsigned)extra * 41u + (unsigned)trial);
+            rc = append_range_seed(s, *count, s->x);
+            if (rc < 0) return rc;
+            if (rc == 0) {
+                ++(*count);
+                ++accepted;
+                found = 1;
+                break;
+            }
+        }
+        /* A rank-deficient metric may have no further valid directions.
+         * Preserve all previously accepted vectors instead of failing. */
+        if (!found) break;
+    }
+    return accepted;
+}
+
 /* Dense cyclic Jacobi eigendecomposition of symmetric projected matrix.
  * The transformation is stable for modest restarted subspace sizes. */
 static int diagonalize(int m, double *a, double *q,
@@ -412,6 +444,7 @@ static int diagonalize(int m, double *a, double *q,
     for (sweep = 0; sweep < KRYLOV_MAX_SWEEPS; ++sweep) {
         double largest = 0.0;
         double diagonal_norm = 0.0;
+        double pivot_threshold;
         for (p = 0; p < m; ++p) {
             diagonal_norm += fabs(a[(size_t)p * stride + p]);
             for (r = p + 1; r < m; ++r) {
@@ -422,14 +455,22 @@ static int diagonalize(int m, double *a, double *q,
         if (largest <= KRYLOV_JACOBI_EPS *
                        (diagonal_norm + DBL_MIN)) break;
 
+        /* Thresholded cyclic Jacobi: prioritize significant pivots in
+         * the first few sweeps. Skipping tiny rotations avoids needless
+         * updates of m basis and Ritz-vector entries per pair. Later
+         * sweeps use the original machine-precision cutoff so clusters
+         * and near-multiple eigenvalues still receive full refinement.
+         * A zero threshold from sweep 3 onward prevents stagnation. */
+        pivot_threshold = sweep < 3 ? 0.05 * largest : 0.0;
         for (p = 0; p < m; ++p) {
             for (r = p + 1; r < m; ++r) {
                 double apr = a[(size_t)p * stride + r];
                 double app = a[(size_t)p * stride + p];
                 double arr = a[(size_t)r * stride + r];
                 double tau, angle, cosine, sine;
-                if (fabs(apr) <= DBL_EPSILON *
-                                (fabs(app) + fabs(arr) + DBL_MIN))
+                if (fabs(apr) <= pivot_threshold ||
+                    fabs(apr) <= DBL_EPSILON *
+                                 (fabs(app) + fabs(arr) + DBL_MIN))
                     continue;
                 tau = (arr - app) / (2.0 * apr);
                 angle = copysign(1.0, tau) /
@@ -649,10 +690,12 @@ static void release_workspace(struct krylov_workspace *s)
     free(s->locked_residuals);
 }
 
-int lis_krylov_symmetric(const lis_krylov_problem *p,
-                         const lis_krylov_options *o,
-                         double *values, double *vectors, double *residuals,
-                         lis_krylov_stats *stats)
+static int lis_krylov_symmetric_core(const lis_krylov_problem *p,
+                                      const lis_krylov_options *o,
+                                      int restart_block_size,
+                                      double *values, double *vectors,
+                                      double *residuals,
+                                      lis_krylov_stats *stats)
 {
     struct krylov_workspace s = {0};
     size_t basis_size, dense_size, scratch_size;
@@ -691,7 +734,8 @@ int lis_krylov_symmetric(const lis_krylov_problem *p,
     ncv = o->ncv ? o->ncv :
           (nev < (p->n - 8) / 3 ? 3 * nev + 8 : p->n);
     if (ncv <= nev || ncv > p->n || p->n > INT_MAX / 8 ||
-        ncv > INT_MAX / 8) return LIS_KRYLOV_BAD_ARGUMENT;
+        ncv > INT_MAX / 8 || restart_block_size < 1 ||
+        restart_block_size > ncv) return LIS_KRYLOV_BAD_ARGUMENT;
     basis_size = (size_t)p->n * (size_t)ncv;
     dense_size = (size_t)ncv * (size_t)ncv;
     scratch_size = (size_t)p->n * (size_t)
@@ -873,6 +917,17 @@ int lis_krylov_symmetric(const lis_krylov_problem *p,
                     rc = LIS_KRYLOV_NO_CONVERGENCE;
                     goto done;
                 }
+                if (restart_block_size > 1) {
+                    int added = append_extra_seeds(
+                        &s, &m, ncv, restart_block_size - 1,
+                        seed + (unsigned)iter * 577u + 12001u);
+                    if (added < 0) {
+                        rc = added == -1 ? LIS_KRYLOV_CALLBACK_ERROR :
+                             added == -3 ? LIS_KRYLOV_INEXACT_SOLVE :
+                             LIS_KRYLOV_BREAKDOWN;
+                        goto done;
+                    }
+                }
                 ++stats->restarts;
                 continue;
             }
@@ -941,6 +996,17 @@ int lis_krylov_symmetric(const lis_krylov_problem *p,
                 }
                 if (result == 0) { ++m; break; }
             }
+            if (restart_block_size > 1) {
+                int added = append_extra_seeds(
+                    &s, &m, ncv, restart_block_size - 1,
+                    seed + (unsigned)iter * 997u + 13001u);
+                if (added < 0) {
+                    rc = added == -1 ? LIS_KRYLOV_CALLBACK_ERROR :
+                         added == -3 ? LIS_KRYLOV_INEXACT_SOLVE :
+                         LIS_KRYLOV_BREAKDOWN;
+                    goto done;
+                }
+            }
             continue;
         }
 
@@ -982,6 +1048,18 @@ int lis_krylov_symmetric(const lis_krylov_problem *p,
                     goto done;
                 }
                 if (i == 0) { ++m; ++extensions; }
+            }
+            if (extensions && restart_block_size > 1) {
+                int added = append_extra_seeds(
+                    &s, &m, ncv, restart_block_size - 1,
+                    seed + (unsigned)iter * 7u + 14001u);
+                if (added < 0) {
+                    rc = added == -1 ? LIS_KRYLOV_CALLBACK_ERROR :
+                         added == -3 ? LIS_KRYLOV_INEXACT_SOLVE :
+                         LIS_KRYLOV_BREAKDOWN;
+                    goto done;
+                }
+                extensions += added;
             }
             if (!extensions) {
                 /* A semidefinite metric can have rank smaller than nev.
@@ -1037,6 +1115,27 @@ done:
     }
     release_workspace(&s);
     return rc;
+}
+
+/* Keep the original one-seed restart path bit-for-bit intact. */
+int lis_krylov_symmetric(const lis_krylov_problem *p,
+                         const lis_krylov_options *o,
+                         double *values, double *vectors, double *residuals,
+                         lis_krylov_stats *stats)
+{
+    return lis_krylov_symmetric_core(p, o, 1,
+                                     values, vectors, residuals, stats);
+}
+
+int lis_krylov_symmetric_block_restart(const lis_krylov_problem *p,
+                                       const lis_krylov_options *o,
+                                       int restart_block_size,
+                                       double *values, double *vectors,
+                                       double *residuals,
+                                       lis_krylov_stats *stats)
+{
+    return lis_krylov_symmetric_core(p, o, restart_block_size,
+                                     values, vectors, residuals, stats);
 }
 
 /* For SPD B, Sylvester's inertia law converts symmetric indefinite
