@@ -1,0 +1,70 @@
+name: Review interaction Ritz prefilter and verified residual reuse
+on:
+  push:
+    branches: [ci/integration-ritz-prefilter-residual-reuse-20261104]
+jobs:
+  numerical:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: gcc, cc: gcc, flags: "-O2 -Wall -Wextra"}
+          - {name: clang, cc: clang, flags: "-O2 -Wall -Wextra"}
+          - {name: openmp, cc: gcc, flags: "-O2 -fopenmp"}
+          - {name: sanitizers, cc: gcc, flags: "-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer"}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test residual reuse with prefilter on all native entry points
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          FLAGS: ${{ matrix.flags }}
+          ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1"
+          UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+        run: |
+          set -euo pipefail
+          for test in ritz_screen residual_reuse modes unified api_contract; do
+            "$CC" -std=c99 $FLAGS -DDISABLE_CALLBACK_BUDGET -Iinclude src/esolver/lis_krylov.c "test/test_krylov_$test.c" -lm -o "run_$test"
+            "./run_$test" > "out_$test.log"
+            tail -n 1 "out_$test.log"
+          done
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Compare 179 alone with combined 179+182 on 18 cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show 2a592abd538d1889b30921826f861203ad8431fd:src/esolver/lis_krylov.c > baseline.c
+          gcc -std=c99 -O2 -DDISABLE_CALLBACK_BUDGET -Iinclude baseline.c test/test_krylov_ritz_screen.c -lm -o before
+          gcc -std=c99 -O2 -DDISABLE_CALLBACK_BUDGET -Iinclude src/esolver/lis_krylov.c test/test_krylov_ritz_screen.c -lm -o after
+          ./before > before.log
+          ./after > after.log
+          python3 - <<'PY'
+          import re
+          pattern=re.compile(r'^PASS Ritz prefilter api=(\d+) long=(\d+) scale=(\S+) A=(\d+) rc=(\d+) nconv=(\d+)$')
+          def parse(name):
+              records=[]
+              for line in open(name):
+                  m=pattern.match(line.strip())
+                  assert m, line
+                  a,b,c,d,e,f=m.groups()
+                  records.append(((a,b,c,e,f),int(d)))
+              assert len(records)==18, (name,len(records))
+              return records
+          baseline=parse('before.log')
+          candidate=parse('after.log')
+          assert [x[0] for x in baseline]==[x[0] for x in candidate], 'solver status/eigenpair-count parity failed'
+          differences=[y[1]-x[1] for x,y in zip(baseline,candidate)]
+          print('CASES 18')
+          print('A CALLBACKS baseline=%d combined=%d delta=%+d' % (sum(x[1] for x in baseline),sum(x[1] for x in candidate),sum(differences)))
+          print('Fewer callback cases:',sum(x<0 for x in differences))
+          print('More callback cases:',sum(x>0 for x in differences))
+          print('Identical callback cases:',sum(x==0 for x in differences))
+          for a,b,d in zip(baseline,candidate,differences):
+              print(a[0][0:3], 'A',a[1],b[1],'delta',d)
+          PY
