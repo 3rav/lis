@@ -366,6 +366,22 @@ static int solve(operator_context *op, lanczos *s,
         j=s->m/2;
         if(j<NEV+1) j=NEV+1;
         if(j>s->m-2) j=s->m-2;
+        /* Preserve extra directions if the desired Ritz boundary falls
+         * inside a tight cluster. Otherwise the implicit QR filter can
+         * repeatedly suppress the very eigenvectors it must separate. */
+        if(NEV<s->m-2) {
+            double boundary=s->eval[s->order[NEV-1]];
+            double limit=1.0e-3*fmax(1.0,fabs(boundary));
+            int near=NEV,z;
+            if(fabs(s->eval[s->order[NEV]]-boundary)<=limit) {
+                for(z=NEV;z<s->m-2;++z) {
+                    if(fabs(s->eval[s->order[z]]-boundary)>limit)
+                        break;
+                    near=z+1;
+                }
+                if(near>j) j=near;
+            }
+        }
         if(implicit_restart(s,j)) return -3;
         if(check_restart_factorization(op,s,j)) return -5;
         if(extend(op,s,j)) return -4;
