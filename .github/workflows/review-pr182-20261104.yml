@@ -1,0 +1,80 @@
+name: Review validation upstream PR182
+on:
+  push:
+    branches: [ci/review-ritz-scale-20261104]
+jobs:
+  numerical:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: gcc, cc: gcc, flags: "-O2 -Wall -Wextra"}
+          - {name: clang, cc: clang, flags: "-O2 -Wall -Wextra"}
+          - {name: openmp, cc: gcc, flags: "-O2 -fopenmp"}
+          - {name: sanitizers, cc: gcc, flags: "-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer"}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native numerical regressions
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          FLAGS: ${{ matrix.flags }}
+          ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1"
+          UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+          OMP_NUM_THREADS: "4"
+        run: |
+          set -euo pipefail
+          "$CC" -std=c99 $FLAGS -Iinclude src/esolver/lis_krylov.c test/test_krylov_ritz_screen.c -lm -o target
+          ./target > result.log
+          tail -n 3 result.log
+          for test in modes unified api_contract; do
+            "$CC" -std=c99 $FLAGS -Iinclude src/esolver/lis_krylov.c "test/test_krylov_$test.c" -lm -o "run_$test"
+            "./run_$test" > "result_$test.log"
+          done
+  autotools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential libtool libtool-bin gfortran
+      - name: Full build and focused make check with tracked Makefile.in
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir build && cd build
+          ../configure --enable-omp
+          make -j2
+          make -C test test_krylov_ritz_screen test_krylov_lis test_krylov_unified
+          make -C test check-TESTS TESTS='test_krylov_ritz_screen'
+          ./test/test_krylov_unified
+          ./test/test_krylov_lis
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Verify residual scales preserve original numerical output
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show 1e1347382d09158d4bb019b00f1d9622534e8475:src/esolver/lis_krylov.c > baseline.c
+          gcc -std=c99 -O2 -DDISABLE_CALLBACK_BUDGET -Iinclude baseline.c test/test_krylov_ritz_screen.c -lm -o before
+          gcc -std=c99 -O2 -Iinclude src/esolver/lis_krylov.c test/test_krylov_ritz_screen.c -lm -o after
+          ./before > baseline.log
+          ./after > after.log
+          python3 - <<'PY'
+          import re
+          before=open('baseline.log').read()
+          after=open('after.log').read()
+          # Compare solver status and eigenpair counts across all 18 runs.
+          for name, value in [('baseline',before),('candidate',after)]:
+              lines=value.strip().splitlines()
+              assert len(lines)==18, (name,len(lines))
+          normalize=lambda s:re.sub(r' A=\d+', ' A=IGNORED', s)
+          assert normalize(before)==normalize(after), 'solver trajectory changed across fixed residual scales'
+          print('PASS 18 baseline vs candidate status/convergence matches across 3 fixed residual scales')
+          PY
