@@ -257,3 +257,102 @@ outside this helper's contract.
   ABI is implemented in this version.
 - No performance claim for large sparse matrices without timed benchmarks
   that include the cost of the application's inverse operation.
+
+## Thresholded Jacobi refinement of the projected problem
+
+The native thick-restarted Krylov solver diagonalizes a relatively small
+symmetric projected matrix during each Rayleigh–Ritz step. This implementation
+uses an internal cyclic Jacobi eigendecomposition without requiring LAPACK.
+
+For the first three Jacobi sweeps, the projection solver skips
+off-diagonal pivots no larger than 5% of the **largest off-diagonal
+entry measured at the beginning of that sweep**. The 5% threshold is
+a heuristic, not an error bound or a universally optimal tuning value.
+Later sweeps revert to the original machine-epsilon pivot cutoff, and
+the stopping test remains unchanged. However, a changed rotation sequence
+can affect roundoff, eigenvector bases in degenerate eigenspaces, and
+the number of Krylov iterations. Public ABI, callbacks, and requested
+eigenvalue ordering are unchanged.
+
+A standalone regression (`test_krylov_projected`) exercises a symmetric,
+orthogonally transformed matrix with known clustered and repeated
+eigenvalues, verifying the returned eigenpairs, original-problem residuals
+and orthogonality. It also exercises hard locking.
+
+A small standalone timing/accuracy experiment is available without
+installing LIS:
+
+~~~sh
+cc -O3 -std=c99 -Iinclude test/bench_krylov_projected.c \
+   -lm -o bench_krylov_projected
+./bench_krylov_projected
+~~~
+
+The benchmark directly exercises the internal Jacobi kernel at four
+projected dimensions with **different repeat counts** (24: 1600,
+48: 480, 72: 120, 96: 40). It performs an untimed warm-up, seven timed
+trials per dimension and reports the median, minimum and maximum process
+CPU time as well as the **median microseconds per eigendecomposition**.
+Compare variants at the *same dimension*, not total times between
+different dimensions. Each trial checks the reconstruction residual and
+eigenvector orthogonality of the resulting matrix decomposition.
+
+Kernel-only results are not end-to-end Krylov timings. A baseline and an
+optimized build should be compared on the same hardware, preferably with
+independent runs, and uncertainty reported. The new threshold can change
+the number of sweeps; any speedup is workload-dependent. No new
+dependencies, user-facing solver options or CI workflow files are
+introduced.
+
+## Reusable workspace for repeated eigenvalue solves
+
+The callback-based core offers an **optional, opaque reusable workspace**.
+This avoids repeatedly allocating and releasing the Krylov vectors, metric
+images, dense projected matrices, and scratch buffers for runs of the same
+problem shape. The original `lis_krylov_symmetric()` remains available and
+continues to allocate its own temporary storage.
+
+~~~c
+lis_krylov_workspace *workspace = NULL;
+lis_krylov_options options;
+lis_krylov_stats stats;
+lis_krylov_options_default(&options);
+options.nev = 4;
+options.ncv = 24;
+
+if (lis_krylov_workspace_create(&problem, &options, &workspace) ==
+    LIS_KRYLOV_SUCCESS) {
+    /* The caller prepares the operators and, for transformed modes,
+     * an accurate shifted solve for each problem.sigma. */
+    status = lis_krylov_symmetric_reuse(workspace, &problem, &options,
+                                        eigenvalues, eigenvectors,
+                                        residuals, &stats);
+    /* Repeated calls may use another context, shift, or operator values. */
+    lis_krylov_workspace_destroy(workspace);
+}
+~~~
+
+The dimension `n`, transform, requested eigenpair count `nev`, Krylov
+capacity `ncv`, and hard-locking option must match the workspace's creation
+parameters. Other solve controls, matrix operators, user context, and shift
+are passed anew for every call. Reuse does **not** imply that the matrix
+or factorization is unchanged: callers must prepare their shifted inverse
+for the selected `sigma` before each run.
+
+A reused workspace contains no persistent Ritz-state or cached eigenpairs:
+each solve still initializes its search directions and convergence state.
+It cannot be shared across simultaneous calls (including concurrent
+threads). A bad argument or callback error does not invalidate the
+workspace, and callers can retry after correcting the problem.
+
+The regression `test_krylov_workspace` compares repeated workspace solves
+with independent one-shot solves across multiple shifts, both with and
+without hard locking. It also checks incompatible dimensions and recovery
+after a callback failure. Run it with the usual `make check` target.
+No new third-party dependencies, command-line options or workflow files
+are required.
+
+This change targets **allocation overhead across independent solves**,
+not the asymptotic cost of a Rayleigh–Ritz step and not numeric
+factorization time. A speedup depends on operator sizes and invocation
+frequency; no unconditional performance claim is made.
