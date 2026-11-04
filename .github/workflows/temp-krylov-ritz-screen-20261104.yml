@@ -40,7 +40,9 @@ jobs:
                   if a[1]!="0" or a[2]!="1" or a[3]!="1":
                       assert delta==0,(x,y)
                   saved+=delta
-                  if delta: improved+=1
+                  if delta:
+                      improved+=1
+                      print("SAVED_CASE", a[1:7], "before",a[14],"after",b[14],"delta",delta)
               elif a[0]=="VECTOR":
                   assert len(a)==len(b)
                   for u,v in zip(a[1:],b[1:]):
@@ -49,6 +51,14 @@ jobs:
           assert cases==96,cases
           print("PASS", cases, "cases: full numerical and vector parity")
           print("SAVED APPLY A",saved,"IMPROVED CASES",improved)
+          import subprocess,time,statistics
+          for binary in ["baseline","candidate"]:
+              samples=[]
+              for _ in range(3):
+                  start=time.perf_counter()
+                  subprocess.run(["./"+binary],stdout=subprocess.DEVNULL,check=True)
+                  samples.append(time.perf_counter()-start)
+              print("CPU_WALL",binary,"median",round(statistics.median(samples),4),"samples",[round(x,4) for x in samples])
           PY
   numerical:
     runs-on: ubuntu-latest
