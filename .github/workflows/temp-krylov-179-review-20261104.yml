@@ -115,3 +115,23 @@ jobs:
           ./test/test_krylov_api_contract
           ./test/test_krylov_lis
           ./test/test_krylov_unified
+
+  tracked-makefile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install binary dependencies only
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libtool libtool-bin gfortran
+      - name: Build without regenerating Makefile.in and run installed test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir build && cd build
+          ../configure --enable-omp
+          make -j2
+          make -C test test_krylov_residual_reuse
+          make -C test check-TESTS TESTS=test_krylov_residual_reuse
+          ./test/test_krylov_residual_reuse > /tmp/fixture.log
+          tail -n 2 /tmp/fixture.log
