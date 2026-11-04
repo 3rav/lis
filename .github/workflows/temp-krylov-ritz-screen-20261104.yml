@@ -83,8 +83,27 @@ jobs:
           OMP_NUM_THREADS: '4'
         run: |
           set -euo pipefail
-          for test in modes regression sparse semidefinite stress inertia window openmp projected workspace unified adaptive_ex api_contract; do
+          for test in modes regression sparse semidefinite stress inertia window openmp projected workspace unified adaptive_ex api_contract ritz_screen; do
             "$CC" -std=c99 $FLAGS -Iinclude src/esolver/lis_krylov.c "test/test_krylov_${test}.c" -lm -o "run_${test}"
             "./run_${test}" > "/tmp/${test}.log"
             tail -n 2 "/tmp/${test}.log"
           done
+
+  tracked-makefile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites only
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libtool libtool-bin gfortran
+      - name: Build and check using tracked generated test Makefile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir build && cd build
+          ../configure
+          make -j2
+          make -C test test_krylov_ritz_screen
+          make -C test check-TESTS TESTS=test_krylov_ritz_screen
+          ./test/test_krylov_ritz_screen
