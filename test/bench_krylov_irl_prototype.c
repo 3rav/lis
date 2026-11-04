@@ -280,6 +280,55 @@ static int implicit_restart(lanczos *s,int k)
     return 0;
 }
 
+/* Verify the restarted Lanczos identity on a known symmetric
+ * operator without altering the recorded callback count:
+ *
+ * A V_j = beta[j-1] V_{j-1} + alpha[j] V_j + beta[j] V_{j+1}.
+ *
+ * This independently checks that accumulated implicit QR rotations
+ * and the two-term residual reconstruction did not corrupt the
+ * factorization. The check is intentionally test-only and expensive.
+ */
+static int check_restart_factorization(
+    const operator_context *op, const lanczos *s, int kept)
+{
+    double w[NMAX],scale,residual;
+    int i,j,k;
+    for(j=0;j<kept;++j) {
+        for(i=0;i<s->n;++i) {
+            if(op->family==2)
+                w[i]=2.0*s->v[j][i] -
+                     (i?s->v[j][i-1]:0.0) -
+                     (i+1<s->n?s->v[j][i+1]:0.0);
+            else
+                w[i]=op->diag[i]*s->v[j][i];
+        }
+        scale=nrm(s->n,w);
+        axpy(s->n,-s->alpha[j],s->v[j],w);
+        if(j>0) axpy(s->n,-s->beta[j-1],s->v[j-1],w);
+        axpy(s->n,-s->beta[j],s->v[j+1],w);
+        residual=nrm(s->n,w);
+        if(!isfinite(residual) ||
+           residual>1e-8*fmax(1.0,scale)) {
+            fprintf(stderr,
+                    "FAIL QR/Lanczos identity j=%d k=%d rel=%g\n",
+                    j,kept,residual/fmax(1.0,scale));
+            return 1;
+        }
+    }
+    for(j=0;j<=kept;++j)
+        for(k=0;k<=j;++k) {
+            double v=dot(s->n,s->v[j],s->v[k]);
+            if(fabs(v-(j==k?1.0:0.0))>2e-8) {
+                fprintf(stderr,
+                        "FAIL restarted basis orthogonality %d,%d %.17g\n",
+                        j,k,v);
+                return 1;
+            }
+        }
+    return 0;
+}
+
 static int solve(operator_context *op, lanczos *s,
                  int ncv, int maxrestart, double tol)
 {
@@ -318,6 +367,7 @@ static int solve(operator_context *op, lanczos *s,
         if(j<NEV+1) j=NEV+1;
         if(j>s->m-2) j=s->m-2;
         if(implicit_restart(s,j)) return -3;
+        if(check_restart_factorization(op,s,j)) return -5;
         if(extend(op,s,j)) return -4;
     }
     return 1;
