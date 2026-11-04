@@ -585,7 +585,11 @@ static int standard_ritz_clearly_unconverged(
     struct krylov_workspace *s, int m, int index, double mu, double tol)
 {
     double norm_a, norm_x, norm_r, denom, margin;
-    if (s->problem->transform != LIS_KRYLOV_STANDARD) return 0;
+    /* Keep the original automatic norm-estimation side effects: an
+     * unverified candidate can increase norm_a for later candidates.
+     * Only fixed-scale calls can be screened without changing that. */
+    if (s->problem->transform != LIS_KRYLOV_STANDARD ||
+        s->options->residual_scale == 0.0) return 0;
 
     rotate_column(s, s->basis, m, index, s->x);
     rotate_column(s, s->images, m, index, s->metric_x);
