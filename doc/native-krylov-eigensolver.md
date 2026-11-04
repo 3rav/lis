@@ -304,6 +304,43 @@ the number of sweeps; any speedup is workload-dependent. No new
 dependencies, user-facing solver options or CI workflow files are
 introduced.
 
+## Conservative sampled Ritz pre-screen (standard problems)
+
+When **all** of the following hold:
+
+- `transform == LIS_KRYLOV_STANDARD`,
+- `hard_locking == 1`, and
+- `residual_scale > 0` (explicit fixed normalization),
+
+the solver uses a cheap **rejection-only** pre-screen in the hard-locking
+probe. It samples up to 16 coordinates of the residual assembled from
+existing `A * basis` images and Ritz coefficients. This requires no
+additional matrix callback or heap allocation. Frobenius norms of the
+already evaluated images/basis overestimate the possible denominator
+of the original backward-error indicator. A conservative 128x safety
+factor ensures that only clearly unconverged probes are skipped.
+
+**The pre-screen never accepts convergence.** Every pair considered for
+permanent locking still undergoes the original full `apply_a` residual
+verification; every published approximate eigenpair is still checked
+through the original physical residual evaluation. The heuristic may
+defer a locking opportunity if it misclassifies an unusually ill-scaled
+candidate, but it cannot claim a converged pair without the original
+physical check. The operator callback is assumed linear, consistent
+with the symmetric eigenproblem contract.
+
+Automatic residual scaling, generalized shift-invert transformations
+and solves without hard locking are unchanged. In the inverse modes,
+a small transformed residual alone does not certify a small physical
+residual without an inverse-conditioning bound. For automatically
+sampled normalization, skipping probes could change the norm estimate,
+so the pre-screen is deliberately disabled.
+
+The pre-screen aims to reduce callbacks, **not** to guarantee lower
+wall-clock time: its sampled coordinates and Frobenius norms require
+additional local memory operations. It is independent of experimental
+spectrum-aware restarts and does not change public API or ABI.
+
 ## Optional extended Krylov API
 
 [The native Krylov extension guide](native-krylov-extensions.md)

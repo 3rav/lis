@@ -34,6 +34,10 @@ struct krylov_workspace {
     int n;
     int ncv;
     double norm_a;
+    /* Frobenius bounds of already computed AV and V columns.
+     * Used only by the conservative standard-problem screening path. */
+    double screen_image_frobenius_sq;
+    double screen_basis_frobenius_sq;
     double *basis;
     double *metric_basis;
     double *images;
@@ -384,6 +388,91 @@ static int append_range_seed(struct krylov_workspace *s,
     return append_vector(s, count, x);
 }
 
+/* Only standard symmetric problems with explicitly fixed residual scaling
+ * can be cheaply screened without using an uncertified inverse bound.
+ * All published candidates are still verified using the original A*x.
+ * With automatically sampled ||A||, skipping a probe could alter the
+ * normalization scale used by later candidates, so disable screening. */
+static int ritz_screen_enabled(const struct krylov_workspace *s)
+{
+    return s->problem->transform == LIS_KRYLOV_STANDARD &&
+           s->options->hard_locking &&
+           s->options->residual_scale > 0.0;
+}
+
+/* Maintain a conservative operator-norm upper bound for A restricted
+ * to the current Ritz subspace: ||AV*y|| <= ||AV||_F * ||y||.
+ * These are norms of the actual already computed basis/images columns,
+ * and are refreshed when a restart rotates the basis. */
+static void update_ritz_screen_norms(struct krylov_workspace *s,
+                                     int start, int count)
+{
+    int j;
+    if (!ritz_screen_enabled(s)) return;
+    if (!start) {
+        s->screen_image_frobenius_sq = 0.0;
+        s->screen_basis_frobenius_sq = 0.0;
+    }
+    for (j = start; j < count; ++j) {
+        double wnorm = stable_norm(s->n, s->images + (size_t)j * s->n);
+        double vnorm = stable_norm(s->n, s->basis + (size_t)j * s->n);
+        s->screen_image_frobenius_sq += wnorm * wnorm;
+        s->screen_basis_frobenius_sq += vnorm * vnorm;
+    }
+}
+
+/* A small sample of coordinates gives a LOWER estimate of the Euclidean
+ * transformed residual, up to floating-point cancellation. For the
+ * standard problem the transformed operator is A, so this is also a
+ * sample of the ORIGINAL residual. It only rejects hard-locking probes
+ * that are far beyond the convergence tolerance; it never accepts an
+ * eigenpair. The publication pass always evaluates physical residuals.
+ *
+ * The denominator is deliberately overestimated using Frobenius
+ * bounds and a sum instead of the max in the backward-error definition.
+ * Large factors (128) keep the screening decision well away from the
+ * acceptance boundary; nonfinite bounds simply disable screening. */
+static int ritz_obviously_unconverged(const struct krylov_workspace *s,
+                                      int m, int idx, double lambda,
+                                      double tol)
+{
+    const int nprobe = s->n < 16 ? s->n : 16;
+    double ynorm2 = 0.0, partial2 = 0.0, denom_bound, threshold;
+    int j, k;
+
+    if (!ritz_screen_enabled(s) ||
+        !isfinite(s->screen_image_frobenius_sq) ||
+        !isfinite(s->screen_basis_frobenius_sq) ||
+        s->screen_image_frobenius_sq < 0.0 ||
+        s->screen_basis_frobenius_sq < 0.0)
+        return 0;
+    for (j = 0; j < m; ++j) {
+        double y = s->ritz[(size_t)j * s->ncv + idx];
+        ynorm2 += y * y;
+    }
+    if (!isfinite(ynorm2) || ynorm2 <= 0.0) return 0;
+    denom_bound = sqrt(ynorm2) *
+        (sqrt(s->screen_image_frobenius_sq) +
+         (fabs(lambda) + s->norm_a) *
+         sqrt(s->screen_basis_frobenius_sq));
+    if (!isfinite(denom_bound) || denom_bound <= 0.0) return 0;
+    threshold = (128.0 * tol + 128.0 * DBL_EPSILON) * denom_bound;
+    if (!isfinite(threshold)) return 0;
+
+    for (k = 0; k < nprobe; ++k) {
+        int row = nprobe > 1 ? k * (s->n - 1) / (nprobe - 1) : 0;
+        double ax = 0.0, x = 0.0, r;
+        for (j = 0; j < m; ++j) {
+            double y = s->ritz[(size_t)j * s->ncv + idx];
+            ax += y * s->images[(size_t)j * s->n + row];
+            x += y * s->basis[(size_t)j * s->n + row];
+        }
+        r = ax - lambda * x;
+        partial2 += r * r;
+    }
+    return isfinite(partial2) && partial2 > threshold * threshold;
+}
+
 static int append_vector(struct krylov_workspace *s,
                          int count, double *x)
 {
@@ -396,7 +485,10 @@ static int append_vector(struct krylov_workspace *s,
                (size_t)s->n * sizeof(double));
     err = apply_operator(s, x, s->metric_x,
                          s->images + (size_t)count * s->n);
-    if (!err && s->ext_stats) ++s->ext_stats->basis_vectors;
+    if (!err) {
+        update_ritz_screen_norms(s, count, count + 1);
+        if (s->ext_stats) ++s->ext_stats->basis_vectors;
+    }
     return err;
 }
 
@@ -667,6 +759,7 @@ static void restart_basis(struct krylov_workspace *s,
             s->projected[(size_t)i * s->ncv + j] =
                 (i == j ? s->eval[s->order[i]] : 0.0);
     }
+    update_ritz_screen_norms(s, 0, retain);
 }
 
 void lis_krylov_options_default(lis_krylov_options *o)
@@ -928,6 +1021,8 @@ static int lis_krylov_symmetric_core(lis_krylov_workspace *reuse,
     s.stats = stats;
     s.ext_stats = ext_stats;
     s.norm_a = o->residual_scale;
+    s.screen_image_frobenius_sq = 0.0;
+    s.screen_basis_frobenius_sq = 0.0;
     s.nlocked = 0;
     seed = o->random_seed ? o->random_seed : 1u;
     rc = LIS_KRYLOV_NO_CONVERGENCE;
@@ -1005,8 +1100,14 @@ static int lis_krylov_symmetric_core(lis_krylov_workspace *reuse,
             for (j = 0; j < m && j < nev - s.nlocked; ++j) {
                 int idx = s.order[j];
                 double lambda = NAN, rel = INFINITY;
-                int err = eigenpair_residual(&s, m, idx, s.eval[idx],
-                                             &lambda, &rel);
+                int err;
+                /* Screen only hard-lock probes, never published results.
+                 * The full original-problem check remains authoritative. */
+                if (ritz_obviously_unconverged(&s, m, idx,
+                                               s.eval[idx], tol))
+                    continue;
+                err = eigenpair_residual(&s, m, idx, s.eval[idx],
+                                         &lambda, &rel);
                 if (err < 0) {
                     rc = err == -1 ? LIS_KRYLOV_CALLBACK_ERROR :
                          LIS_KRYLOV_BREAKDOWN;
@@ -1050,6 +1151,8 @@ static int lis_krylov_symmetric_core(lis_krylov_workspace *reuse,
                 /* Purge the active Ritz subspace and restart with a new
                  * direction orthogonal to the permanently locked set. */
                 m = previous = 0;
+                s.screen_image_frobenius_sq = 0.0;
+                s.screen_basis_frobenius_sq = 0.0;
                 last_nconv = stats->nconv;
                 stalled_restarts = 0;
                 for (trial = 0; trial < 32; ++trial) {
