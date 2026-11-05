@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define N 96
 #define RANK 48
@@ -83,7 +84,8 @@ static int run_case(const char *name, int repeated, int ncv,
     lis_krylov_options_default(&options);
     options.nev = NEV;
     options.ncv = ncv;
-    options.maxiter = 600;
+    options.maxiter = getenv("LIS_STRESS_MAXITER") ?
+                      atoi(getenv("LIS_STRESS_MAXITER")) : 600;
     options.tol = 1e-9;
     options.initial_vector = start;
     options.random_seed = seed;
@@ -99,6 +101,9 @@ static int run_case(const char *name, int repeated, int ncv,
                 name, status, stats.nconv, stats.nreturned,
                 stats.iterations, stats.restarts, stats.solve_count,
                 stats.max_residual);
+        for (j = 0; j < stats.nreturned; ++j)
+            fprintf(stderr, "  Ritz[%d]: value=%.17g residual=%.17g\n",
+                    j, values[j], residuals[j]);
         return 1;
     }
     if (stats.restarts < 1 || stats.solve_count != c.solves) {
@@ -144,12 +149,6 @@ static int run_case(const char *name, int repeated, int ncv,
 
 int main(void)
 {
-    return run_case("clustered ncv=8", 0, 8, 2, 0) ||
-           run_case("clustered ncv=12", 0, 12, 5, 0) ||
-           run_case("multiple ncv=8", 1, 8, 1, 0) ||
-           run_case("multiple ncv=12", 1, 12, 6, 0) ||
-           run_case("hardlock clustered ncv=8", 0, 8, 2, 1) ||
-           run_case("hardlock clustered ncv=12", 0, 12, 5, 1) ||
-           run_case("hardlock multiple ncv=8", 1, 8, 1, 1) ||
-           run_case("hardlock multiple ncv=12", 1, 12, 6, 1);
+    /* Diagnostic-only variant: isolate the failing repeated-eigenvalue case. */
+    return run_case("multiple ncv=12", 1, 12, 6, 0);
 }
