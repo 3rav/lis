@@ -1,0 +1,77 @@
+name: Diagnose UCRT64 Krylov stress convergence
+
+on:
+  push:
+    branches: [diagnostics/ucrt-krylov-stress]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  krylov:
+    name: ${{ matrix.name }}
+    runs-on: windows-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: UCRT64 serial
+            msystem: UCRT64
+            gcc_package: mingw-w64-ucrt-x86_64-gcc
+            openmp_package: ''
+            options: ''
+          - name: UCRT64 OpenMP
+            msystem: UCRT64
+            gcc_package: mingw-w64-ucrt-x86_64-gcc
+            openmp_package: mingw-w64-ucrt-x86_64-libgomp
+            options: '--enable-omp'
+          - name: MINGW64 OpenMP
+            msystem: MINGW64
+            gcc_package: mingw-w64-x86_64-gcc
+            openmp_package: mingw-w64-x86_64-libgomp
+            options: '--enable-omp'
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            autoconf automake libtool make
+            ${{ matrix.gcc_package }}
+            ${{ matrix.openmp_package }}
+
+      - name: Configure and build diagnostic test
+        env:
+          CONFIGURE_OPTIONS: ${{ matrix.options }}
+        run: |
+          gcc --version | head -1
+          autoreconf -fiv
+          ./configure CC=gcc --enable-test --disable-shared --enable-static \
+            --disable-fortran --disable-f90 --disable-saamg --disable-mpi \
+            $CONFIGURE_OPTIONS
+          make -j2
+          test -f test/test_krylov_stress.exe
+
+      - name: Compare thread counts and iteration limits
+        run: |
+          for maxiter in 600 1200 2400; do
+            for threads in 1 2; do
+              echo "::group::maxiter=$maxiter OMP_NUM_THREADS=$threads"
+              export LIS_STRESS_MAXITER="$maxiter" OMP_NUM_THREADS="$threads"
+              export OMP_DYNAMIC=FALSE
+              if ./test/test_krylov_stress.exe; then
+                echo "RESULT: PASS maxiter=$maxiter threads=$threads"
+              else
+                echo "RESULT: FAIL maxiter=$maxiter threads=$threads"
+              fi
+              echo "::endgroup::"
+            done
+          done
