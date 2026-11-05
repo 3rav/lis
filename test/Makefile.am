@@ -11,7 +11,9 @@ test_DATA = testmat.mtx testmat2.mtx testmat3.mtx testmat4.mtx testmat0.mtx test
 
 test_SCRIPTS = defs test.sh
 
-check_PROGRAMS = testsolvehistory testpreconownership
+check_PROGRAMS = testsolvehistory testpreconownership testscalingoom
+testscalingoom_SOURCES = testscalingoom.c
+testscalingoom_LDFLAGS = -Wl,--wrap=lis_malloc
 testpreconownership_SOURCES = testpreconownership.c
 testsolvehistory_SOURCES = testsolvehistory.c
 
