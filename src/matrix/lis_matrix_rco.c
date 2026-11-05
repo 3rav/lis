@@ -155,6 +155,10 @@ LIS_INT lis_matrix_malloc_rco(LIS_INT n, LIS_INT nnz[], LIS_INT **row, LIS_INT *
 	w_index   = NULL;
 	w_value   = NULL;
 
+	*row     = NULL;
+	*index   = NULL;
+	*value   = NULL;
+
 	w_row = (LIS_INT *)lis_malloc( n*sizeof(LIS_INT),"lis_matrix_malloc_rco::w_row" );
 	if( w_row==NULL )
 	{
@@ -175,12 +179,15 @@ LIS_INT lis_matrix_malloc_rco(LIS_INT n, LIS_INT nnz[], LIS_INT **row, LIS_INT *
 		lis_free2(3,w_row,w_index,w_value);
 		return LIS_OUT_OF_MEMORY;
 	}
+	for(i=0;i<n;i++)
+	{
+		w_index[i] = NULL;
+		w_value[i] = NULL;
+	}
 	if( nnz!=NULL )
 	{
 		for(i=0;i<n;i++)
 		{
-			w_index[i] = NULL;
-			w_value[i] = NULL;
 			if( nnz[i]==0 ) continue;
 			w_index[i] = (LIS_INT *)lis_malloc( nnz[i]*sizeof(LIS_INT),"lis_matrix_malloc_rco::w_index[i]" );
 			if( w_index[i]==NULL )
@@ -197,10 +204,10 @@ LIS_INT lis_matrix_malloc_rco(LIS_INT n, LIS_INT nnz[], LIS_INT **row, LIS_INT *
 		}
 		if(i<n)
 		{
-			for(j=0;j<i;j++)
+			for(j=0;j<=i;j++)
 			{
-				if( w_index[i] ) lis_free(w_index[i]);
-				if( w_value[i] ) lis_free(w_value[i]);
+				if( w_index[j] ) lis_free(w_index[j]);
+				if( w_value[j] ) lis_free(w_value[j]);
 			}
 			lis_free2(3,w_row,w_index,w_value);
 			return LIS_OUT_OF_MEMORY;
@@ -224,24 +231,28 @@ LIS_INT lis_matrix_realloc_rco(LIS_INT row, LIS_INT nnz, LIS_INT ***index, LIS_S
 {
 	LIS_INT **w_index;
 	LIS_SCALAR **w_value;
+	LIS_INT *new_index;
+	LIS_SCALAR *new_value;
 
 	LIS_DEBUG_FUNC_IN;
 
 	w_index = *index;
 	w_value = *value;
 
-	w_index[row] = (LIS_INT *)lis_realloc(w_index[row],nnz*sizeof(LIS_INT));
-	if( w_index[row]==NULL )
+	new_index = (LIS_INT *)lis_realloc(w_index[row],nnz*sizeof(LIS_INT));
+	if( new_index==NULL )
 	{
 		LIS_SETERR_MEM(nnz*sizeof(LIS_INT));
 		return LIS_OUT_OF_MEMORY;
 	}
-	w_value[row] = (LIS_SCALAR *)lis_realloc(w_value[row],nnz*sizeof(LIS_SCALAR));
-	if( w_value[row]==NULL )
+	w_index[row] = new_index;
+	new_value = (LIS_SCALAR *)lis_realloc(w_value[row],nnz*sizeof(LIS_SCALAR));
+	if( new_value==NULL )
 	{
 		LIS_SETERR_MEM(nnz*sizeof(LIS_SCALAR));
 		return LIS_OUT_OF_MEMORY;
 	}
+	w_value[row] = new_value;
 	*index = w_index;
 	*value = w_value;
 
