@@ -24,7 +24,7 @@
 
 int main(int argc,char **argv)
 {
-    LIS_MATRIX A=NULL;
+    LIS_MATRIX A=NULL,Z=NULL;
     LIS_VECTOR x=NULL,y=NULL;
     LIS_INT i,err;
     LIS_INT *initial_index;
@@ -74,11 +74,26 @@ int main(int argc,char **argv)
     CHECK(lis_vector_get_value(y,2,&val));
     ASSERT_TRUE(val==(LIS_SCALAR)12.0);
 
+    /* A zero-capacity preallocation must still permit first insertion. */
+    CHECK(lis_matrix_create(LIS_COMM_WORLD,&Z));
+    CHECK(lis_matrix_set_size(Z,0,2));
+    CHECK(lis_matrix_malloc(Z,0,NULL));
+    CHECK(lis_matrix_set_value(LIS_INS_VALUE,0,0,2.0,Z));
+    ASSERT_TRUE(Z->w_row[0]==1 && Z->w_nnz[0]>=1);
+    CHECK(lis_matrix_set_value(LIS_INS_VALUE,0,1,-1.0,Z));
+    ASSERT_TRUE(Z->w_row[0]==2 && Z->w_nnz[0]>=2);
+    CHECK(lis_matrix_set_value(LIS_ADD_VALUE,0,0,1.0,Z));
+    ASSERT_TRUE(Z->w_row[0]==2 && Z->w_nnz[0]==2);
+    CHECK(lis_matrix_set_value(LIS_INS_VALUE,1,1,2.0,Z));
+    ASSERT_TRUE(Z->w_row[1]==1 && Z->w_nnz[1]>=1);
+    CHECK(lis_matrix_assemble(Z));
+
     puts("RCO_DUPLICATE_UPDATE_PASSED");
 
 cleanup:
     if(y) lis_vector_destroy(y);
     if(x) lis_vector_destroy(x);
+    if(Z) lis_matrix_destroy(Z);
     if(A) lis_matrix_destroy(A);
     lis_finalize();
     return failed;
