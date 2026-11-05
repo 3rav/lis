@@ -1,0 +1,77 @@
+name: Memory allocator failure handling
+
+on:
+  push:
+    branches:
+      - 'fix/memory-allocator-oom-*'
+    paths:
+      - 'src/system/lis_memory.c'
+      - 'test/testmemoryalloc.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/memory-allocator.yml'
+  pull_request:
+    paths:
+      - 'src/system/lis_memory.c'
+      - 'test/testmemoryalloc.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/memory-allocator.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  allocator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: serial
+            config: ''
+            cflags: '-O2'
+            ldflags: ''
+            threads: '1'
+          - label: openmp
+            config: '--enable-omp'
+            cflags: '-O2'
+            ldflags: ''
+            threads: '2'
+          - label: 64bit-indices
+            config: '--enable-longlong'
+            cflags: '-O2'
+            ldflags: ''
+            threads: '1'
+          - label: asan-ubsan
+            config: ''
+            cflags: '-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
+            ldflags: '-fsanitize=address,undefined'
+            threads: '1'
+    name: Memory allocation (${{ matrix.label }})
+    env:
+      OMP_NUM_THREADS: ${{ matrix.threads }}
+      ASAN_OPTIONS: detect_leaks=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Build LIS with selected instrumentation
+        run: |
+          autoreconf -fiv
+          mkdir build-allocator
+          cd build-allocator
+          ../configure ${{ matrix.config }} CFLAGS="${{ matrix.cflags }}" LDFLAGS="${{ matrix.ldflags }}"
+          make -j2
+          make -C test testmemoryalloc
+      - name: Fault-injection regression
+        run: ./build-allocator/test/testmemoryalloc
+      - name: Existing solver smoke in non-sanitized builds
+        if: matrix.label != 'asan-ubsan'
+        run: |
+          make -C build-allocator/test testsolvehistory testpreconownership testscalingoom
+          ./build-allocator/test/testsolvehistory
+          ./build-allocator/test/testpreconownership
+          ./build-allocator/test/testscalingoom
