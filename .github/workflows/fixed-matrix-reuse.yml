@@ -1,0 +1,72 @@
+name: Fixed-matrix preconditioner reuse API
+
+on:
+  push:
+    branches:
+      - 'feature/fixed-matrix-preconditioner-reuse-*'
+  pull_request:
+    paths:
+      - 'src/solver/lis_solver.c'
+      - 'include/lis.h'
+      - 'test/testsolvereuse.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/fixed-matrix-reuse.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reuse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: serial
+            flags: ''
+            cflags: '-O2'
+            ldflags: ''
+            threads: '1'
+          - label: openmp
+            flags: '--enable-omp'
+            cflags: '-O2'
+            ldflags: ''
+            threads: '2'
+          - label: 64bit-indices
+            flags: '--enable-longlong'
+            cflags: '-O2'
+            ldflags: ''
+            threads: '1'
+          - label: asan-ubsan
+            flags: ''
+            cflags: '-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
+            ldflags: '-fsanitize=address,undefined'
+            threads: '1'
+    name: Reusable ILU/Jacobi (${{ matrix.label }})
+    env:
+      OMP_NUM_THREADS: ${{ matrix.threads }}
+      ASAN_OPTIONS: detect_leaks=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Configure and build
+        run: |
+          autoreconf -fiv
+          mkdir build-reuse-api
+          cd build-reuse-api
+          ../configure ${{ matrix.flags }} CFLAGS="${{ matrix.cflags }}" LDFLAGS="${{ matrix.ldflags }}"
+          make -j2
+          make -C test testsolvereuse
+      - name: Exercise public reused-preconditioner session
+        run: ./build-reuse-api/test/testsolvereuse
+      - name: Verify existing preconditioner regression
+        if: matrix.label != 'asan-ubsan'
+        run: |
+          make -C build-reuse-api/test testpreconownership testsolvehistory
+          ./build-reuse-api/test/testpreconownership
+          ./build-reuse-api/test/testsolvehistory

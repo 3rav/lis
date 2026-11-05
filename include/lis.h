@@ -768,6 +768,9 @@ struct LIS_SOLVER_STRUCT
 };
 typedef struct LIS_SOLVER_STRUCT *LIS_SOLVER;
 
+/* Opaque fixed-matrix, repeated-RHS solve session. */
+typedef struct LIS_SOLVE_REUSE_STRUCT *LIS_SOLVE_REUSE;
+
 struct LIS_ESOLVER_STRUCT
 {
         LIS_MATRIX A,B;
@@ -991,6 +994,11 @@ extern "C"
 	extern LIS_INT lis_solve(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER solver);
 	extern LIS_INT lis_solve_setup(LIS_MATRIX A, LIS_SOLVER solver);
 	extern LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER solver, LIS_PRECON precon);
+	/* Same assembled CSR matrix, no scaling; CG/Jacobi or BiCGSTAB/ILU only. */
+	extern LIS_INT lis_solve_reuse_create(LIS_MATRIX A, LIS_SOLVER solver, LIS_SOLVE_REUSE *ctx);
+	extern LIS_INT lis_solve_reuse_execute(LIS_SOLVE_REUSE ctx, LIS_VECTOR b, LIS_VECTOR x);
+	extern LIS_INT lis_solve_reuse_refresh(LIS_SOLVE_REUSE ctx);
+	extern LIS_INT lis_solve_reuse_destroy(LIS_SOLVE_REUSE ctx);
 	extern LIS_PRECON_REGISTER *precon_register_top;
 	extern LIS_INT precon_register_type;
 	extern LIS_INT lis_precon_register(char *name, LIS_PRECON_CREATE_XXX pcreate, LIS_PSOLVE_XXX psolve, LIS_PSOLVEH_XXX psolveh);
