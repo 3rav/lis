@@ -725,7 +725,7 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 			err = lis_vector_duplicate(A,&solver->d);
 			if( err )
 			{
-				return err;
+				goto scaling_allocation_failed;
 			}
 		}
 		if( !A->is_scaled )
@@ -754,7 +754,7 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 			err = lis_vector_duplicate(A,&solver->d);
 			if( err )
 			{
-				return err;
+				goto scaling_allocation_failed;
 			}
 		}
 		if( !A->is_scaled )
@@ -804,7 +804,7 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 				err = lis_vector_duplicate(A,&solver->d);
 				if( err )
 				{
-					return err;
+					goto scaling_allocation_failed;
 				}
 			}
 			if( scale==LIS_SCALE_JACOBI && nsolver==LIS_SOLVER_CG )
@@ -949,6 +949,8 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 	{
 		lis_vector_destroy(xx);
 		lis_free(rhistory);
+		/* A failing allocator may have created only some work vectors. */
+		lis_solver_work_destroy(solver);
 		/* The caller owns precon: never destroy a borrowed object here. */
 		solver->retcode = err;
 		return err;
@@ -1075,6 +1077,13 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_SUCCESS;
+
+scaling_allocation_failed:
+	/* xx and rhistory were already allocated before scalar scaling setup. */
+	lis_vector_destroy(xx);
+	lis_free(rhistory);
+	solver->retcode = err;
+	return err;
 }
 
 #undef __FUNC__
