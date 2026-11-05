@@ -75,3 +75,29 @@ jobs:
               echo "::endgroup::"
             done
           done
+          export LIS_STRESS_MAXITER=600 OMP_NUM_THREADS=2
+          for scenario in ncv16 ncv20 ncv24 lock directions2 directions4 adaptive; do
+            unset LIS_STRESS_NCV LIS_STRESS_HARDLOCK LIS_STRESS_DIRECTIONS LIS_STRESS_ADAPTIVE
+            case "$scenario" in
+              ncv16) LIS_STRESS_NCV=16 ;;
+              ncv20) LIS_STRESS_NCV=20 ;;
+              ncv24) LIS_STRESS_NCV=24 ;;
+              lock) LIS_STRESS_HARDLOCK=1 ;;
+              directions2) LIS_STRESS_DIRECTIONS=2 ;;
+              directions4) LIS_STRESS_DIRECTIONS=4 ;;
+              adaptive) LIS_STRESS_ADAPTIVE=1 ;;
+            esac
+            case "$scenario" in
+              ncv*) export LIS_STRESS_NCV ;;
+              lock) export LIS_STRESS_HARDLOCK ;;
+              directions*) export LIS_STRESS_DIRECTIONS ;;
+              adaptive) export LIS_STRESS_ADAPTIVE ;;
+            esac
+            echo "::group::scenario=$scenario"
+            if ./test/test_krylov_stress.exe; then
+              echo "RESULT: PASS scenario=$scenario"
+            else
+              echo "RESULT: FAIL scenario=$scenario"
+            fi
+            echo "::endgroup::"
+          done
