@@ -1,0 +1,58 @@
+name: Repeated RHS preconditioner reuse benchmark
+
+on:
+  pull_request:
+    paths:
+      - 'test/benchpreconreuse.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/precon-reuse-benchmark.yml'
+  push:
+    branches:
+      - 'perf/precon-reuse-baseline-*'
+    paths:
+      - 'test/benchpreconreuse.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/precon-reuse-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: serial
+            flags: ''
+            threads: '1'
+          - label: openmp
+            flags: '--enable-omp'
+            threads: '2'
+          - label: 64-bit-indices
+            flags: '--enable-longlong'
+            threads: '1'
+    name: Reuse benchmark (${{ matrix.label }})
+    env:
+      OMP_NUM_THREADS: ${{ matrix.threads }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Autotools and LIS build
+        run: |
+          autoreconf -fiv
+          mkdir build-precon
+          cd build-precon
+          ../configure ${{ matrix.flags }}
+          make -j2
+          make -C test benchpreconreuse
+      - name: Numerical equivalence on repeated RHS
+        run: ./build-precon/test/benchpreconreuse 1200 6
+      - name: Record indicative timings
+        run: ./build-precon/test/benchpreconreuse 5000 12
