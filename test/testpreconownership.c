@@ -70,10 +70,10 @@ int main(int argc,char **argv)
     REQUIRE_OK(lis_vector_duplicate(A,&x));
     REQUIRE_OK(lis_vector_set_all(4.0,b));
     REQUIRE_OK(lis_solver_create(&solver));
-    REQUIRE_OK(lis_precon_register("ownership-test",
+    REQUIRE_OK(lis_precon_register("ownershiptest",
                                    observe_create,identity_solve,identity_solve));
     REQUIRE_OK(lis_solver_set_option(
-        "-i cg -p ownership-test -scale none -print none -tol 1.0e-12",
+        "-i cg -p ownershiptest -scale none -print none -tol 1.0e-12",
         solver));
     solver->A=A;
     REQUIRE_OK(lis_precon_create(solver,&owned));
