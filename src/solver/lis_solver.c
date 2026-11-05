@@ -961,6 +961,11 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 	solver->x        = xx;
 	solver->xx       = x;
 	solver->precon   = precon;
+	/* Keep only the most recent residual history across repeated solves. */
+	if( solver->rhistory!=NULL )
+	{
+		lis_free(solver->rhistory);
+	}
 	solver->rhistory = rhistory;
 
 	/* Do not call lis_solve_execute if solver->setup is true. 
