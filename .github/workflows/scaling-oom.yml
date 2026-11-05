@@ -1,0 +1,62 @@
+name: Solver scaling allocation failure regression
+
+on:
+  push:
+    branches:
+      - 'fix/solver-kernel-scaling-oom-*'
+    paths:
+      - 'src/solver/lis_solver.c'
+      - 'test/testscalingoom.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/scaling-oom.yml'
+  pull_request:
+    paths:
+      - 'src/solver/lis_solver.c'
+      - 'test/testscalingoom.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/scaling-oom.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: serial
+            config: ''
+            threads: '1'
+          - label: openmp
+            config: '--enable-omp'
+            threads: '2'
+          - label: longlong
+            config: '--enable-longlong'
+            threads: '1'
+    name: Scaling OOM (${{ matrix.label }})
+    env:
+      OMP_NUM_THREADS: ${{ matrix.threads }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Generate build files and compile
+        run: |
+          autoreconf -fiv
+          mkdir build-scaling-oom
+          cd build-scaling-oom
+          ../configure ${{ matrix.config }}
+          make -j2
+          make -C test testscalingoom testpreconownership testsolvehistory
+      - name: Exercise scaling failure cleanup
+        run: ./build-scaling-oom/test/testscalingoom
+      - name: Verify previous failure-handling regressions
+        run: |
+          ./build-scaling-oom/test/testpreconownership
+          ./build-scaling-oom/test/testsolvehistory
