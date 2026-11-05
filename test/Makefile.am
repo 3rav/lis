@@ -11,7 +11,10 @@ test_DATA = testmat.mtx testmat2.mtx testmat3.mtx testmat4.mtx testmat0.mtx test
 
 test_SCRIPTS = defs test.sh
 
-check_PROGRAMS = testsolvehistory testpreconownership testscalingoom testmemoryalloc
+check_PROGRAMS = testsolvehistory testpreconownership testscalingoom testmemoryalloc testrcoduplicates bench_rco_csr benchpreconreuse
+testrcoduplicates_SOURCES = testrcoduplicates.c
+bench_rco_csr_SOURCES = bench_rco_csr.c
+benchpreconreuse_SOURCES = benchpreconreuse.c
 testmemoryalloc_SOURCES = testmemoryalloc.c
 testmemoryalloc_LDFLAGS = -Wl,--wrap=malloc
 testscalingoom_SOURCES = testscalingoom.c
