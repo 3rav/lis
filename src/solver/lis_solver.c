@@ -494,12 +494,16 @@ LIS_INT lis_solve(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER solver)
 	err = lis_solve_kernel(A, b, x, solver, precon);
 	if( err )
 	{
-		lis_solver_work_destroy(solver);	  
+		lis_solver_work_destroy(solver);
+		/* lis_solve() owns the preconditioner, including on kernel failure. */
+		lis_precon_destroy(precon);
+		solver->precon = NULL;
 		solver->retcode = err;
 		return err;
 	}
 
 	lis_precon_destroy(precon);
+	solver->precon = NULL;
 
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_SUCCESS;
@@ -944,7 +948,8 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 	if( err )
 	{
 		lis_vector_destroy(xx);
-		lis_precon_destroy(precon);
+		lis_free(rhistory);
+		/* The caller owns precon: never destroy a borrowed object here. */
 		solver->retcode = err;
 		return err;
 	}
