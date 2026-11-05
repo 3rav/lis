@@ -89,6 +89,12 @@ fail:
     return err;
 }
 
+static double probe_value(LIS_INT i)
+{
+    /* Exactly representable values, varying across columns and rows. */
+    return 1.0+((i*17)%233)*0.03125;
+}
+
 static int verify(LIS_MATRIX A,LIS_INT side)
 {
     LIS_VECTOR ones=NULL,y=NULL;
@@ -100,17 +106,20 @@ static int verify(LIS_MATRIX A,LIS_INT side)
     if(err) return 1;
     err=lis_vector_duplicate(A,&y);
     if(err) { bad=1; goto end; }
-    err=lis_vector_set_all(1.0,ones);
-    if(err) { bad=1; goto end; }
+    for(row=0;row<side*side;row++) {
+        err=lis_vector_set_value(
+            LIS_INS_VALUE,row,(LIS_SCALAR)probe_value(row),ones);
+        if(err) { bad=1; goto end; }
+    }
     err=lis_matvec(A,ones,y);
     if(err) { bad=1; goto end; }
     for(row=0;row<side*side;row++) {
-        double expected=4.0;
+        double expected=4.0*probe_value(row);
         x=row%side; z=row/side;
-        if(x>0) expected-=1.0;
-        if(x+1<side) expected-=1.0;
-        if(z>0) expected-=1.0;
-        if(z+1<side) expected-=1.0;
+        if(x>0) expected-=probe_value(row-1);
+        if(x+1<side) expected-=probe_value(row+1);
+        if(z>0) expected-=probe_value(row-side);
+        if(z+1<side) expected-=probe_value(row+side);
         err=lis_vector_get_value(y,row,&observed);
         if(err || fabs((double)observed-expected)>1.0e-12) {
             fprintf(stderr,"SpMV mismatch: row=%ld\n",(long)row);
