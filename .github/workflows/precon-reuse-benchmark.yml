@@ -54,5 +54,9 @@ jobs:
           make -C test benchpreconreuse
       - name: Numerical equivalence on repeated RHS
         run: ./build-precon/test/benchpreconreuse 1200 6
-      - name: Record indicative timings
-        run: ./build-precon/test/benchpreconreuse 5000 12
+      - name: Record indicative timings for Jacobi
+        run: ./build-precon/test/benchpreconreuse 5000 12 jacobi
+      - name: Verify and time ILU(0) reuse
+        run: |
+          ./build-precon/test/benchpreconreuse 1200 6 ilu
+          ./build-precon/test/benchpreconreuse 5000 12 ilu
