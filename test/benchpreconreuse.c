@@ -4,11 +4,12 @@
  *
  * Valid only for the same unchanged matrix, scale=none, default precision.
  * This is a benchmark, NOT a general-purpose preconditioner cache API.
- * Usage: benchpreconreuse [n=2000] [repetitions=12]
+ * Usage: benchpreconreuse [n=2000] [repetitions=12] [jacobi|ilu]
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 #include "lis.h"
 #include "lis_precon.h"
 
@@ -35,13 +36,23 @@ int main(int argc,char **argv)
     LIS_PRECON precon=NULL;
     LIS_INT n=2000,repetitions=12,i,round,err;
     LIS_INT iter_fresh=0,iter_reuse=0;
+    const char *method=argc>3?argv[3]:"jacobi";
+    const char *options=NULL;
     double fresh_s=0.0,reuse_s=0.0,create_s=0.0,t;
     int failed=0,precon_ownership_uncertain=0;
 
     if(argc>1) n=(LIS_INT)atol(argv[1]);
     if(argc>2) repetitions=(LIS_INT)atol(argv[2]);
-    if(n<4 || n>20000 || repetitions<1 || repetitions>100) {
-        fprintf(stderr,"Usage: %s [n 4..20000] [repetitions 1..100]\n",argv[0]);
+    if(n<4 || n>20000 || repetitions<1 || repetitions>100 || argc>4) {
+        fprintf(stderr,"Usage: %s [n 4..20000] [repetitions 1..100] [jacobi|ilu]\n",argv[0]);
+        return 2;
+    }
+    if(strcmp(method,"jacobi")==0) {
+        options="-i cg -p jacobi -scale none -tol 1.0e-11 -maxiter 200 -print none";
+    } else if(strcmp(method,"ilu")==0) {
+        options="-i bicgstab -p ilu -scale none -tol 1.0e-11 -maxiter 200 -print none";
+    } else {
+        fprintf(stderr,"Unsupported preconditioner: %s\n",method);
         return 2;
     }
 
@@ -78,12 +89,8 @@ int main(int argc,char **argv)
     REQUIRE(lis_solver_create(&reuse));
 
     /* This is the crucial restriction on the benchmark. */
-    REQUIRE(lis_solver_set_option(
-        "-i cg -p jacobi -scale none -tol 1.0e-11 -maxiter 200 -print none",
-        fresh));
-    REQUIRE(lis_solver_set_option(
-        "-i cg -p jacobi -scale none -tol 1.0e-11 -maxiter 200 -print none",
-        reuse));
+    REQUIRE(lis_solver_set_option((char *)options,fresh));
+    REQUIRE(lis_solver_set_option((char *)options,reuse));
     if(fresh->options[LIS_OPTIONS_SCALE]!=LIS_SCALE_NONE ||
        reuse->options[LIS_OPTIONS_SCALE]!=LIS_SCALE_NONE) {
         fprintf(stderr,"Refusing benchmark with in-place scaling enabled\n");
@@ -154,10 +161,10 @@ int main(int argc,char **argv)
         printf("round=%lld iters=%lld verified=1\n",
                (long long)round,(long long)iter_fresh);
     }
-    printf("n=%lld repetitions=%lld fresh_total_s=%.9f "
+    printf("precon=%s n=%lld repetitions=%lld fresh_total_s=%.9f "
            "precon_setup_s=%.9f reuse_kernel_s=%.9f "
            "reuse_total_s=%.9f\n",
-           (long long)n,(long long)repetitions,
+           method,(long long)n,(long long)repetitions,
            fresh_s,create_s,reuse_s,create_s+reuse_s);
     puts("BENCH_PRECON_REUSE_PASSED");
 
