@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'integration/lis-hardening-*'
+      - 'feature/fixed-matrix-preconditioner-reuse-*'
   pull_request:
     paths:
       - 'src/**'
