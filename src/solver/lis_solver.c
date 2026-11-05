@@ -509,6 +509,154 @@ LIS_INT lis_solve(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER solver)
 	return LIS_SUCCESS;
 }
 
+
+/*
+ * Explicit fixed-matrix solve session. The caller promises that A's numeric
+ * coefficients and sparsity pattern do not change between calls to execute().
+ * The matrix and solver must outlive this session; neither is owned here.
+ *
+ * This deliberately supports only the combinations checked in CI. More
+ * general preconditioners may transform A or depend on mutable solver state.
+ */
+struct LIS_SOLVE_REUSE_STRUCT
+{
+	LIS_MATRIX A;
+	LIS_SOLVER solver;
+	LIS_PRECON precon;
+	LIS_INT n,nnz;
+	LIS_INT *ptr,*index;
+	LIS_SCALAR *value;
+	LIS_INT options[LIS_OPTIONS_LEN];
+	LIS_SCALAR params[LIS_PARAMS_LEN];
+};
+
+static LIS_INT lis_solve_reuse_check_options(LIS_MATRIX A, LIS_SOLVER solver)
+{
+	LIS_INT method,precon;
+
+	if( A==NULL || solver==NULL ) return LIS_ERR_ILL_ARG;
+	if( A->status!=LIS_MATRIX_CSR || A->matrix_type!=LIS_MATRIX_CSR )
+		return LIS_ERR_NOT_IMPLEMENTED;
+	/* MPI multi-rank cache correctness has not been validated yet. */
+	if( A->nprocs!=1 ) return LIS_ERR_NOT_IMPLEMENTED;
+	if( solver->setup!=LIS_FALSE ||
+	    solver->options[LIS_OPTIONS_SCALE]!=LIS_SCALE_NONE ||
+	    solver->options[LIS_OPTIONS_PRECISION]!=LIS_PRECISION_DEFAULT ||
+	    solver->options[LIS_OPTIONS_STORAGE]!=0 ||
+	    solver->options[LIS_OPTIONS_ADDS]!=LIS_FALSE ||
+	    solver->options[LIS_OPTIONS_USE_AT]!=LIS_FALSE )
+		return LIS_ERR_NOT_IMPLEMENTED;
+
+	method = solver->options[LIS_OPTIONS_SOLVER];
+	precon = solver->options[LIS_OPTIONS_PRECON];
+	if( (method==LIS_SOLVER_CG && precon==LIS_PRECON_TYPE_JACOBI) ||
+	    (method==LIS_SOLVER_BICGSTAB && precon==LIS_PRECON_TYPE_ILU) )
+		return LIS_SUCCESS;
+	return LIS_ERR_NOT_IMPLEMENTED;
+}
+
+static LIS_INT lis_solve_reuse_check_state(LIS_SOLVE_REUSE ctx)
+{
+	if( ctx==NULL || ctx->A==NULL || ctx->solver==NULL || ctx->precon==NULL )
+		return LIS_ERR_ILL_ARG;
+	if( lis_solve_reuse_check_options(ctx->A,ctx->solver)!=LIS_SUCCESS )
+		return LIS_ERR_NOT_IMPLEMENTED;
+	if( ctx->A->n!=ctx->n || ctx->A->nnz!=ctx->nnz ||
+	    ctx->A->ptr!=ctx->ptr || ctx->A->index!=ctx->index ||
+	    ctx->A->value!=ctx->value )
+		return LIS_ERR_ILL_ARG;
+	if( memcmp(ctx->options,ctx->solver->options,sizeof(ctx->options))!=0 ||
+	    memcmp(ctx->params,ctx->solver->params,sizeof(ctx->params))!=0 )
+		return LIS_ERR_ILL_ARG;
+	return LIS_SUCCESS;
+}
+
+#undef __FUNC__
+#define __FUNC__ "lis_solve_reuse_create"
+LIS_INT lis_solve_reuse_create(LIS_MATRIX A, LIS_SOLVER solver, LIS_SOLVE_REUSE *out)
+{
+	LIS_SOLVE_REUSE ctx;
+	LIS_INT err;
+
+	if( out==NULL ) return LIS_ERR_ILL_ARG;
+	*out = NULL;
+	err = lis_solve_reuse_check_options(A,solver);
+	if( err ) return err;
+
+	ctx = (LIS_SOLVE_REUSE)lis_malloc(sizeof(struct LIS_SOLVE_REUSE_STRUCT),
+	                                "lis_solve_reuse_create::ctx");
+	if( ctx==NULL ) return LIS_OUT_OF_MEMORY;
+	ctx->A = A;
+	ctx->solver = solver;
+	ctx->precon = NULL;
+	ctx->n = A->n;
+	ctx->nnz = A->nnz;
+	ctx->ptr = A->ptr;
+	ctx->index = A->index;
+	ctx->value = A->value;
+
+	solver->A = A;
+	err = lis_precon_create(solver,&ctx->precon);
+	if( err )
+	{
+		/* lis_precon_create has already destroyed its failed allocation. */
+		lis_free(ctx);
+		return err;
+	}
+	memcpy(ctx->options,solver->options,sizeof(ctx->options));
+	memcpy(ctx->params,solver->params,sizeof(ctx->params));
+	*out = ctx;
+	return LIS_SUCCESS;
+}
+
+#undef __FUNC__
+#define __FUNC__ "lis_solve_reuse_execute"
+LIS_INT lis_solve_reuse_execute(LIS_SOLVE_REUSE ctx, LIS_VECTOR b, LIS_VECTOR x)
+{
+	LIS_INT err;
+
+	err = lis_solve_reuse_check_state(ctx);
+	if( err ) return err;
+	if( b==NULL || x==NULL || b->n!=ctx->n || x->n!=ctx->n )
+		return LIS_ERR_ILL_ARG;
+
+	err = lis_solve_kernel(ctx->A,b,x,ctx->solver,ctx->precon);
+	/* solver borrows the cached preconditioner; ctx retains ownership. */
+	ctx->solver->precon = NULL;
+	if( err ) return err;
+	return ctx->solver->retcode;
+}
+
+#undef __FUNC__
+#define __FUNC__ "lis_solve_reuse_refresh"
+LIS_INT lis_solve_reuse_refresh(LIS_SOLVE_REUSE ctx)
+{
+	LIS_PRECON replacement = NULL;
+	LIS_INT err;
+
+	err = lis_solve_reuse_check_state(ctx);
+	if( err ) return err;
+	ctx->solver->A = ctx->A;
+	err = lis_precon_create(ctx->solver,&replacement);
+	if( err ) return err;
+	lis_precon_destroy(ctx->precon);
+	ctx->precon = replacement;
+	ctx->solver->precon = NULL;
+	return LIS_SUCCESS;
+}
+
+#undef __FUNC__
+#define __FUNC__ "lis_solve_reuse_destroy"
+LIS_INT lis_solve_reuse_destroy(LIS_SOLVE_REUSE ctx)
+{
+	if( ctx==NULL ) return LIS_SUCCESS;
+	if( ctx->solver!=NULL && ctx->solver->precon==ctx->precon )
+		ctx->solver->precon = NULL;
+	lis_precon_destroy(ctx->precon);
+	lis_free(ctx);
+	return LIS_SUCCESS;
+}
+
 #undef __FUNC__
 #define __FUNC__ "lis_solve_setup"
 LIS_INT lis_solve_setup(LIS_MATRIX A, LIS_SOLVER solver)
