@@ -754,26 +754,13 @@ LIS_INT lis_matrix_set_value(LIS_INT flag, LIS_INT i, LIS_INT j, LIS_SCALAR valu
 		if( err )
 		{
 			lis_free(A->w_nnz);
+			A->w_nnz = NULL;
 			return err;
 		}
 		A->status  = LIS_MATRIX_ASSEMBLING;
 		A->is_copy = LIS_TRUE;
 	}
-	if( A->w_nnz[i-is]==A->w_row[i-is] )
-	{
-		A->w_nnz[i-is] += A->w_annz;
-		err = lis_matrix_realloc_rco(i-is,A->w_nnz[i-is],&A->w_index,&A->w_value);
-		if( err )
-		{
-			for(k=0;k<n;k++)
-			{
-				lis_free(A->w_index[k]);
-				lis_free(A->w_value[k]);
-			}
-			lis_free2(4,A->w_nnz,A->w_row,A->w_index,A->w_value);
-			return err;
-		}
-	}
+	/* Existing entries do not require more capacity, even if the row is full. */
 	for(k=0;k<A->w_row[i-is];k++)
 	{
 		if( A->w_index[i-is][k]==j ) break;
@@ -791,6 +778,27 @@ LIS_INT lis_matrix_set_value(LIS_INT flag, LIS_INT i, LIS_INT j, LIS_SCALAR valu
 	}
 	else
 	{
+		if( A->w_nnz[i-is]==A->w_row[i-is] )
+		{
+			/* Even a zero-sized preallocation must grow for a new column. */
+			A->w_nnz[i-is] += (A->w_annz>0 ? A->w_annz : 1);
+			err = lis_matrix_realloc_rco(i-is,A->w_nnz[i-is],&A->w_index,&A->w_value);
+			if( err )
+			{
+				for(k=0;k<n;k++)
+				{
+					lis_free(A->w_index[k]);
+					lis_free(A->w_value[k]);
+				}
+				lis_free2(4,A->w_nnz,A->w_row,A->w_index,A->w_value);
+				A->w_nnz   = NULL;
+				A->w_row   = NULL;
+				A->w_index = NULL;
+				A->w_value = NULL;
+				A->status  = LIS_MATRIX_NULL;
+				return err;
+			}
+		}
 		k                   = A->w_row[i-is]++;
 		A->w_index[i-is][k] = j;
 		A->w_value[i-is][k] = value;

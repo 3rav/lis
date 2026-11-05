@@ -1,0 +1,108 @@
+name: LIS integrated hardening validation
+
+on:
+  push:
+    branches:
+      - 'integration/lis-hardening-*'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'test/**'
+      - '.github/workflows/lis-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: serial
+            configure_flags: ''
+            threads: '1'
+          - label: openmp
+            configure_flags: '--enable-omp'
+            threads: '2'
+          - label: 64bit-indices
+            configure_flags: '--enable-longlong'
+            threads: '1'
+    name: Integrated tests (${{ matrix.label }})
+    env:
+      OMP_NUM_THREADS: ${{ matrix.threads }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install autotools and compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Configure and build all LIS tests
+        run: |
+          autoreconf -fiv
+          mkdir build-integration
+          cd build-integration
+          ../configure ${{ matrix.configure_flags }}
+          make -j2
+          make -C test testrcoduplicates bench_rco_csr benchpreconreuse testsolvehistory testpreconownership testscalingoom testmemoryalloc
+      - name: Run regression suite
+        run: |
+          python3 test/testrcoalloc.py
+          ./build-integration/test/testmemoryalloc
+          ./build-integration/test/testrcoduplicates
+          ./build-integration/test/testsolvehistory
+          ./build-integration/test/testpreconownership
+          ./build-integration/test/testscalingoom
+      - name: Compare assembled matrices and reused preconditioners
+        run: |
+          ./build-integration/test/bench_rco_csr 48 2
+          ./build-integration/test/bench_rco_csr 128 3
+          ./build-integration/test/benchpreconreuse 1200 6 jacobi
+          ./build-integration/test/benchpreconreuse 1200 6 ilu
+          ./build-integration/test/benchpreconreuse 5000 12 ilu
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ASAN_OPTIONS: detect_leaks=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install autotools and compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Configure with ASan and UBSan
+        run: |
+          autoreconf -fiv
+          mkdir build-asan
+          cd build-asan
+          ../configure CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined"
+          make -j2
+          make -C test testmemoryalloc
+      - name: Run allocator regression under sanitizers
+        run: ./build-asan/test/testmemoryalloc
+
+  mpi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MPICH and autotools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran mpich libmpich-dev
+      - name: Configure and build MPI
+        run: |
+          autoreconf -fiv
+          mkdir build-mpi
+          cd build-mpi
+          ../configure --enable-mpi CC=mpicc F77=mpif77 FC=mpif90
+          make -j2
+      - name: Test MPI solver on two ranks
+        run: |
+          mpiexec -n 2 ./build-mpi/test/test3 4 4 4 1 /dev/null /dev/null -i cg -p jacobi -tol 1.0e-9 -print none

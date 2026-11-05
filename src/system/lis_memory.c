@@ -97,65 +97,69 @@ void *rpl_malloc( size_t n )
 }
 */
 
-void *lis_malloc( size_t size, char *tag )
+
+/*
+ * Tracked allocations use 16-byte alignment. Publish a pointer in the
+ * allocation list only after both the storage and its metadata exist.
+ */
+static void *lis_alloc_tracked(size_t size, char *tag, int clear)
 {
 	union {
 		void *ptr;
 		unsigned long l;
 	} addr;
 	malloc_address *ma;
-	LIS_INT sz;
+	void *real_address;
 
-	addr.ptr = malloc(size + 16);
+	if( size > (size_t)-1 - 16 ) return NULL;
+	real_address = malloc(size + 16);
+	if( real_address==NULL ) return NULL;
+
 	ma = (malloc_address *)malloc(sizeof(malloc_address));
+	if( ma==NULL )
+	{
+		free(real_address);
+		return NULL;
+	}
+	#ifdef USE_MALLOC_TAG
+	{
+		const char *name = tag ? tag : "";
+		ma->tag = (char *)malloc(strlen(name)+1);
+		if( ma->tag==NULL )
+		{
+			free(ma);
+			free(real_address);
+			return NULL;
+		}
+		strcpy(ma->tag,name);
+	}
+	#else
+	(void)tag;
+	#endif
+
+	addr.ptr = real_address;
+	addr.l += 0xf;
+	addr.l &= ~0xf;
+	ma->address = addr.ptr;
+	ma->real_address = real_address;
+	ma->size = size;
+	if( clear ) memset(addr.ptr,0,size);
+
 	ma->next = &malloc_address_top;
 	ma->prev = malloc_address_top.prev;
 	ma->prev->next = ma;
 	ma->next->prev = ma;
-	ma->real_address = addr.ptr;
-	ma->size = size;
-	addr.l += 0xf;
-	addr.l &= ~0xf;
-	ma->address = addr.ptr;
+	return addr.ptr;
+}
 
-	#ifdef USE_MALLOC_TAG
-		sz = (LIS_INT)strlen(tag);
-		ma->tag = (char *)malloc(sz+1);
-		strcpy(ma->tag,tag);
-	#endif
- 
-  return addr.ptr;
+void *lis_malloc( size_t size, char *tag )
+{
+	return lis_alloc_tracked(size,tag,0);
 }
 
 void *lis_calloc( size_t size, char *tag )
 {
-  union {
-    void *ptr;
-    unsigned long l;
-  } addr;
-  malloc_address *ma;
-  LIS_INT sz;
-
-	addr.ptr = malloc(size + 16);
-	ma = (malloc_address *)malloc(sizeof(malloc_address));
-	ma->next = &malloc_address_top;
-	ma->prev = malloc_address_top.prev;
-	ma->prev->next = ma;
-	ma->next->prev = ma;
-	ma->real_address = addr.ptr;
-	ma->size = size;
-	addr.l += 0xf;
-	addr.l &= ~0xf;
-	ma->address = addr.ptr;
-	memset(addr.ptr,0,size);
-
-	#ifdef USE_MALLOC_TAG
-		sz = (LIS_INT)strlen(tag);
-		ma->tag = (char *)malloc(sz+1);
-		strcpy(ma->tag,tag);
-	#endif
-
-  return addr.ptr;
+	return lis_alloc_tracked(size,tag,1);
 }
 
 void *lis_realloc( void *p, size_t size )
@@ -165,34 +169,36 @@ void *lis_realloc( void *p, size_t size )
 		unsigned long l;
 	} addr;
 	malloc_address *ma;
-	size_t old_size;
-	void *real_address,*address;
+	void *real_address;
+	size_t copy_size;
 
 	ma = malloc_address_top.next;
 	while (ma->address)
 	{
-	    if (ma->address == p) break;
+		if (ma->address == p) break;
 		ma = ma->next;
 	}
 	if (ma->address)
 	{
-		old_size       = ma->size;
-		addr.ptr       = malloc(size + 16);
-		real_address   = addr.ptr;
-		addr.l        += 0xf;
-		addr.l        &= ~0xf;
-		address        = addr.ptr;
+		/* Preserve the original tracked allocation on failure. */
+		if( size > (size_t)-1 - 16 ) return NULL;
+		real_address = malloc(size + 16);
+		if( real_address==NULL ) return NULL;
+		addr.ptr = real_address;
+		addr.l += 0xf;
+		addr.l &= ~0xf;
 
-		memcpy(address,p,old_size);
+		copy_size = ma->size < size ? ma->size : size;
+		memcpy(addr.ptr,p,copy_size);
 		free(ma->real_address);
 
-		ma->address      = address;
+		ma->address      = addr.ptr;
 		ma->real_address = real_address;
 		ma->size         = size;
-		return address;
+		return addr.ptr;
 	}
-	address = realloc(p,size);
-	return address;
+	/* Preserve standard realloc behaviour for untracked pointers. */
+	return realloc(p,size);
 }
 
 void lis_free(void *p)

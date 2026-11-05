@@ -494,12 +494,16 @@ LIS_INT lis_solve(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER solver)
 	err = lis_solve_kernel(A, b, x, solver, precon);
 	if( err )
 	{
-		lis_solver_work_destroy(solver);	  
+		lis_solver_work_destroy(solver);
+		/* lis_solve() owns the preconditioner, including on kernel failure. */
+		lis_precon_destroy(precon);
+		solver->precon = NULL;
 		solver->retcode = err;
 		return err;
 	}
 
 	lis_precon_destroy(precon);
+	solver->precon = NULL;
 
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_SUCCESS;
@@ -696,15 +700,14 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 		#endif
 	}
 
-	/* create residual history vector */
-	if( solver->rhistory ) lis_free(solver->rhistory);
+	/* Keep the previous history until a replacement is available. */
 	rhistory = (LIS_REAL *)lis_malloc((maxiter+2)*sizeof(LIS_REAL),"lis_solve::rhistory");
 	if( rhistory==NULL )
 	{
-		LIS_SETERR_MEM((maxiter+2)*sizeof(LIS_SCALAR));
+		LIS_SETERR_MEM((maxiter+2)*sizeof(LIS_REAL));
 		lis_vector_destroy(xx);
-		solver->retcode = err;
-		return err;
+		solver->retcode = LIS_OUT_OF_MEMORY;
+		return LIS_OUT_OF_MEMORY;
 	}
 	rhistory[0] = 1.0;
 
@@ -722,7 +725,7 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 			err = lis_vector_duplicate(A,&solver->d);
 			if( err )
 			{
-				return err;
+				goto scaling_allocation_failed;
 			}
 		}
 		if( !A->is_scaled )
@@ -751,7 +754,7 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 			err = lis_vector_duplicate(A,&solver->d);
 			if( err )
 			{
-				return err;
+				goto scaling_allocation_failed;
 			}
 		}
 		if( !A->is_scaled )
@@ -801,7 +804,7 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 				err = lis_vector_duplicate(A,&solver->d);
 				if( err )
 				{
-					return err;
+					goto scaling_allocation_failed;
 				}
 			}
 			if( scale==LIS_SCALE_JACOBI && nsolver==LIS_SOLVER_CG )
@@ -945,7 +948,10 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 	if( err )
 	{
 		lis_vector_destroy(xx);
-		lis_precon_destroy(precon);
+		lis_free(rhistory);
+		/* A failing allocator may have created only some work vectors. */
+		lis_solver_work_destroy(solver);
+		/* The caller owns precon: never destroy a borrowed object here. */
 		solver->retcode = err;
 		return err;
 	}
@@ -961,6 +967,11 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 	solver->x        = xx;
 	solver->xx       = x;
 	solver->precon   = precon;
+	/* Keep only the most recent residual history across repeated solves. */
+	if( solver->rhistory!=NULL )
+	{
+		lis_free(solver->rhistory);
+	}
 	solver->rhistory = rhistory;
 
 	/* Do not call lis_solve_execute if solver->setup is true. 
@@ -1066,6 +1077,13 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_SUCCESS;
+
+scaling_allocation_failed:
+	/* xx and rhistory were already allocated before scalar scaling setup. */
+	lis_vector_destroy(xx);
+	lis_free(rhistory);
+	solver->retcode = err;
+	return err;
 }
 
 #undef __FUNC__

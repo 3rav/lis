@@ -1,0 +1,59 @@
+name: Repeated solver history regression
+
+on:
+  pull_request:
+    paths:
+      - 'src/solver/lis_solver.c'
+      - 'test/testsolvehistory.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/solver-history.yml'
+  push:
+    branches:
+      - 'fix/solver-history-reuse-*'
+    paths:
+      - 'src/solver/lis_solver.c'
+      - 'test/testsolvehistory.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/solver-history.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: serial
+            configure_flags: ''
+            threads: '1'
+          - label: openmp
+            configure_flags: '--enable-omp'
+            threads: '2'
+          - label: longlong
+            configure_flags: '--enable-longlong'
+            threads: '1'
+    name: Repeated solves (${{ matrix.label }})
+    env:
+      OMP_NUM_THREADS: ${{ matrix.threads }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Generate build files
+        run: autoreconf -fiv
+      - name: Configure and compile
+        run: |
+          mkdir build-history
+          cd build-history
+          ../configure ${{ matrix.configure_flags }}
+          make -j2
+          make -C test testsolvehistory
+      - name: Verify numeric result and absence of stale history allocations
+        run: ./build-history/test/testsolvehistory
