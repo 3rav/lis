@@ -1354,10 +1354,10 @@ static int lis_krylov_symmetric_core(lis_krylov_workspace *reuse,
                     /* A repeated finite eigenvalue with a semidefinite
                      * metric may lose its final independent direction
                      * after repeated scalar-seed restarts. Enrich the
-                     * existing fixed-size subspace only on stagnation;
+                     * existing fixed-size subspace after sustained stagnation;
                      * do not relax the residual tolerance or ncv limit. */
                     if (!extra && o->allow_semidefinite_metric &&
-                        stalled_restarts >= 1 && stats->nconv < nev)
+                        stalled_restarts >= 8 && stats->nconv < nev)
                         extra = 1;
                     if (extra) {
                         int added = append_extra_seeds(
