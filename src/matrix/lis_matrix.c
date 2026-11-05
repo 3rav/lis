@@ -780,7 +780,8 @@ LIS_INT lis_matrix_set_value(LIS_INT flag, LIS_INT i, LIS_INT j, LIS_SCALAR valu
 	{
 		if( A->w_nnz[i-is]==A->w_row[i-is] )
 		{
-			A->w_nnz[i-is] += A->w_annz;
+			/* Even a zero-sized preallocation must grow for a new column. */
+			A->w_nnz[i-is] += (A->w_annz>0 ? A->w_annz : 1);
 			err = lis_matrix_realloc_rco(i-is,A->w_nnz[i-is],&A->w_index,&A->w_value);
 			if( err )
 			{
