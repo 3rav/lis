@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include "lis.h"
+#include "lis_precon.h"
 
 static int check_solution(LIS_VECTOR x,LIS_VECTOR expected)
 {
