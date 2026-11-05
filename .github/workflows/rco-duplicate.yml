@@ -1,0 +1,59 @@
+name: RCO duplicate-update regression
+
+on:
+  pull_request:
+    paths:
+      - 'src/matrix/lis_matrix.c'
+      - 'test/testrcoduplicates.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/rco-duplicate.yml'
+  push:
+    branches:
+      - 'perf/rco-duplicate-update-*'
+    paths:
+      - 'src/matrix/lis_matrix.c'
+      - 'test/testrcoduplicates.c'
+      - 'test/Makefile.am'
+      - '.github/workflows/rco-duplicate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: serial
+            configure_flags: ''
+            threads: '1'
+          - label: openmp
+            configure_flags: '--enable-omp'
+            threads: '2'
+          - label: longlong
+            configure_flags: '--enable-longlong'
+            threads: '1'
+    name: RCO duplicate test (${{ matrix.label }})
+    env:
+      OMP_NUM_THREADS: ${{ matrix.threads }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin pkg-config gfortran
+      - name: Generate autotools inputs
+        run: autoreconf -fiv
+      - name: Configure and build
+        run: |
+          mkdir build-duplicate
+          cd build-duplicate
+          ../configure ${{ matrix.configure_flags }}
+          make -j2
+          make -C test testrcoduplicates
+      - name: Run RCO duplicate regression
+        run: ./build-duplicate/test/testrcoduplicates
