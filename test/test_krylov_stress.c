@@ -83,6 +83,8 @@ static int run_case(const char *name, int repeated, int ncv,
     problem.solve = solve_shifted;
     lis_krylov_options_default(&options);
     options.nev = NEV;
+    if (getenv("LIS_STRESS_NCV"))
+        ncv = atoi(getenv("LIS_STRESS_NCV"));
     options.ncv = ncv;
     options.maxiter = getenv("LIS_STRESS_MAXITER") ?
                       atoi(getenv("LIS_STRESS_MAXITER")) : 600;
@@ -90,10 +92,25 @@ static int run_case(const char *name, int repeated, int ncv,
     options.initial_vector = start;
     options.random_seed = seed;
     options.allow_semidefinite_metric = 1;
-    options.hard_locking = hard_locking;
+    options.hard_locking = getenv("LIS_STRESS_HARDLOCK") ?
+                           atoi(getenv("LIS_STRESS_HARDLOCK")) :
+                           hard_locking;
 
-    status = lis_krylov_symmetric(&problem, &options, values, vectors,
-                                  residuals, &stats);
+    if (getenv("LIS_STRESS_DIRECTIONS") ||
+        getenv("LIS_STRESS_ADAPTIVE")) {
+        lis_krylov_ext_options ext;
+        lis_krylov_ext_options_default(&ext);
+        if (getenv("LIS_STRESS_DIRECTIONS"))
+            ext.restart_directions = atoi(getenv("LIS_STRESS_DIRECTIONS"));
+        if (getenv("LIS_STRESS_ADAPTIVE"))
+            ext.adaptive_ncv = atoi(getenv("LIS_STRESS_ADAPTIVE"));
+        status = lis_krylov_symmetric_ex(&problem, &options, &ext, NULL,
+                                        values, vectors, residuals,
+                                        &stats, NULL);
+    } else {
+        status = lis_krylov_symmetric(&problem, &options, values, vectors,
+                                      residuals, &stats);
+    }
     if (status != LIS_KRYLOV_SUCCESS || stats.nconv != NEV ||
         stats.nreturned != NEV) {
         fprintf(stderr, "FAIL %s status=%d converged=%d returned=%d "
