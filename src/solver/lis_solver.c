@@ -696,15 +696,14 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 		#endif
 	}
 
-	/* create residual history vector */
-	if( solver->rhistory ) lis_free(solver->rhistory);
+	/* Keep the previous history until a replacement is available. */
 	rhistory = (LIS_REAL *)lis_malloc((maxiter+2)*sizeof(LIS_REAL),"lis_solve::rhistory");
 	if( rhistory==NULL )
 	{
-		LIS_SETERR_MEM((maxiter+2)*sizeof(LIS_SCALAR));
+		LIS_SETERR_MEM((maxiter+2)*sizeof(LIS_REAL));
 		lis_vector_destroy(xx);
-		solver->retcode = err;
-		return err;
+		solver->retcode = LIS_OUT_OF_MEMORY;
+		return LIS_OUT_OF_MEMORY;
 	}
 	rhistory[0] = 1.0;
 
