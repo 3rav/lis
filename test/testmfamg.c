@@ -2592,7 +2592,9 @@ check_mfamg_multivector_psd_value_rebuild(void)
     {
         exact->value[i]=(LIS_SCALAR)(0.5+0.015*(i%9));
         z0->value[i]=(LIS_SCALAR)1.0;
-        z1->value[i]=(LIS_SCALAR)((double)i/(double)(A[0]->n-1)-0.5);
+        /* Distinct globally, but rank one on adjacent strong pairs. */
+        z1->value[i]=(LIS_SCALAR)((double)(i/2)/
+                                   (double)(A[0]->n/2-1)-0.5);
     }
     basis[0]=z0;
     basis[1]=z1;
