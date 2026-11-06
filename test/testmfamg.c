@@ -2524,6 +2524,9 @@ cleanup:
 
 
 
+/* Existing test CSR helper is defined in the PSD lifecycle section below. */
+static LIS_INT create_scaled_csr(LIS_SCALAR scale, LIS_MATRIX *A);
+
 /*
  * With more than one near-nullspace vector, the current MFAMG PSD update
  * must transactionally rebuild the hierarchy, not re-use stale scalar
