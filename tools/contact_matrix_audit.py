@@ -189,6 +189,10 @@ def audit(matrix_path, rhs_path=None, initial_path=None, solution_path=None,
             diag[i] = value
         difference = value - matrix.get((j, i), 0.0)
         numerator += difference * difference
+        # A-A^T is a full matrix: when (j,i) is absent, account for
+        # its implicit counterpart as well as the stored (i,j) entry.
+        if i != j and (j, i) not in matrix:
+            numerator += value * value
     if not math.isfinite(numerator) or not math.isfinite(denominator):
         raise ValueError("matrix norms overflowed")
     inf_norm = max(row_norm)
