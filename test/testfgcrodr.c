@@ -238,6 +238,46 @@ check_profile_replacement_solve(void)
             goto fail;
         }
 
+        /*
+         * A second application of the identical effective profile must not
+         * clear a recycle space just constructed by this real solve.
+         */
+        {
+            LIS_INT valid_after,dim_after;
+            err=lis_fgcrodr_get_lifecycle_state(
+                solver,&valid,NULL,NULL,NULL);
+            if(err) goto fail;
+            changed=-1;
+            err=lis_solver_set_option_replace_if_changed(
+                profiles[phase],solver,&changed);
+            if(err || changed!=LIS_FALSE ||
+               solver->fgcrodr_state!=private_state)
+            {
+                fprintf(stderr,
+                    "FGCRO-DR profile solve: equivalent profile reset state\n");
+                err=LIS_BREAKDOWN;
+                goto fail;
+            }
+            err=lis_fgcrodr_get_lifecycle_state(
+                solver,&valid_after,NULL,NULL,NULL);
+            if(err || valid_after!=valid)
+            {
+                fprintf(stderr,
+                    "FGCRO-DR profile solve: no-op invalidated recycle\n");
+                err=LIS_BREAKDOWN;
+                goto fail;
+            }
+            err=lis_solver_get_fgcrodr_recycle(
+                solver,&dim_after,NULL,NULL,NULL);
+            if(err || dim_after!=dim)
+            {
+                fprintf(stderr,
+                    "FGCRO-DR profile solve: no-op changed recycle dimension\n");
+                err=LIS_BREAKDOWN;
+                goto fail;
+            }
+        }
+
         printf(
             "FGCRODR_PROFILE_SOLVE k=%d recycle_dim=%d true_resid=%.3e\n",
             (int)k,(int)dim,(double)(rn/bn));
