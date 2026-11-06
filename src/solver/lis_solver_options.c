@@ -59,6 +59,15 @@ lis_solver_set_option_replace(
         return err;
     }
 
+    /* Allocate FGCRO-DR's private configuration state before any profile
+     * reset or mutation, so allocation failure leaves the profile intact. */
+    err = lis_fgcrodr_profile_prepare(solver,fresh);
+    if(err)
+    {
+        lis_solver_destroy(fresh);
+        return err;
+    }
+
     /*
      * A complete option-profile change invalidates solve-dependent sequence
      * state.  lis_solver_reset_sequence() intentionally preserves application
@@ -81,6 +90,14 @@ lis_solver_set_option_replace(
 
     for(i=0;i<LIS_PARAMS_LEN;i++)
         solver->params[i] = fresh->params[i];
+
+    /* Copy four FGCRO-DR settings only, never the owned recycle vectors. */
+    err = lis_fgcrodr_profile_copy(solver,fresh);
+    if(err)
+    {
+        lis_solver_destroy(fresh);
+        return err;
+    }
 
     solver->precision = solver->options[LIS_OPTIONS_PRECISION];
     solver->setup = LIS_FALSE;
@@ -171,6 +188,9 @@ lis_solver_set_option_replace_if_changed(
             }
         }
     }
+
+    if(!different && !lis_fgcrodr_profile_equal(solver,fresh))
+        different = LIS_TRUE;
 
     lis_solver_destroy(fresh);
 
