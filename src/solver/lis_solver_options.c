@@ -60,6 +60,18 @@ lis_solver_set_option_replace(
     }
 
     /*
+     * FGCRO-DR config may require an owned state allocation.  Do that before
+     * resetting or changing any active solver-profile setting, so an OOM
+     * cannot partially replace the installed profile.
+     */
+    err = lis_fgcrodr_profile_prepare(solver,fresh);
+    if(err)
+    {
+        lis_solver_destroy(fresh);
+        return err;
+    }
+
+    /*
      * A complete option-profile change invalidates solve-dependent sequence
      * state.  lis_solver_reset_sequence() intentionally preserves application
      * callbacks, nullspace configuration, sequence policy and thread override.
@@ -86,6 +98,13 @@ lis_solver_set_option_replace(
     solver->recycle_target_dim = fresh->recycle_target_dim;
     solver->recycle_keep_threshold = fresh->recycle_keep_threshold;
     solver->recycle_reject_threshold = fresh->recycle_reject_threshold;
+
+    err = lis_fgcrodr_profile_copy(solver,fresh);
+    if(err)
+    {
+        lis_solver_destroy(fresh);
+        return err;
+    }
 
     solver->precision = solver->options[LIS_OPTIONS_PRECISION];
     solver->setup = LIS_FALSE;
@@ -182,6 +201,10 @@ lis_solver_set_option_replace_if_changed(
        (solver->recycle_target_dim!=fresh->recycle_target_dim ||
         solver->recycle_keep_threshold!=fresh->recycle_keep_threshold ||
         solver->recycle_reject_threshold!=fresh->recycle_reject_threshold))
+        different = LIS_TRUE;
+
+    /* Compare only FGCRO-DR configuration, not owned recycle buffers. */
+    if(!different && !lis_fgcrodr_profile_equal(solver,fresh))
         different = LIS_TRUE;
 
     lis_solver_destroy(fresh);
