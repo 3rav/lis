@@ -277,6 +277,10 @@ extern "C"
         extern LIS_INT lis_fgcrodr_malloc_work(LIS_SOLVER solver);
         extern LIS_INT lis_fgcrodr_clear_recycle(LIS_SOLVER solver);
         extern LIS_INT lis_fgcrodr_state_destroy(LIS_SOLVER solver);
+        /* Private option-profile helpers: configuration only, no vector copies. */
+        extern LIS_INT lis_fgcrodr_profile_equal(LIS_SOLVER active,LIS_SOLVER fresh);
+        extern LIS_INT lis_fgcrodr_profile_prepare(LIS_SOLVER active,LIS_SOLVER fresh);
+        extern LIS_INT lis_fgcrodr_profile_copy(LIS_SOLVER active,LIS_SOLVER fresh);
         extern LIS_INT lis_fgcrodr_validate_recycle(
                 LIS_SOLVER solver, LIS_REAL *orth_error,
                 LIS_REAL *relation_error);
