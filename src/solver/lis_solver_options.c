@@ -91,6 +91,12 @@ lis_solver_set_option_replace(
     for(i=0;i<LIS_PARAMS_LEN;i++)
         solver->params[i] = fresh->params[i];
 
+    /* Independently parsed solver profile values outside options[] / params[]. */
+    solver->mfamg_block_size = fresh->mfamg_block_size;
+    solver->recycle_target_dim = fresh->recycle_target_dim;
+    solver->recycle_keep_threshold = fresh->recycle_keep_threshold;
+    solver->recycle_reject_threshold = fresh->recycle_reject_threshold;
+
     /* Copy four FGCRO-DR settings only, never the owned recycle vectors. */
     err = lis_fgcrodr_profile_copy(solver,fresh);
     if(err)
@@ -188,6 +194,13 @@ lis_solver_set_option_replace_if_changed(
             }
         }
     }
+
+    if(!different &&
+       (solver->mfamg_block_size!=fresh->mfamg_block_size ||
+        solver->recycle_target_dim!=fresh->recycle_target_dim ||
+        solver->recycle_keep_threshold!=fresh->recycle_keep_threshold ||
+        solver->recycle_reject_threshold!=fresh->recycle_reject_threshold))
+        different = LIS_TRUE;
 
     if(!different && !lis_fgcrodr_profile_equal(solver,fresh))
         different = LIS_TRUE;
