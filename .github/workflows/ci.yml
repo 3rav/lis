@@ -55,6 +55,17 @@ jobs:
       - name: Run Automake test suite
         run: make -j2 check
 
+      - name: Smoke-test portable LIS Matrix Market snapshot exporter
+        run: |
+          ./test/testsnapshot exported-fea-system
+          python3 - <<'PY'
+          from pathlib import Path
+          for suffix in ("A", "b", "x0", "x", "B"):
+              p = Path("exported-fea-system_" + suffix + ".mtx")
+              assert p.is_file() and p.read_text().startswith("%%MatrixMarket matrix ")
+              p.unlink()
+          PY
+
       - name: Smoke-test opt-in MFAMG contact diagnostics
         run: |
           set -o pipefail
