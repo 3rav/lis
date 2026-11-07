@@ -97,6 +97,8 @@ struct LIS_MFAMG_STRUCT
     LIS_INT vcycle_smooth_steps;
     LIS_INT vcycle_diag_once;
     LIS_INT vcycle_diag_calls;
+    LIS_INT vcycle_trace;
+    LIS_INT vcycle_apply_calls;
     struct LIS_MFAMG_LEVEL *levels;
     struct LIS_MFAMG_STAR_SOLVER *star;
 
@@ -13433,6 +13435,7 @@ lis_precon_create_mfamg(
     {
         const char *steps=getenv("LIS_MFAMG_VCYCLE_SMOOTH_STEPS");
         const char *diag=getenv("LIS_MFAMG_VCYCLE_DIAG");
+        const char *trace=getenv("LIS_MFAMG_VCYCLE_TRACE");
         if(steps!=NULL)
         {
             if(strcmp(steps,"2")==0) state->vcycle_smooth_steps=2;
@@ -13440,12 +13443,16 @@ lis_precon_create_mfamg(
         }
         state->vcycle_diag_once =
             diag!=NULL && strcmp(diag,"1")==0;
-        if(state->vcycle_smooth_steps>1 || state->vcycle_diag_once)
+        state->vcycle_trace =
+            trace!=NULL && strcmp(trace,"1")==0;
+        if(state->vcycle_smooth_steps>1 || state->vcycle_diag_once ||
+           state->vcycle_trace)
             fprintf(stderr,
-                "LIS_MFAMG_VCYCLE_CONFIG pre=%d post=%d diag_first=%d\n",
+                "LIS_MFAMG_VCYCLE_CONFIG pre=%d post=%d diag_first=%d trace=%d\n",
                 (int)state->vcycle_smooth_steps,
                 (int)state->vcycle_smooth_steps,
-                (int)state->vcycle_diag_once);
+                (int)state->vcycle_diag_once,
+                (int)state->vcycle_trace);
     }
 
     state->levels =
@@ -14870,17 +14877,25 @@ lis_psolve_mfamg(
 
 
     /*
-     * Diagnose ONE actual Krylov preconditioning call: ||b-A*M^-1*b||/||b||.
-     * This measures a one-cycle defect, not the FGMRES true residual.
-     * The existing level-zero ax buffer is reused AFTER V-cycle finishes.
+     * Opt-in V-cycle defect ||b-A*M^-1*b||/||b||.
+     * V3: once on the first call. V4: additionally sample preconditioner
+     * calls 1,2,4,...,256,512,... and 500. No extra matvec otherwise.
+     * Reuse level-zero ax only after the complete V-cycle has finished.
+     * Each new MFAMG state starts its own call counter.
      */
-    if(state->vcycle_diag_once && !state->vcycle_diag_calls &&
-       state->levels[0].A->nprocs==1)
+    state->vcycle_apply_calls++;
+    if(state->levels[0].A->nprocs==1 &&
+       ((state->vcycle_diag_once && !state->vcycle_diag_calls) ||
+        (state->vcycle_trace &&
+         (state->vcycle_apply_calls==500 ||
+          ((state->vcycle_apply_calls &
+            (state->vcycle_apply_calls-1))==0)))))
     {
         LIS_INT i,diag_err;
+        LIS_INT diag_call=state->vcycle_apply_calls;
         LIS_REAL bn2=0.0,rn2=0.0,bi,ri;
         LIS_VECTOR ax=state->levels[0].ax;
-        state->vcycle_diag_calls=1;
+        state->vcycle_diag_calls++;
         diag_err=(ax!=NULL)
             ? lis_matvec(state->levels[0].A,x,ax)
             : LIS_ERR_ILL_ARG;
@@ -14899,9 +14914,10 @@ lis_psolve_mfamg(
                 rn2+=ri*ri;
             }
             fprintf(stderr,
-                "LIS_MFAMG_VCYCLE_DIAG call=1 n=%d smooth=%d "
+                "LIS_MFAMG_VCYCLE_DIAG call=%d n=%d smooth=%d "
                 "rhs_norm=%.9e defect_norm=%.9e rel_defect=%.9e\n",
-                (int)rhs->n,(int)state->vcycle_smooth_steps,
+                (int)diag_call,(int)rhs->n,
+                (int)state->vcycle_smooth_steps,
                 (double)sqrt(bn2),(double)sqrt(rn2),
                 (double)(bn2>0.0 ? sqrt(rn2/bn2) :
                           (rn2==0.0 ? 0.0 : HUGE_VAL)));
@@ -14909,8 +14925,8 @@ lis_psolve_mfamg(
         else
         {
             fprintf(stderr,
-                "LIS_MFAMG_VCYCLE_DIAG call=1 unavailable rc=%d\n",
-                (int)diag_err);
+                "LIS_MFAMG_VCYCLE_DIAG call=%d unavailable rc=%d\n",
+                (int)diag_call,(int)diag_err);
         }
     }
 
