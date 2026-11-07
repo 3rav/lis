@@ -13463,13 +13463,30 @@ lis_precon_create_mfamg(
     }
 
 
-    err =
-        lis_mfamg_build_aggregates(
-            A,
-            level,
-            max_row_nnz,
-            cols,
-            vals);
+    /*
+     * Diagnostic experiment: permit a larger first-level aggregate for
+     * multivector near-nullspaces.  The default remains exactly the
+     * historical two-unknown aggregation; opt in explicitly per process.
+     * The size expression is bounded by A->n without integer overflow.
+     */
+    {
+        const char *experiment =
+            getenv("LIS_MFAMG_EXPERIMENT_FINE_AGG");
+        LIS_INT target = 2;
+
+        if(mode_count>1 && experiment!=NULL &&
+           strcmp(experiment,"1")==0)
+        {
+            target = (mode_count>A->n/2) ? A->n : 2*mode_count;
+        }
+
+        if(target==2)
+            err = lis_mfamg_build_aggregates(
+                A,level,max_row_nnz,cols,vals);
+        else
+            err = lis_mfamg_build_aggregates_sized(
+                A,level,target,max_row_nnz,cols,vals);
+    }
 
     if(err)
     {

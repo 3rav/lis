@@ -128,6 +128,10 @@ testhalfilut_SOURCES = testhalfilut.c
 testsnapshot_SOURCES = testsnapshot.c
 testmfamg_SOURCES = testmfamg.c
 testmfamggalerkin_SOURCES = testmfamggalerkin.c
+# Opt-in first-level multivector aggregation regression.
+test_PROGRAMS += testmfamgfineagg
+TESTS += testmfamgfineagg$(EXEEXT)
+testmfamgfineagg_SOURCES = testmfamgfineagg.c
 getestuser_SOURCES = getestuser.c
 testoperator_SOURCES = testoperator.c
 testdiagonal_SOURCES = testdiagonal.c
