@@ -163,7 +163,7 @@ finish:
     remove(name);
     snprintf(name,sizeof(name),"%s_x.mtx",prefix);
     remove(name);
-    snprintf(name,sizeof(name),"%s_B.mtx",prefix);
+    snprintf(name,sizeof(name),"%s_modes.mtx",prefix);
     remove(name);
     if(A) lis_matrix_destroy(A);
     return failed;
