@@ -52,21 +52,37 @@ static int check_matrix(const char *prefix)
 
 static int check_vector(const char *prefix,const char *suffix,int cols)
 {
-    char name[512],header[128];
+    char name[512],header[128],dimensions[128];
+    char *end,*after;
     FILE *f;
-    long long n,k;
+    long long n=-1,k=-1;
     double value;
     int i;
     snprintf(name,sizeof(name),"%s_%s.mtx",prefix,suffix);
     f=fopen(name,"r");
     if(!f) return 1;
     header[0]='\0';
+    dimensions[0]='\0';
     if(!fgets(header,sizeof(header),f) ||
        !header_matches(header,"%%MatrixMarket matrix array real general") ||
-       fscanf(f,"%lld %lld",&n,&k)!=2 ||
-       n!=2 || k!=cols)
+       !fgets(dimensions,sizeof(dimensions),f))
     {
-        fprintf(stderr,"snapshot vector '%s' header/dimension mismatch, header='%s'\n",suffix,header);
+        fprintf(stderr,"snapshot vector '%s' header/dimension unreadable, header='%s'\n",suffix,header);
+        fclose(f);
+        return 1;
+    }
+    n=strtoll(dimensions,&end,10);
+    if(end==dimensions)
+    {
+        fprintf(stderr,"snapshot vector '%s' invalid row: '%s'\n",suffix,dimensions);
+        fclose(f);
+        return 1;
+    }
+    k=strtoll(end,&after,10);
+    if(after==end || n!=2 || k!=cols)
+    {
+        fprintf(stderr,"snapshot vector '%s' dimensions mismatch: raw='%s' parsed=%lld,%lld expected=2,%d\n",
+                suffix,dimensions,n,k,cols);
         fclose(f);
         return 1;
     }
@@ -221,7 +237,7 @@ fail:
     failed=1;
 
 finish:
-    if(!keep || failed) cleanup(prefix);
+    if(!keep && !failed) cleanup(prefix);
     if(z1) lis_vector_destroy(z1);
     if(z0) lis_vector_destroy(z0);
     if(x) lis_vector_destroy(x);
