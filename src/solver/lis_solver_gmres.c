@@ -1490,6 +1490,7 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 	LIS_REAL bnrm2,nrm2,tol,min_nrm2;
 	LIS_INT err,iter,maxiter,output,maxiter_noimp,noimp_count,candidate;
      LIS_INT noimp_stop;
+     LIS_INT trace_enabled,trace_cycle;
 	double time,ptime;
 
 	LIS_REAL rnorm;
@@ -1512,6 +1513,8 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 	noimp_count   = 0;
 	min_nrm2      = LIS_SCALAR_MAX;
      noimp_stop    = LIS_FALSE;
+     trace_enabled = LIS_FALSE;
+     trace_cycle   = 0;
 	h_dim   = m+1;
 	ptime   = 0.0;
 
@@ -1533,10 +1536,25 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 	tol     = solver->tol;
 	rnorm   = 1.0/bnrm2;
 
+    /*
+     * Optional v4 FGMRES progress/restart diagnostic. The true residual
+     * is already computed at restart; tracing does not add any matvec.
+     * No changes to convergence, restarts, or arithmetic when disabled.
+     */
+    {
+        const char *trace=getenv("LIS_FGMRES_TRACE");
+        trace_enabled=(trace!=NULL && strcmp(trace,"1")==0 &&
+                       A->nprocs==1);
+        if(trace_enabled)
+            fprintf(stderr,
+                "LIS_FGMRES_TRACE_CONFIG restart=%d maxiter=%d tol=%.9e\n",
+                (int)m,(int)maxiter,(double)tol);
+    }
 
 	iter=0;
 	while( iter<maxiter )
 	{
+        trace_cycle++;
 		candidate = LIS_FALSE;
 		/* first column of V */
 		/* v = r / ||r||_2 */
@@ -1632,6 +1650,11 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 
 			/* convergence check */
 			nrm2 = fabs(s->value[i1]);
+            if(trace_enabled &&
+               (iter==500 || (iter>0 && (iter & (iter-1))==0)))
+                fprintf(stderr,
+                    "LIS_FGMRES_TRACE_ITER cycle=%d iter=%d inner=%d projected=%.9e\n",
+                    (int)trace_cycle,(int)iter,(int)i,(double)nrm2);
 
 			if( output )
 			{
@@ -1716,6 +1739,10 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 		 */
 		if( noimp_stop )
 		{
+            if(trace_enabled)
+                fprintf(stderr,
+                    "LIS_FGMRES_TRACE_STOP cycle=%d iter=%d projected=%.9e reason=no_improvement\n",
+                    (int)trace_cycle,(int)iter,(double)nrm2);
 			solver->retcode = LIS_MAXITER;
 			solver->iter = iter;
 			solver->resid = nrm2;
@@ -1733,6 +1760,17 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 		lis_matvec(A,x,v[0]);
 		lis_vector_xpay(b,-1.0,v[0]);
 		lis_vector_nrm2(v[0],&rnorm);
+        if(trace_enabled)
+        {
+            LIS_REAL true_rel=rnorm*solver->bnrm;
+            fprintf(stderr,
+                "LIS_FGMRES_TRACE_RESTART cycle=%d iter=%d projected=%.9e true=%.9e ratio=%.9e tol=%.9e\n",
+                (int)trace_cycle,(int)iter,(double)nrm2,
+                (double)true_rel,
+                (double)(nrm2>0.0 ? true_rel/nrm2 :
+                         (true_rel==0.0 ? 1.0 : HUGE_VAL)),
+                (double)tol);
+        }
 
 		if( candidate )
 		{
