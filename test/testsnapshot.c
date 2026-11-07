@@ -81,6 +81,66 @@ static void cleanup(const char *prefix)
     }
 }
 
+/* A non-CalculiX USER matrix with a generic row callback. */
+static LIS_INT user_matvec(void *userdata,const LIS_SCALAR *x,LIS_SCALAR *y)
+{
+    (void)userdata;
+    y[0]=(LIS_SCALAR)4.0*x[0]-x[1];
+    y[1]=-x[0]+(LIS_SCALAR)3.0*x[1];
+    return LIS_SUCCESS;
+}
+static LIS_INT user_row(void *userdata,LIS_INT row,LIS_INT *nnz,
+                        LIS_INT *cols,LIS_SCALAR *vals)
+{
+    (void)userdata;
+    if(row<0 || row>1 || nnz==NULL) return LIS_ERR_ILL_ARG;
+    if(cols==NULL && vals==NULL)
+    {
+        *nnz=2;
+        return LIS_SUCCESS;
+    }
+    if(cols==NULL || vals==NULL || *nnz<2) return LIS_ERR_ILL_ARG;
+    cols[0]=0;
+    cols[1]=1;
+    vals[0]=(row==0)?(LIS_SCALAR)4.0:(LIS_SCALAR)-1.0;
+    vals[1]=(row==0)?(LIS_SCALAR)-1.0:(LIS_SCALAR)3.0;
+    *nnz=2;
+    return LIS_SUCCESS;
+}
+static int check_user_snapshot(LIS_VECTOR b,LIS_VECTOR x0,LIS_VECTOR x,
+                               LIS_VECTOR basis[],const char *prefix)
+{
+    LIS_MATRIX A=NULL;
+    char name[512];
+    int failed=1;
+    LIS_INT err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto finish;
+    err=lis_matrix_set_size(A,0,2);
+    if(err) goto finish;
+    err=lis_matrix_set_user(A,NULL,user_matvec,user_matvec);
+    if(err) goto finish;
+    err=lis_matrix_set_user_row(A,user_row);
+    if(err) goto finish;
+    err=lis_snapshot_export_mm(A,b,x0,x,2,basis,prefix);
+    if(err || check_matrix(prefix) || check_vector(prefix,"B",2))
+        goto finish;
+    failed=0;
+finish:
+    /* USER and CSR must have identical standard Matrix Market content. */
+    snprintf(name,sizeof(name),"%s_A.mtx",prefix);
+    remove(name);
+    snprintf(name,sizeof(name),"%s_b.mtx",prefix);
+    remove(name);
+    snprintf(name,sizeof(name),"%s_x0.mtx",prefix);
+    remove(name);
+    snprintf(name,sizeof(name),"%s_x.mtx",prefix);
+    remove(name);
+    snprintf(name,sizeof(name),"%s_B.mtx",prefix);
+    remove(name);
+    if(A) lis_matrix_destroy(A);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -134,6 +194,12 @@ int main(int argc,char **argv)
     /* Invalid basis must fail before writing anything to the new prefix. */
     err=lis_snapshot_export_mm(A,b,x0,x,-1,basis,prefix);
     if(err!=LIS_ERR_ILL_ARG) goto fail;
+    {
+        char user_prefix[512];
+        snprintf(user_prefix,sizeof(user_prefix),"%s-user",prefix);
+        if(check_user_snapshot(b,x0,x,basis,user_prefix))
+            goto fail;
+    }
     printf("LIS_GENERIC_SNAPSHOT=PASSED\n");
     goto finish;
 
