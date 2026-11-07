@@ -130,7 +130,6 @@ testmfamg_SOURCES = testmfamg.c
 testmfamggalerkin_SOURCES = testmfamggalerkin.c
 # Opt-in first-level multivector aggregation regression.
 test_PROGRAMS += testmfamgfineagg
-TESTS += testmfamgfineagg$(EXEEXT)
 testmfamgfineagg_SOURCES = testmfamgfineagg.c
 getestuser_SOURCES = getestuser.c
 testoperator_SOURCES = testoperator.c
@@ -254,6 +253,7 @@ TESTS = testsnapshot$(EXEEXT) test.sh testuserrow$(EXEEXT) testuserprecon$(EXEEX
         testhalfconfig$(EXEEXT) testhalfconvert$(EXEEXT) testnullspacecandidates$(EXEEXT) testesolverselection$(EXEEXT)
 
 # Explicitly run all new regression binaries under make check.
+TESTS += testmfamgfineagg$(EXEEXT)
 TESTS += testmatrixautosession$(EXEEXT) testvectorreal64$(EXEEXT) testgesolvepair$(EXEEXT) testabi$(EXEEXT) testrcoalloc$(EXEEXT)
 
 if ENABLE_HALF_REAL_DOUBLE
