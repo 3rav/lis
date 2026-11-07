@@ -4031,6 +4031,145 @@ cleanup:
     return err;
 }
 
+
+/*
+ * Experimental distance-two grouping for star-shaped coarse graphs.
+ * An existing aggregate selects its strongest adjacent aggregate as
+ * anchor. Aggregates with the same anchor are packed into larger groups.
+ * The multivector QR still determines every local rank; no modes are
+ * dropped and MPI aggregates are never merged by this serial-only helper.
+ */
+static LIS_INT
+lis_mfamg_merge_sibling_aggregates(
+    LIS_MATRIX A, struct LIS_MFAMG_LEVEL *level,
+    LIS_INT depth, LIS_INT target,
+    LIS_INT row_capacity, LIS_INT *cols, LIS_SCALAR *vals)
+{
+    LIS_INT n, nc, i, j, k, a, b, nnz, new_nc, active, used;
+    LIS_INT *work=NULL,*counts,*anchors,*heads,*links,*remap;
+    LIS_REAL *score=NULL, mag;
+    LIS_INT err=LIS_SUCCESS;
+
+    if(A==NULL || level==NULL || level->aggregate==NULL ||
+       A->nprocs!=1 || A->n!=level->n || level->nc<=0 ||
+       target<=1 || row_capacity<=0 || cols==NULL || vals==NULL)
+        return LIS_ERR_ILL_ARG;
+    n=level->n;
+    nc=level->nc;
+    if(target>n) target=n;
+    if((size_t)nc>((size_t)-1)/(5*sizeof(LIS_INT)) ||
+       (size_t)nc>((size_t)-1)/sizeof(LIS_REAL))
+        return LIS_OUT_OF_MEMORY;
+    work=(LIS_INT *)lis_malloc(
+        (size_t)5*(size_t)nc*sizeof(LIS_INT),
+        "lis_mfamg_merge_sibling_aggregates::work");
+    score=(LIS_REAL *)lis_malloc(
+        (size_t)nc*sizeof(LIS_REAL),
+        "lis_mfamg_merge_sibling_aggregates::score");
+    if(work==NULL || score==NULL) {
+        err=LIS_OUT_OF_MEMORY;
+        goto done;
+    }
+    counts=work; anchors=work+nc; heads=work+2*nc;
+    links=work+3*nc; remap=work+4*nc;
+    for(a=0;a<nc;a++) {
+        counts[a]=0; anchors[a]=-1; heads[a]=-1;
+        links[a]=-1; remap[a]=-1; score[a]=0.0;
+    }
+    for(i=0;i<n;i++) {
+        a=level->aggregate[i];
+        if(a<0 || a>=nc) { err=LIS_ERR_ILL_ARG; goto done; }
+        counts[a]++;
+    }
+    for(i=0;i<n;i++) {
+        a=level->aggregate[i];
+        nnz=row_capacity;
+        err=lis_mfamg_row_fill(A,i,row_capacity,&nnz,cols,vals);
+        if(err) goto done;
+        for(k=0;k<nnz;k++) {
+            j=cols[k]-A->is;
+            if(j<0 || j>=n || j==i) continue;
+            b=level->aggregate[j];
+            if(b==a) continue;
+#ifdef _COMPLEX
+            mag=(LIS_REAL)cabs(vals[k]);
+#else
+            mag=(LIS_REAL)fabs(vals[k]);
+#endif
+            if(mag!=mag || mag>LIS_SCALAR_MAX) {
+                err=LIS_ERR_ILL_ARG;
+                goto done;
+            }
+            if(mag>score[a]) { score[a]=mag; anchors[a]=b; }
+        }
+    }
+    for(a=nc;a>0;) {
+        --a;
+        b=anchors[a];
+        if(b<0) continue;
+        links[a]=heads[b];
+        heads[b]=a;
+    }
+    new_nc=0;
+    for(b=0;b<nc;b++) {
+        active=-1; used=0;
+        for(a=heads[b];a>=0;a=links[a]) {
+            if(active<0 || counts[a]>target-used) {
+                active=new_nc++; used=0;
+            }
+            remap[a]=active;
+            used+=counts[a];
+        }
+    }
+    for(a=0;a<nc;a++)
+        if(remap[a]<0) remap[a]=new_nc++;
+    if(new_nc<nc) {
+        for(i=0;i<n;i++)
+            level->aggregate[i]=remap[level->aggregate[i]];
+        level->nc=new_nc;
+    }
+    fprintf(stderr,
+        "LIS_MFAMG_DEEP_MERGE level=%d n=%d old_aggs=%d "
+        "new_aggs=%d target=%d merged=%d\n",
+        (int)depth,(int)n,(int)nc,(int)new_nc,
+        (int)target,(int)(nc-new_nc));
+done:
+    if(score) lis_free(score);
+    if(work) lis_free(work);
+    return err;
+}
+
+/* Internal test hook (not included in the public LIS interface). */
+LIS_INT
+lis_precon_mfamg_merge_siblings_for_test(
+    LIS_MATRIX A, LIS_INT target, LIS_INT *aggregate, LIS_INT *nc)
+{
+    struct LIS_MFAMG_LEVEL level;
+    LIS_INT *cols=NULL, err;
+    LIS_SCALAR *vals=NULL;
+    if(A==NULL || A->nprocs!=1 || A->n<=0 ||
+       aggregate==NULL || nc==NULL || *nc<=0)
+        return LIS_ERR_ILL_ARG;
+    cols=(LIS_INT *)lis_malloc(
+        (size_t)A->n*sizeof(LIS_INT),
+        "lis_mfamg_merge_test::cols");
+    vals=(LIS_SCALAR *)lis_malloc(
+        (size_t)A->n*sizeof(LIS_SCALAR),
+        "lis_mfamg_merge_test::vals");
+    if(cols==NULL || vals==NULL) {
+        if(vals) lis_free(vals);
+        if(cols) lis_free(cols);
+        return LIS_OUT_OF_MEMORY;
+    }
+    memset(&level,0,sizeof(level));
+    level.n=A->n; level.nc=*nc; level.aggregate=aggregate;
+    err=lis_mfamg_merge_sibling_aggregates(
+        A,&level,-1,target,A->n,cols,vals);
+    if(err==LIS_SUCCESS) *nc=level.nc;
+    lis_free(vals); lis_free(cols);
+    return err;
+}
+
 static LIS_INT
 lis_mfamg_build_aggregates(
     LIS_MATRIX A,
@@ -8760,6 +8899,24 @@ lis_mfamg_extend_hierarchy_multivector(
                     vals=NULL;
                     break;
                 }
+            }
+        }
+
+
+        /* Opt-in sibling grouping only on deep, serial coarse levels. */
+        if(level_id>=4 && level->A->nprocs==1)
+        {
+            const char *merge_env=getenv("LIS_MFAMG_EXPERIMENT_DEEP_MERGE");
+            if(merge_env!=NULL && strcmp(merge_env,"1")==0)
+            {
+                LIS_INT merge_target =
+                    (mode_count>level->n/8) ? level->n : 8*mode_count;
+                if(merge_target<aggregate_target)
+                    merge_target=aggregate_target;
+                err=lis_mfamg_merge_sibling_aggregates(
+                    level->A,level,level_id,merge_target,
+                    max_row_nnz,cols,vals);
+                if(err) goto fail;
             }
         }
 
