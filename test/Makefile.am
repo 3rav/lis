@@ -130,6 +130,8 @@ testmfamg_SOURCES = testmfamg.c
 testmfamggalerkin_SOURCES = testmfamggalerkin.c
 test_PROGRAMS += testmfamgdeepmerge
 testmfamgdeepmerge_SOURCES = testmfamgdeepmerge.c
+test_PROGRAMS += testmfamgvcycle
+testmfamgvcycle_SOURCES = testmfamgvcycle.c
 # Opt-in first-level multivector aggregation regression.
 test_PROGRAMS += testmfamgfineagg
 testmfamgfineagg_SOURCES = testmfamgfineagg.c
@@ -255,6 +257,7 @@ TESTS = testsnapshot$(EXEEXT) test.sh testuserrow$(EXEEXT) testuserprecon$(EXEEX
         testhalfconfig$(EXEEXT) testhalfconvert$(EXEEXT) testnullspacecandidates$(EXEEXT) testesolverselection$(EXEEXT)
 
 # Explicitly run all new regression binaries under make check.
+TESTS += testmfamgvcycle$(EXEEXT)
 TESTS += testmfamgdeepmerge$(EXEEXT)
 TESTS += testmfamgfineagg$(EXEEXT)
 TESTS += testmatrixautosession$(EXEEXT) testvectorreal64$(EXEEXT) testgesolvepair$(EXEEXT) testabi$(EXEEXT) testrcoalloc$(EXEEXT)

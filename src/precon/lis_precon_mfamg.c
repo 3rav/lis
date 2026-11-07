@@ -94,6 +94,9 @@ struct LIS_MFAMG_STRUCT
     LIS_INT nlevels;
     LIS_INT level_capacity;
     LIS_INT smoother_block_size;
+    LIS_INT vcycle_smooth_steps;
+    LIS_INT vcycle_diag_once;
+    LIS_INT vcycle_diag_calls;
     struct LIS_MFAMG_LEVEL *levels;
     struct LIS_MFAMG_STAR_SOLVER *star;
 
@@ -10172,6 +10175,7 @@ lis_mfamg_v_cycle(
     LIS_INT p;
     LIS_INT rank;
     LIS_INT row_start;
+    LIS_INT smooth_pass;
     LIS_INT err;
 
     LIS_SCALAR residual;
@@ -10290,18 +10294,18 @@ lis_mfamg_v_cycle(
         next_level->x->value;
 
 
-    /*
-     * One pre-smoothing step from zero.
+    /* First pre-smoothing pass starts from zero; subsequent passes
+     * correct the current approximation instead of resetting it.
      */
-    err =
-        lis_mfamg_smoother_apply(
-            level,
-            b,
-            x,
-            LIS_TRUE);
-
-    if(err)
-        return err;
+    for(smooth_pass=0;
+        smooth_pass<state->vcycle_smooth_steps;
+        smooth_pass++)
+    {
+        err=lis_mfamg_smoother_apply(
+            level,b,x,smooth_pass==0 ? LIS_TRUE : LIS_FALSE);
+        if(err)
+            return err;
+    }
 
 
     err =
@@ -10544,18 +10548,16 @@ lis_mfamg_v_cycle(
     }
 
 
-    /*
-     * One post-smoothing step.
-     */
-    err =
-        lis_mfamg_smoother_apply(
-            level,
-            b,
-            x,
-            LIS_FALSE);
-
-    if(err)
-        return err;
+    /* Post-smoothing always corrects the prolongated solution. */
+    for(smooth_pass=0;
+        smooth_pass<state->vcycle_smooth_steps;
+        smooth_pass++)
+    {
+        err=lis_mfamg_smoother_apply(
+            level,b,x,LIS_FALSE);
+        if(err)
+            return err;
+    }
 
 
     return LIS_SUCCESS;
@@ -13424,6 +13426,28 @@ lis_precon_create_mfamg(
     state->smoother_block_size =
         solver->mfamg_block_size;
 
+    /* Read only during setup.  Unset/invalid input preserves the
+     * original single pre/post smoothing step exactly.
+     */
+    state->vcycle_smooth_steps=1;
+    {
+        const char *steps=getenv("LIS_MFAMG_VCYCLE_SMOOTH_STEPS");
+        const char *diag=getenv("LIS_MFAMG_VCYCLE_DIAG");
+        if(steps!=NULL)
+        {
+            if(strcmp(steps,"2")==0) state->vcycle_smooth_steps=2;
+            else if(strcmp(steps,"3")==0) state->vcycle_smooth_steps=3;
+        }
+        state->vcycle_diag_once =
+            diag!=NULL && strcmp(diag,"1")==0;
+        if(state->vcycle_smooth_steps>1 || state->vcycle_diag_once)
+            fprintf(stderr,
+                "LIS_MFAMG_VCYCLE_CONFIG pre=%d post=%d diag_first=%d\n",
+                (int)state->vcycle_smooth_steps,
+                (int)state->vcycle_smooth_steps,
+                (int)state->vcycle_diag_once);
+    }
+
     state->levels =
         (struct LIS_MFAMG_LEVEL *)
         lis_malloc(
@@ -14845,6 +14869,67 @@ lis_psolve_mfamg(
         return err;
 
 
+    /*
+     * Diagnose ONE actual Krylov preconditioning call: ||b-A*M^-1*b||/||b||.
+     * This measures a one-cycle defect, not the FGMRES true residual.
+     * The existing level-zero ax buffer is reused AFTER V-cycle finishes.
+     */
+    if(state->vcycle_diag_once && !state->vcycle_diag_calls &&
+       state->levels[0].A->nprocs==1)
+    {
+        LIS_INT i,diag_err;
+        LIS_REAL bn2=0.0,rn2=0.0,bi,ri;
+        LIS_VECTOR ax=state->levels[0].ax;
+        state->vcycle_diag_calls=1;
+        diag_err=(ax!=NULL)
+            ? lis_matvec(state->levels[0].A,x,ax)
+            : LIS_ERR_ILL_ARG;
+        if(diag_err==LIS_SUCCESS)
+        {
+            for(i=0;i<rhs->n;i++)
+            {
+#ifdef _COMPLEX
+                bi=(LIS_REAL)cabs(rhs->value[i]);
+                ri=(LIS_REAL)cabs(rhs->value[i]-ax->value[i]);
+#else
+                bi=(LIS_REAL)fabs(rhs->value[i]);
+                ri=(LIS_REAL)fabs(rhs->value[i]-ax->value[i]);
+#endif
+                bn2+=bi*bi;
+                rn2+=ri*ri;
+            }
+            fprintf(stderr,
+                "LIS_MFAMG_VCYCLE_DIAG call=1 n=%d smooth=%d "
+                "rhs_norm=%.9e defect_norm=%.9e rel_defect=%.9e\n",
+                (int)rhs->n,(int)state->vcycle_smooth_steps,
+                (double)sqrt(bn2),(double)sqrt(rn2),
+                (double)(bn2>0.0 ? sqrt(rn2/bn2) :
+                          (rn2==0.0 ? 0.0 : HUGE_VAL)));
+        }
+        else
+        {
+            fprintf(stderr,
+                "LIS_MFAMG_VCYCLE_DIAG call=1 unavailable rc=%d\n",
+                (int)diag_err);
+        }
+    }
+
+
     LIS_DEBUG_FUNC_OUT;
+    return LIS_SUCCESS;
+}
+
+/* Internal regression hook for the opt-in v3 configuration. */
+LIS_INT
+lis_precon_mfamg_get_vcycle_experiment_for_test(
+    LIS_PRECON precon, LIS_INT *steps, LIS_INT *diag_calls)
+{
+    struct LIS_MFAMG_STRUCT *state;
+    if(precon==NULL || precon->mfamg==NULL ||
+       steps==NULL || diag_calls==NULL)
+        return LIS_ERR_ILL_ARG;
+    state=precon->mfamg;
+    *steps=state->vcycle_smooth_steps;
+    *diag_calls=state->vcycle_diag_calls;
     return LIS_SUCCESS;
 }
