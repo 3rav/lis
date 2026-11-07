@@ -9864,6 +9864,17 @@ lis_mfamg_prepare_terminal(
 
     LIS_INT err;
 
+    /* Explain capacity exhaustion instead of a bare ILL_ARG status. */
+    if(A!=NULL && state!=NULL && A->gn>terminal_limit)
+    {
+        const char *merge_env=getenv("LIS_MFAMG_EXPERIMENT_DEEP_MERGE");
+        if(merge_env!=NULL && strcmp(merge_env,"1")==0)
+            fprintf(stderr,
+                "LIS_MFAMG_TERMINAL_STAGNATION levels=%d n=%d "
+                "terminal_limit=%d\n",
+                (int)state->nlevels,(int)A->gn,(int)terminal_limit);
+    }
+
 
     if(
         A==NULL
