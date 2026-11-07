@@ -54,13 +54,13 @@ static int run_scaled_case(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x,
     err=lis_vector_nrm2(b,&bn);
     if(err || bn==0.0) goto done;
     if(!(rn/bn<0.3)) goto done;
-    printf("FGMRES projected relative scale=%.3e iter=%d true=%.9e PASS\\n",
+    printf("FGMRES projected relative scale=%.3e iter=%d true=%.9e PASS\n",
            (double)magnitude,(int)solver->iter,(double)(rn/bn));
     failed=0;
 done:
     if(failed)
         fprintf(stderr,
-            "FGMRES projected relative FAILED: scale=%.3e rc=%d status=%d iter=%d\\n",
+            "FGMRES projected relative FAILED: scale=%.3e rc=%d status=%d iter=%d\n",
             (double)magnitude,(int)err,
             solver ? (int)solver->retcode : -1,
             solver ? (int)solver->iter : -1);
@@ -103,7 +103,7 @@ int main(int argc,char **argv)
     if(run_scaled_case(A,b,x,r,0.01)!=0) goto done;
     failed=0;
 done:
-    if(err) fprintf(stderr,"FGMRES projected setup rc=%d\\n",(int)err);
+    if(err) fprintf(stderr,"FGMRES projected setup rc=%d\n",(int)err);
     if(r) lis_vector_destroy(r);
     if(x) lis_vector_destroy(x);
     if(b) lis_vector_destroy(b);
