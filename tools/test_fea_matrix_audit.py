@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import contact_matrix_audit as auditor
+import fea_matrix_audit as auditor
 
 
 class ContactSnapshotAuditTests(unittest.TestCase):
@@ -60,10 +60,11 @@ class ContactSnapshotAuditTests(unittest.TestCase):
 1,10,2,part-A
 2,11,1,part-B
 """)
-        report = auditor.audit(a, b, None, x, modes, dof)
+        report = auditor.audit(a, b, None, x, modes, dof, expected_dofs_per_node=3)
         op = report["operator"]
         self.assertEqual(op["n"], 3)
         self.assertEqual(op["nnz"], 7)
+        self.assertEqual(op["expanded_stored_entries"], 7)
         self.assertEqual(op["zero_diagonal_count"], 0)
         self.assertEqual(op["min_nonzero_abs_diagonal"], 3.0)
         self.assertEqual(op["frobenius_relative_asymmetry"], 0.0)
@@ -76,6 +77,7 @@ class ContactSnapshotAuditTests(unittest.TestCase):
             report["near_nullspace_modes"][0]["rayleigh_quotient"], 7.0 / 3.0
         )
         self.assertEqual(report["dof_map"]["physical_nodes"], 2)
+        self.assertEqual(report["dof_map"]["dofs_per_node_histogram"], {"1": 1, "2": 1})
         self.assertEqual(report["dof_map"]["structural_bodies"], 2)
         self.assertEqual(report["dof_map"]["nodes_with_incomplete_dofs"], 2)
 
@@ -150,6 +152,74 @@ class ContactSnapshotAuditTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             auditor.audit(a, dof_map_path=bad)
 
+    def test_generic_field_labels_optional_body_and_custom_dof_count(self):
+        a = self.symmetric_example()
+        dof = self.write("generic.csv", """eq,node,dof
+0,mesh-A-1,T
+1,mesh-A-2,P
+2,mesh-A-3,ROT_Z
+""")
+        report = auditor.audit(a, dof_map_path=dof)
+        self.assertEqual(report["dof_map"]["structural_bodies"], 0)
+        self.assertEqual(report["dof_map"]["dofs_per_node_histogram"], {"1": 3})
+        self.assertNotIn("nodes_with_incomplete_dofs", report["dof_map"])
+        report = auditor.audit(a, dof_map_path=dof, expected_dofs_per_node=6)
+        self.assertEqual(report["dof_map"]["nodes_with_incomplete_dofs"], 3)
+
+    def test_csv_missing_fields_excess_fields_and_missing_body_are_errors(self):
+        a = self.symmetric_example()
+        invalid_maps = [
+            """eq,node,dof,body
+0,11,1
+1,11,2,A
+2,12,3,B
+""",
+            """eq,node,dof
+0,11,1,EXTRA
+1,11,2
+2,12,3
+""",
+            """eq,node,dof
+0,11,1
+1,11,
+2,12,3
+""",
+        ]
+        for i, content in enumerate(invalid_maps):
+            with self.subTest(index=i):
+                dof = self.write("bad_csv_%d.csv" % i, content)
+                with self.assertRaises(ValueError):
+                    auditor.audit(a, dof_map_path=dof)
+                p = subprocess.run(
+                    [sys.executable, str(Path(auditor.__file__)), "--matrix",
+                     str(a), "--dof-map", str(dof)],
+                    capture_output=True, text=True, check=False
+                )
+                self.assertEqual(p.returncode, 2, p.stderr)
+                self.assertNotIn("Traceback", p.stderr)
+
+    def test_coalesced_cancellation_counts_actual_nonzeros(self):
+        a = self.write("cancellation.mtx", """%%MatrixMarket matrix coordinate real general
+1 1 2
+1 1 3
+1 1 -3
+""")
+        report = auditor.audit(a)
+        self.assertEqual(report["operator"]["nnz"], 0)
+        self.assertEqual(report["operator"]["expanded_stored_entries"], 1)
+
+    def test_expected_dofs_requires_map_and_positive_count(self):
+        a = self.symmetric_example()
+        with self.assertRaises(ValueError):
+            auditor.audit(a, expected_dofs_per_node=3)
+        dof = self.write("valid.csv", """eq,node,dof
+0,11,1
+1,11,2
+2,12,3
+""")
+        with self.assertRaises(ValueError):
+            auditor.audit(a, dof_map_path=dof, expected_dofs_per_node=0)
+
     def test_cli_success_and_nonzero_status_on_bad_input(self):
         a = self.symmetric_example()
         script = Path(auditor.__file__).resolve()
@@ -165,7 +235,7 @@ class ContactSnapshotAuditTests(unittest.TestCase):
             check=False, capture_output=True, text=True
         )
         self.assertEqual(fail.returncode, 2)
-        self.assertIn("contact-matrix-audit:", fail.stderr)
+        self.assertIn("fea-matrix-audit:", fail.stderr)
 
 
 if __name__ == "__main__":
