@@ -1488,9 +1488,10 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 	LIS_SCALAR t;
 
 	LIS_REAL bnrm2,nrm2,tol,min_nrm2;
+    LIS_REAL projected_abs,projected_rel;
 	LIS_INT err,iter,maxiter,output,maxiter_noimp,noimp_count,candidate;
      LIS_INT noimp_stop;
-     LIS_INT trace_enabled,trace_cycle;
+     LIS_INT trace_enabled,trace_cycle,normalize_projected;
 	double time,ptime;
 
 	LIS_REAL rnorm;
@@ -1515,6 +1516,9 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
      noimp_stop    = LIS_FALSE;
      trace_enabled = LIS_FALSE;
      trace_cycle   = 0;
+     normalize_projected = LIS_FALSE;
+     projected_abs = 0.0;
+     projected_rel = 0.0;
 	h_dim   = m+1;
 	ptime   = 0.0;
 
@@ -1543,12 +1547,15 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
      */
     {
         const char *trace=getenv("LIS_FGMRES_TRACE");
+        const char *fix=getenv("LIS_FGMRES_PROJECTED_RELATIVE");
         trace_enabled=(trace!=NULL && strcmp(trace,"1")==0 &&
                        A->nprocs==1);
-        if(trace_enabled)
+        normalize_projected=(fix!=NULL && strcmp(fix,"1")==0);
+        if(trace_enabled || normalize_projected)
             fprintf(stderr,
-                "LIS_FGMRES_TRACE_CONFIG restart=%d maxiter=%d tol=%.9e\n",
-                (int)m,(int)maxiter,(double)tol);
+                "LIS_FGMRES_TRACE_CONFIG restart=%d maxiter=%d tol=%.9e normalized=%d\n",
+                (int)m,(int)maxiter,(double)tol,
+                (int)normalize_projected);
     }
 
 	iter=0;
@@ -1648,13 +1655,22 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 			aa +=  h[ii+sn]*h[i1+iih];
 			h[ii+iih] = aa;
 
-			/* convergence check */
-			nrm2 = fabs(s->value[i1]);
+            /*
+             * The Hessenberg least-squares residual is an absolute
+             * residual norm, while solver->tol is relative for the
+             * usual NRM2_R/NRM2_B convergence conditions. Preserve
+             * s[] unscaled for back substitution, but (opt-in) test
+             * convergence against the normalized projected residual.
+             */
+            projected_abs=fabs(s->value[i1]);
+            projected_rel=projected_abs*solver->bnrm;
+            nrm2=normalize_projected ? projected_rel : projected_abs;
             if(trace_enabled &&
                (iter==500 || (iter>0 && (iter & (iter-1))==0)))
                 fprintf(stderr,
-                    "LIS_FGMRES_TRACE_ITER cycle=%d iter=%d inner=%d projected=%.9e\n",
-                    (int)trace_cycle,(int)iter,(int)i,(double)nrm2);
+                    "LIS_FGMRES_TRACE_ITER cycle=%d iter=%d inner=%d projected=%.9e projected_rel=%.9e\n",
+                    (int)trace_cycle,(int)iter,(int)i,
+                    (double)projected_abs,(double)projected_rel);
 
 			if( output )
 			{
@@ -1764,10 +1780,11 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
         {
             LIS_REAL true_rel=rnorm*solver->bnrm;
             fprintf(stderr,
-                "LIS_FGMRES_TRACE_RESTART cycle=%d iter=%d projected=%.9e true=%.9e ratio=%.9e tol=%.9e\n",
-                (int)trace_cycle,(int)iter,(double)nrm2,
+                "LIS_FGMRES_TRACE_RESTART cycle=%d iter=%d projected=%.9e projected_rel=%.9e true=%.9e ratio=%.9e tol=%.9e\n",
+                (int)trace_cycle,(int)iter,
+                (double)projected_abs,(double)projected_rel,
                 (double)true_rel,
-                (double)(nrm2>0.0 ? true_rel/nrm2 :
+                (double)(projected_rel>0.0 ? true_rel/projected_rel :
                          (true_rel==0.0 ? 1.0 : HUGE_VAL)),
                 (double)tol);
         }
