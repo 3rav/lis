@@ -231,6 +231,12 @@ jobs:
       - name: Run Automake test suite
         run: make -j2 check
 
+      - name: Show snapshot regression failure details
+        if: failure()
+        shell: msys2 {0}
+        run: |
+          if test -f test/testsnapshot.log; then cat test/testsnapshot.log; fi
+
       - name: Upload failed test logs
         if: failure()
         uses: actions/upload-artifact@v4

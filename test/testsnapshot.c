@@ -9,6 +9,13 @@
 int main(void) { return 0; }
 #else
 
+static int header_matches(char *header,const char *expected)
+{
+    /* Allow both Windows CRLF and Unix LF when reading Matrix Market text. */
+    header[strcspn(header,"\r\n")]='\0';
+    return strcmp(header,expected)==0;
+}
+
 static int check_matrix(const char *prefix)
 {
     char name[512],header[128];
@@ -20,11 +27,13 @@ static int check_matrix(const char *prefix)
     snprintf(name,sizeof(name),"%s_A.mtx",prefix);
     f=fopen(name,"r");
     if(!f) return 1;
+    header[0]='\0';
     if(!fgets(header,sizeof(header),f) ||
-       strcmp(header,"%%MatrixMarket matrix coordinate real general\n")!=0 ||
+       !header_matches(header,"%%MatrixMarket matrix coordinate real general") ||
        fscanf(f,"%lld %lld %lld",&n,&m,&nnz)!=3 ||
        n!=2 || m!=2 || nnz!=4)
     {
+        fprintf(stderr,"snapshot matrix header/dimension mismatch, header='%s'\n",header);
         fclose(f);
         return 1;
     }
@@ -51,11 +60,13 @@ static int check_vector(const char *prefix,const char *suffix,int cols)
     snprintf(name,sizeof(name),"%s_%s.mtx",prefix,suffix);
     f=fopen(name,"r");
     if(!f) return 1;
+    header[0]='\0';
     if(!fgets(header,sizeof(header),f) ||
-       strcmp(header,"%%MatrixMarket matrix array real general\n")!=0 ||
+       !header_matches(header,"%%MatrixMarket matrix array real general") ||
        fscanf(f,"%lld %lld",&n,&k)!=2 ||
        n!=2 || k!=cols)
     {
+        fprintf(stderr,"snapshot vector '%s' header/dimension mismatch, header='%s'\n",suffix,header);
         fclose(f);
         return 1;
     }
@@ -122,6 +133,7 @@ static int check_user_snapshot(LIS_VECTOR b,LIS_VECTOR x0,LIS_VECTOR x,
     err=lis_matrix_set_user_row(A,user_row);
     if(err) goto finish;
     err=lis_snapshot_export_mm(A,b,x0,x,2,basis,prefix);
+    if(err) fprintf(stderr,"USER export failed rc=%d\n",(int)err);
     if(err || check_matrix(prefix) || check_vector(prefix,"B",2))
         goto finish;
     failed=0;
@@ -187,6 +199,7 @@ int main(int argc,char **argv)
     basis[0]=z0;
     basis[1]=z1;
     err=lis_snapshot_export_mm(A,b,x0,x,2,basis,prefix);
+    if(err) fprintf(stderr,"CSR export failed rc=%d\n",(int)err);
     if(err || check_matrix(prefix) || check_vector(prefix,"b",1) ||
        check_vector(prefix,"x0",1) || check_vector(prefix,"x",1) ||
        check_vector(prefix,"B",2))
