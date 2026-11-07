@@ -1,4 +1,4 @@
-/* Standalone, serial deterministic MFAMG v3 V-cycle regression. */
+/* Standalone, serial deterministic MFAMG v3/v4 V-cycle regression. */
 #ifndef _WIN32
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
@@ -44,8 +44,19 @@ static int set_diag(int enabled)
 #endif
 }
 
+static int set_trace(int enabled)
+{
+#ifdef _WIN32
+    return _putenv(enabled ? "LIS_MFAMG_VCYCLE_TRACE=1"
+                           : "LIS_MFAMG_VCYCLE_TRACE=");
+#else
+    return enabled ? setenv("LIS_MFAMG_VCYCLE_TRACE","1",1)
+                   : unsetenv("LIS_MFAMG_VCYCLE_TRACE");
+#endif
+}
+
 static int run_case(LIS_MATRIX A,LIS_VECTOR basis,
-                    LIS_VECTOR b,LIS_VECTOR x,int expected)
+                    LIS_VECTOR b,LIS_VECTOR x,int expected,int trace)
 {
     LIS_SOLVER solver=NULL;
     LIS_PRECON precon=NULL;
@@ -54,7 +65,8 @@ static int run_case(LIS_MATRIX A,LIS_VECTOR basis,
     LIS_REAL r2=0.0,bi,ri;
     int failed=1;
     near[0]=basis;
-    if(set_steps(expected)!=0 || set_diag(1)!=0) return 1;
+    if(set_steps(expected)!=0 || set_diag(1)!=0 ||
+       set_trace(trace)!=0) return 1;
     err=lis_solver_create(&solver);
     if(err) goto done;
     err=lis_solver_set_option(
@@ -79,7 +91,21 @@ static int run_case(LIS_MATRIX A,LIS_VECTOR basis,
     if(err) goto done;
     err=lis_precon_mfamg_get_vcycle_experiment_for_test(
         precon,&got,&called);
-    if(err || called!=1) goto done;
+    if(err || called!=(trace ? 2 : 1)) goto done;
+    if(trace)
+    {
+        /* Third call is unsampled; fourth call is sampled. */
+        err=lis_psolve(solver,b,x);
+        if(err) goto done;
+        err=lis_precon_mfamg_get_vcycle_experiment_for_test(
+            precon,&got,&called);
+        if(err || called!=2) goto done;
+        err=lis_psolve(solver,b,x);
+        if(err) goto done;
+        err=lis_precon_mfamg_get_vcycle_experiment_for_test(
+            precon,&got,&called);
+        if(err || called!=3) goto done;
+    }
     err=lis_vector_duplicate(A,&ax);
     if(err) goto done;
     err=lis_matvec(A,x,ax);
@@ -95,8 +121,8 @@ static int run_case(LIS_MATRIX A,LIS_VECTOR basis,
         r2+=ri*ri;
     }
     if(!isfinite((double)r2) || r2<0.0) goto done;
-    printf("MFAMG VCYCLE steps=%d diag_calls=%d defect=%.9e PASS\n",
-        expected,(int)called,(double)sqrt(r2));
+    printf("MFAMG VCYCLE steps=%d trace=%d diag_calls=%d defect=%.9e PASS\n",
+        expected,trace,(int)called,(double)sqrt(r2));
     failed=0;
 done:
     if(err) fprintf(stderr,"MFAMG VCYCLE test rc=%d steps=%d\n",
@@ -151,7 +177,8 @@ int main(int argc,char **argv)
         b->value[i]=1.0+((LIS_REAL)(i%5))/5.0;
     }
     for(steps=1;steps<=3;steps++)
-        if(run_case(A,z,b,x,steps)!=0) goto done;
+        if(run_case(A,z,b,x,steps,0)!=0) goto done;
+    if(run_case(A,z,b,x,2,1)!=0) goto done;
     failed=0;
 done:
     if(err) fprintf(stderr,"MFAMG VCYCLE setup rc=%d\n",(int)err);
@@ -159,7 +186,7 @@ done:
     if(b) lis_vector_destroy(b);
     if(z) lis_vector_destroy(z);
     if(A) lis_matrix_destroy(A);
-    set_steps(1);set_diag(0);
+    set_steps(1);set_diag(0);set_trace(0);
     lis_finalize();
     return failed;
 }
