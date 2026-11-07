@@ -287,11 +287,13 @@ def main(argv=None):
     try:
         report = audit(args.matrix, args.rhs, args.initial, args.solution,
                        args.modes, args.dof_map, args.expected_dofs_per_node)
-    except (ValueError, OSError, OverflowError, ZeroDivisionError) as exc:
+        # Serialize before touching stdout: derived non-finite diagnostics
+        # (e.g. overflowing finite RHS norms) must fail cleanly with code 2.
+        output = json.dumps(report, sort_keys=True, indent=2, allow_nan=False)
+    except (ValueError, OSError, OverflowError, ZeroDivisionError, UnicodeError) as exc:
         print("fea-matrix-audit: " + str(exc), file=sys.stderr)
         return 2
-    json.dump(report, sys.stdout, sort_keys=True, indent=2, allow_nan=False)
-    sys.stdout.write("\n")
+    sys.stdout.write(output + "\n")
     return 0
 
 

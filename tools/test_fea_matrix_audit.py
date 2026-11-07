@@ -220,6 +220,25 @@ class ContactSnapshotAuditTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             auditor.audit(a, dof_map_path=dof, expected_dofs_per_node=0)
 
+    def test_nonfinite_derived_diagnostics_return_code_two(self):
+        a = self.write("unit.mtx", """%%MatrixMarket matrix coordinate real general
+1 1 1
+1 1 1
+""")
+        b = self.write("large_rhs.mtx", """%%MatrixMarket matrix array real general
+1 1
+1e308
+""")
+        result = subprocess.run(
+            [sys.executable, str(Path(auditor.__file__)), "--matrix", str(a),
+             "--rhs", str(b)],
+            capture_output=True, text=True, check=False
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("fea-matrix-audit:", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_cli_success_and_nonzero_status_on_bad_input(self):
         a = self.symmetric_example()
         script = Path(auditor.__file__).resolve()
