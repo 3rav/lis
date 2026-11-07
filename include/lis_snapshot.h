@@ -36,6 +36,35 @@ LIS_INT lis_snapshot_export_mm(
     LIS_VECTOR basis[],
     const char *prefix);
 
+/*
+ * Optional physical/entity DOF labels from the embedding application.
+ *
+ * The equation index is zero-based and enumerated in LIS active equation
+ * order. Pointers returned by the callback are borrowed until it returns;
+ * node and dof must be nonempty strings; body may be NULL/empty.  Labels
+ * can identify physical nodes, edges, multiplier entities, components,
+ * thermomechanical fields, or arbitrary application DOF types.
+ *
+ * Output: <prefix>_dofs.csv with columns eq,node,dof,body.
+ * CSV quoting/escaping is handled by LIS. No specific FEA package, mesh
+ * numbering, element type or DOFs per node is assumed.
+ *
+ * This is opt-in and independent of lis_snapshot_export_mm(); it never
+ * modifies A. Serial equations only in this first implementation.
+ */
+typedef LIS_INT (*LIS_SNAPSHOT_DOF_MAP_CALLBACK)(
+    void *user_data,
+    LIS_INT active_equation,
+    const char **node,
+    const char **dof,
+    const char **body);
+
+LIS_INT lis_snapshot_export_dof_map_csv(
+    LIS_MATRIX A,
+    LIS_SNAPSHOT_DOF_MAP_CALLBACK callback,
+    void *user_data,
+    const char *prefix);
+
 #ifdef __cplusplus
 }
 #endif

@@ -106,6 +106,8 @@ static void cleanup(const char *prefix)
         snprintf(name,sizeof(name),"%s_%s.mtx",prefix,names[i]);
         remove(name);
     }
+    snprintf(name,sizeof(name),"%s_dofs.csv",prefix);
+    remove(name);
 }
 
 /* A non-CalculiX USER matrix with a generic row callback. */
@@ -169,6 +171,60 @@ finish:
     return failed;
 }
 
+
+/* Fully application-defined map: labels may contain CSV punctuation. */
+static LIS_INT
+test_dof_labels(void *data,LIS_INT eq,const char **node,
+                const char **dof,const char **body)
+{
+    (void)data;
+    if(eq==0)
+    {
+        *node="node,7";
+        *dof="U\"X";
+        *body="part A";
+    }
+    else if(eq==1)
+    {
+        *node="thermal-9";
+        *dof="TEMP";
+        *body=NULL;
+    }
+    else
+        return LIS_ERR_ILL_ARG;
+    return LIS_SUCCESS;
+}
+
+static LIS_INT
+test_invalid_dof_labels(void *data,LIS_INT eq,const char **node,
+                        const char **dof,const char **body)
+{
+    if(eq==1) return LIS_ERR_ILL_ARG;
+    return test_dof_labels(data,eq,node,dof,body);
+}
+
+static int
+check_dof_map(const char *prefix)
+{
+    FILE *f;
+    char name[512],line[256],row0[256],row1[256];
+    int failed=0;
+    snprintf(name,sizeof(name),"%s_dofs.csv",prefix);
+    f=fopen(name,"r");
+    if(!f) return 1;
+    if(!fgets(line,sizeof(line),f) ||
+       !header_matches(line,"eq,node,dof,body") ||
+       !fgets(row0,sizeof(row0),f) ||
+       !fgets(row1,sizeof(row1),f))
+        failed=1;
+    else if(strstr(row0,"0,\"node,7\",\"U\"\"X\",\"part A\"")==NULL ||
+            strstr(row1,"1,\"thermal-9\",\"TEMP\",\"\"")==NULL)
+        failed=1;
+    if(fclose(f)!=0) failed=1;
+    if(failed) fprintf(stderr,"DOF map CSV contents mismatch\n");
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -220,6 +276,26 @@ int main(int argc,char **argv)
        check_vector(prefix,"x0",1) || check_vector(prefix,"x",1) ||
        check_vector(prefix,"modes",2))
         goto fail;
+    /* A map with mixed mechanical/thermal DOFs and quoted labels. */
+    err=lis_snapshot_export_dof_map_csv(A,test_dof_labels,NULL,prefix);
+    if(err || check_dof_map(prefix))
+        goto fail;
+    {
+        char bad_prefix[512],bad_file[512];
+        FILE *unexpected;
+        snprintf(bad_prefix,sizeof(bad_prefix),"%s-badmap",prefix);
+        snprintf(bad_file,sizeof(bad_file),"%s_dofs.csv",bad_prefix);
+        err=lis_snapshot_export_dof_map_csv(
+            A,test_invalid_dof_labels,NULL,bad_prefix);
+        if(err!=LIS_ERR_ILL_ARG) goto fail;
+        unexpected=fopen(bad_file,"r");
+        if(unexpected!=NULL)
+        {
+            fclose(unexpected);
+            remove(bad_file);
+            goto fail;
+        }
+    }
     /* Invalid basis must fail before writing anything to the new prefix. */
     err=lis_snapshot_export_mm(A,b,x0,x,-1,basis,prefix);
     if(err!=LIS_ERR_ILL_ARG) goto fail;
