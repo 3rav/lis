@@ -17,7 +17,8 @@ if (rc != LIS_SUCCESS) { /* discard that prefix, report the error */ }
 The path prefix must refer to an already existing directory. Every
 successful call writes `<prefix>_A.mtx`; optional non-null `b`, `x0`, `x`
 and `basis_count > 0` cause `_b.mtx`, `_x0.mtx`, `_x.mtx` and
-`_B.mtx` to be written. `B` is a column-major n-by-k array.
+`_modes.mtx` to be written. The modes form a column-major n-by-k array.
+The distinct suffix prevents `_b`/`_B` collisions on case-insensitive filesystems.
 
 ## Scope and safety
 
@@ -55,7 +56,7 @@ python3 tools/fea_matrix_audit.py \
     --matrix snapshots/step03_iter07_A.mtx \
     --rhs snapshots/step03_iter07_b.mtx \
     --initial snapshots/step03_iter07_x0.mtx \
-    --modes snapshots/step03_iter07_B.mtx \
+    --modes snapshots/step03_iter07_modes.mtx \
     --dof-map snapshots/active_dofs.csv
 ```
 

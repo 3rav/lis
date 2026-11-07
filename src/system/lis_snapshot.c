@@ -217,7 +217,7 @@ lis_snapshot_export_mm(
         if(err) goto cleanup;
     }
     if(basis_count>0)
-        err=lis_snapshot_emit(path,n+32,prefix,"B",NULL,NULL,
+        err=lis_snapshot_emit(path,n+32,prefix,"modes",NULL,NULL,
                               basis_count,basis);
 
 cleanup:

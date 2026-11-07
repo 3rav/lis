@@ -98,7 +98,7 @@ static int check_vector(const char *prefix,const char *suffix,int cols)
 
 static void cleanup(const char *prefix)
 {
-    const char *names[]={"A","b","x0","x","B"};
+    const char *names[]={"A","b","x0","x","modes"};
     char name[512];
     int i;
     for(i=0;i<5;i++)
@@ -150,7 +150,7 @@ static int check_user_snapshot(LIS_VECTOR b,LIS_VECTOR x0,LIS_VECTOR x,
     if(err) goto finish;
     err=lis_snapshot_export_mm(A,b,x0,x,2,basis,prefix);
     if(err) fprintf(stderr,"USER export failed rc=%d\n",(int)err);
-    if(err || check_matrix(prefix) || check_vector(prefix,"B",2))
+    if(err || check_matrix(prefix) || check_vector(prefix,"modes",2))
         goto finish;
     failed=0;
 finish:
@@ -218,7 +218,7 @@ int main(int argc,char **argv)
     if(err) fprintf(stderr,"CSR export failed rc=%d\n",(int)err);
     if(err || check_matrix(prefix) || check_vector(prefix,"b",1) ||
        check_vector(prefix,"x0",1) || check_vector(prefix,"x",1) ||
-       check_vector(prefix,"B",2))
+       check_vector(prefix,"modes",2))
         goto fail;
     /* Invalid basis must fail before writing anything to the new prefix. */
     err=lis_snapshot_export_mm(A,b,x0,x,-1,basis,prefix);

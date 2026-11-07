@@ -14,8 +14,9 @@ extern "C" {
 /*
  * Export the exact current assembled linear operator and optional vectors.
  *
- * Creates <prefix>_A.mtx, optionally _b.mtx, _x0.mtx, _x.mtx and _B.mtx.
- * B is an n-by-basis_count Matrix Market array (column-major).
+ * Creates <prefix>_A.mtx, optionally _b.mtx, _x0.mtx, _x.mtx and _modes.mtx.
+ * Modes are an n-by-basis_count Matrix Market array (column-major).
+ * The distinct modes suffix avoids b/B collisions on Windows.
  *
  * Serial real-valued matrices only in this first version. Explicit CSR,
  * other convertible explicit formats, and row-backed USER/OPERATOR sources
