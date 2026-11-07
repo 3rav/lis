@@ -226,3 +226,102 @@ cleanup:
     return err;
 }
 #endif
+
+/*
+ * Write application-owned physical DOF labels, not inferred FE metadata.
+ * This routine is intentionally available even in complex LIS builds:
+ * the output is independent of numerical scalar type.
+ */
+static LIS_INT
+lis_snapshot_csv_field(FILE *out, const char *value)
+{
+    const unsigned char *p=(const unsigned char *)(value ? value : "");
+    if(fputc('"',out)==EOF) return LIS_ERR_FILE_IO;
+    for(;*p;p++)
+    {
+        if(*p=='"' && fputc('"',out)==EOF)
+            return LIS_ERR_FILE_IO;
+        if(fputc((int)*p,out)==EOF)
+            return LIS_ERR_FILE_IO;
+    }
+    if(fputc('"',out)==EOF) return LIS_ERR_FILE_IO;
+    return LIS_SUCCESS;
+}
+
+LIS_INT
+lis_snapshot_export_dof_map_csv(
+    LIS_MATRIX A,
+    LIS_SNAPSHOT_DOF_MAP_CALLBACK callback,
+    void *user_data,
+    const char *prefix)
+{
+    size_t length;
+    char *path=NULL;
+    FILE *out=NULL;
+    LIS_INT i,err=LIS_SUCCESS;
+    int needed;
+
+    if(A==NULL || callback==NULL || prefix==NULL || prefix[0]=='\0' ||
+       A->n<=0 || A->n!=A->gn || A->is!=0 || A->nprocs!=1)
+        return LIS_ERR_ILL_ARG;
+
+    length=strlen(prefix);
+    if(length>((size_t)-1)-32)
+        return LIS_ERR_ILL_ARG;
+    path=(char *)lis_malloc(length+32,"lis_snapshot_export_dof_map_csv::path");
+    if(path==NULL) return LIS_OUT_OF_MEMORY;
+
+    needed=snprintf(path,length+32,"%s_dofs.csv",prefix);
+    if(needed<0 || (size_t)needed>=length+32)
+    {
+        err=LIS_ERR_ILL_ARG;
+        goto done;
+    }
+    out=fopen(path,"w");
+    if(out==NULL)
+    {
+        err=LIS_ERR_FILE_IO;
+        goto done;
+    }
+    if(fputs("eq,node,dof,body\n",out)==EOF)
+    {
+        err=LIS_ERR_FILE_IO;
+        goto close_file;
+    }
+
+    for(i=0;i<A->n;i++)
+    {
+        const char *node=NULL,*dof=NULL,*body=NULL;
+        err=callback(user_data,i,&node,&dof,&body);
+        if(err) goto close_file;
+        if(node==NULL || node[0]=='\0' || dof==NULL || dof[0]=='\0')
+        {
+            err=LIS_ERR_ILL_ARG;
+            goto close_file;
+        }
+        if(fprintf(out,"%lld,",(long long)i)<0)
+        {
+            err=LIS_ERR_FILE_IO;
+            goto close_file;
+        }
+        err=lis_snapshot_csv_field(out,node);
+        if(err) goto close_file;
+        if(fputc(',',out)==EOF) { err=LIS_ERR_FILE_IO; goto close_file; }
+        err=lis_snapshot_csv_field(out,dof);
+        if(err) goto close_file;
+        if(fputc(',',out)==EOF) { err=LIS_ERR_FILE_IO; goto close_file; }
+        err=lis_snapshot_csv_field(out,body);
+        if(err) goto close_file;
+        if(fputc('\n',out)==EOF) { err=LIS_ERR_FILE_IO; goto close_file; }
+    }
+
+close_file:
+    if(fclose(out)!=0 && err==LIS_SUCCESS)
+        err=LIS_ERR_FILE_IO;
+    out=NULL;
+    if(err!=LIS_SUCCESS)
+        remove(path);
+done:
+    if(path) lis_free(path);
+    return err;
+}

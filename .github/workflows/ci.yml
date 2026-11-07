@@ -66,7 +66,8 @@ jobs:
             --rhs exported-fea-system_b.mtx \
             --initial exported-fea-system_x0.mtx \
             --solution exported-fea-system_x.mtx \
-            --modes exported-fea-system_modes.mtx > exported-fea-system_audit.json
+            --modes exported-fea-system_modes.mtx \
+            --dof-map exported-fea-system_dofs.csv > exported-fea-system_audit.json
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -76,8 +77,13 @@ jobs:
           assert abs(report["initial_relative_residual"] - 1.0) < 1e-13
           assert report["solution_relative_residual"] < 1e-13
           assert len(report["near_nullspace_modes"]) == 2
+          assert report["dof_map"]["equations"] == 2
+          assert report["dof_map"]["physical_nodes"] == 2
+          assert report["dof_map"]["dofs_per_node_histogram"] == {"1": 2}
+          assert report["dof_map"]["structural_bodies"] == 1
           for suffix in ("A", "b", "x0", "x", "modes"):
               Path("exported-fea-system_" + suffix + ".mtx").unlink()
+          Path("exported-fea-system_dofs.csv").unlink()
           Path("exported-fea-system_audit.json").unlink()
           PY
 

@@ -63,3 +63,36 @@ python3 tools/fea_matrix_audit.py \
 The auditor computes independent true residuals and operator/nullspace
 metrics, which can be used to compare solver backends on identical data.
 No nonlinear convergence or preconditioner performance claim is implied.
+
+## Optional, application-defined equation labels
+
+The native API `lis_snapshot_export_dof_map_csv()` writes the optional
+`<prefix>_dofs.csv` file accepted by the generic FEA auditor. The application
+provides labels for each **active equation** with a callback; LIS does not
+guess node ordering, constrain equations, or read a mesh:
+
+```c
+LIS_INT label_dof(void *ctx, LIS_INT eq, const char **node,
+                  const char **dof, const char **body)
+{
+    /* Application uses its own eq -> mesh/entity/field map. */
+    /* Assign *node, *dof and *body; body may be NULL. */
+    return LIS_SUCCESS;
+}
+
+LIS_INT rc = lis_snapshot_export_dof_map_csv(
+    A, label_dof, my_fea_context, "snapshots/step03_iter07");
+```
+
+The callback must return nonempty node/entity and DOF/field labels; labels
+may contain commas, quotes and whitespace (written as correctly quoted CSV).
+`body` is optional, not a hard-coded structural partition. The helper calls
+the callback once for every active serial equation in the same zero-based
+ordering used by the exported operator, and writes
+`eq,node,dof,body`. It is independent of Matrix Market export and works
+also in complex LIS builds because labels are not numerical values.
+
+On failure, incomplete `_dofs.csv` is deleted and an error returned.
+The caller owns its label memory and callback state throughout the call.
+Use a unique prefix for each snapshot. No fixed field list, physical
+dimension, number of DOFs per node or FEA package is required.
