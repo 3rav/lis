@@ -113,6 +113,16 @@ int main(int argc,char **argv)
 {
     int failed;
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS) return 1;
+#ifdef USE_MPI
+    {
+        int nprocs=1;
+        MPI_Comm_size(LIS_COMM_WORLD,&nprocs);
+        if(nprocs!=1) {
+            lis_finalize();
+            return 0; /* serial-only matrix experiment */
+        }
+    }
+#endif
     failed=run_test();
     lis_finalize();
     return failed;
