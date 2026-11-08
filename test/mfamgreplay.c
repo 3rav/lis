@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <errno.h>
 #include "lislib.h"
 
 static int read_modes(const char *path,LIS_MATRIX A,
@@ -160,6 +161,36 @@ done:
     return failed;
 }
 
+/*
+ * Offline-only tuning. The original restart=180 and maxiter=1000
+ * remain unchanged unless the caller explicitly selects an override.
+ * Bounds limit accidental excessive FGMRES vector allocation.
+ */
+static int replay_int_option(const char *name,int fallback,
+                             int lower,int upper,int *result)
+{
+    const char *raw=getenv(name);
+    char *end=NULL;
+    long value;
+    if(raw==NULL)
+    {
+        *result=fallback;
+        return 0;
+    }
+    errno=0;
+    value=strtol(raw,&end,10);
+    if(errno!=0 || end==raw || *end!='\0' ||
+       value<lower || value>upper)
+    {
+        fprintf(stderr,
+            "REPLAY: invalid %s=%s (expected integer %d..%d)\n",
+            name,raw,lower,upper);
+        return 1;
+    }
+    *result=(int)value;
+    return 0;
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -168,7 +199,9 @@ int main(int argc,char **argv)
     LIS_INT err=0,nmodes=0,i,iter=0,status=-1;
     LIS_REAL reported=0.0;
     double b2=0.0,r2=0.0,t0=0.0,t1=0.0;
-    int rc=1;
+    int rc=1,restart=180,maxiter=1000;
+    int optlen;
+    char solver_options[256];
 
     if(argc!=4 && argc!=5)
     {
@@ -177,6 +210,11 @@ int main(int argc,char **argv)
         return 2;
     }
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS) return 1;
+    if(replay_int_option("LIS_MFAMG_REPLAY_RESTART",180,20,600,
+                         &restart)!=0 ||
+       replay_int_option("LIS_MFAMG_REPLAY_MAXITER",1000,100,3000,
+                         &maxiter)!=0)
+        goto done;
 #if defined(_COMPLEX)
     fprintf(stderr,"REPLAY: real-valued LIS build required\n");
     goto done;
@@ -213,15 +251,22 @@ int main(int argc,char **argv)
 
     err=lis_solver_create(&solver);
     if(err) goto done;
-    err=lis_solver_set_option(
+    optlen=snprintf(solver_options,sizeof(solver_options),
         "-i fgmres -p mfamg -scale none -tol 1.0e-5 "
-        "-maxiter 1000 -restart 180 -print none",solver);
+        "-maxiter %d -restart %d -print none",maxiter,restart);
+    if(optlen<0 || (size_t)optlen>=sizeof(solver_options))
+    {
+        fprintf(stderr,"REPLAY: solver options too long\n");
+        goto done;
+    }
+    err=lis_solver_set_option(solver_options,solver);
     if(err) goto done;
     err=lis_solver_set_near_nullspace(solver,nmodes,modes);
     if(err) goto done;
 
-    printf("REPLAY n=%lld nnz=%lld modes=%lld restart=180 maxiter=1000 tol=1e-5\n",
-           (long long)A->n,(long long)A->nnz,(long long)nmodes);
+    printf("REPLAY n=%lld nnz=%lld modes=%lld restart=%d maxiter=%d tol=1e-5\n",
+           (long long)A->n,(long long)A->nnz,(long long)nmodes,
+           restart,maxiter);
     t0=lis_wtime();
     err=lis_solve(A,b,x,solver);
     t1=lis_wtime();
