@@ -518,3 +518,58 @@ This is OFFLINE vector deletion, not online mode generation
 from the actual operator. It cannot establish production
 readiness, Newton-step behavior or repeat-run timing. Never
 upload private matrices or raw contact logs; keep PR Draft.
+
+
+## Real 31-spring Ritz leave-one-out outcomes (2026-11-08)
+
+The Windows MSYS2 UCRT64 user ran all five previously missing
+17-mode offline leave-one-out variants against their private
+31-spring fixed A04/b04 snapshot (60,265 DOF, 3,623,639 input
+matrix entries). Method FGCRO-DR(k=8), MFAMG factor=4,
+restart=180, maxiter=3000, tol=1e-5, one timing per case.
+
+Direction order is ascending by the eigenvalues of the symmetric
+part of the six-dimensional projected operator, not certified
+eigenvalues of the full nonsymmetric Matrix Market general A04.
+
+| Omitted Ritz direction | Projected value (approx) | Status | Iter | true_relative | wall_s | AZ=C relation_error |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 01 | -925.68 | **0 converged** | 2833 | 9.967925888120e-6 | **207.627** | 6.665478388731e-9 |
+| 02 | -463.77 | 4 MAXITER | 3001 | 1.015222798738e-5 | 220.828 | 7.106887924046e-9 |
+| 03 | -160.55 | **0 converged** | 2998 | 9.934484468416e-6 | 222.154 | 7.455637638979e-9 |
+| 04 | -74.67 | 4 MAXITER | 3001 | 3.313684461675e-5 | 220.258 | 4.779255519919e-9 |
+| 05 | -5.85 | 4 MAXITER | 3001 | 2.994747563559e-5 | 224.589 | 5.094805373938e-9 |
+| 06 | +101.89 | 4 MAXITER | 3001 | 4.193222729068e-5 | 235.031 | 2.061032868769e-9 |
+| Full 18-mode Ritz control | all six | **0 converged** | 2805 | 9.950907090924e-6 | 227.719 | 7.848487326205e-9 |
+| Original unrotated 18-mode control | all six | **0 converged** | 2772 | 9.986595263773e-6 | 226.086 | 7.687679465279e-9 |
+
+Every new case 01..05 had recycle builds=1, uses=1,
+rejects=0, and REPLAY_RECYCLE_CHECK rc=0, with orthogonality
+errors 1.376676550535e-14 to 2.642330798608e-14. Cases with
+status=4 must NOT be counted as converged even though
+solve_rc=0; in particular case 02 was only 1.522% above
+the target residual, and case 03 converged only at iteration
+2998, almost at the configured ceiling.
+
+**Result:** 17 total modes *can* converge: omitting the most
+negative projected Ritz direction (01) converged at iteration
+2833 with 207.627 s, 20.092 s / 8.82% shorter single-run wall
+time than the rotated 18-mode control (227.719 s). Omitting
+direction 03 also converged but near maxiter. Omitting 02,
+04, 05, or the only positive-curvature direction 06 did not
+converge by 3000. Thus a blanket "keep only negative Ritz
+directions" rule fails, and neither magnitude nor sign alone
+predicts a direction's effect on convergence.
+
+**Limitations:** these are different offline-selected subspaces,
+so this is not proof of universal necessity of any one direction,
+nor a demonstrated statistical speedup or online mode selection
+algorithm. All results are single run, on one fixed operator
+with offline 18-mode input. Next useful validation is repeated
+matched runs of 17-mode omit-01 versus rotated 18-mode control,
+preferably with alternating test order to reduce machine-state
+bias. Larger-scale Newton-step/changed-A testing and online
+mode discovery are still mandatory before integration.
+The recycle relation errors remain below 1e-8 but approach
+that threshold; monitor for numerical instability.
+NO MERGE: PR remains Draft; production LIS and CalculiX untouched.
