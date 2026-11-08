@@ -473,3 +473,48 @@ MFAMG, CalculiX, or v7 change is justified. No private data files
 or complete logs are uploaded to the repository. PR remains Draft
 and blocked pending online enrichment, repeated time measurements,
 and a changed-operator Newton sequence experiment.
+
+
+## Offline six-direction leave-one-out selection: five remaining cases
+
+The six independent extra Ritz directions on the 31-spring snapshot
+are ordered by projected eigenvalues -925.68, -463.77, -160.55,
+-74.67, -5.85, +101.89. The prior 17-mode negative-only variant
+omitted direction 06 and failed to converge at maxiter=3000
+(status=4, true_relative=4.193222729068e-5). The full rotated
+18-mode control converged after 2805 iterations.
+
+The new offline generator test/mfamg_mode_ritz_leave_one_out.py
+creates six local 17-mode files named modes_omit_ritz_01.mtx
+through modes_omit_ritz_06.mtx by deleting exactly one column
+from the already rotated 18-mode file. The original first 12
+columns are unchanged. It checks that case 06 exactly equals the
+previously evaluated negative-only 17-mode control.
+
+In MSYS2 UCRT64, after updating the research checkout:
+
+    cd "$HOME/lis-v8"
+    git pull --ff-only
+    mkdir -p "$HOME/mfamg_replay/v8_mode_audit/loo"
+    python3 test/mfamg_mode_ritz_leave_one_out.py \
+      --baseline "$HOME/mfamg_replay/challenge_31/modes04.mtx" \
+      --rotated "$HOME/mfamg_replay/v8_mode_audit/ritz/modes_all_ritz.mtx" \
+      --negative-control "$HOME/mfamg_replay/v8_mode_audit/ritz/modes_negative_ritz.mtx" \
+      --output-dir "$HOME/mfamg_replay/v8_mode_audit/loo"
+
+    MFAMG_REPLAY_DATA="$HOME/mfamg_replay" \
+    MFAMG_REPLAY_EXE="$HOME/lis-v8/bin6000/mfamgreplay.exe" \
+    bash test/mfamg_replay_ritz_leave_one_out.sh
+
+The replay runner tests ONLY the five new cases 01..05, fixing
+MFAMG factor=4, FGCRO-DR k=8, restart=180 and maxiter=3000.
+It logs every result under the local directory
+$HOME/mfamg_replay/v8_mode_audit/loo/logs and refuses overwrite.
+The synthetic CI smoke validates basis deletion, equality of
+the sixth case to the previous control, unchanged baseline,
+mock nonconvergence handling and no overwrite.
+
+This is OFFLINE vector deletion, not online mode generation
+from the actual operator. It cannot establish production
+readiness, Newton-step behavior or repeat-run timing. Never
+upload private matrices or raw contact logs; keep PR Draft.

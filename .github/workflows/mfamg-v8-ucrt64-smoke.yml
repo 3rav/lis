@@ -229,3 +229,7 @@ jobs:
           python3 -m py_compile test/mfamg_mode_ritz_selection.py
           bash -n test/mfamg_mode_ritz_selection_smoke.sh
           bash test/mfamg_mode_ritz_selection_smoke.sh
+          python3 -m py_compile test/mfamg_mode_ritz_leave_one_out.py
+          bash -n test/mfamg_mode_ritz_leave_one_out_smoke.sh
+          bash -n test/mfamg_replay_ritz_leave_one_out.sh
+          bash test/mfamg_mode_ritz_leave_one_out_smoke.sh
