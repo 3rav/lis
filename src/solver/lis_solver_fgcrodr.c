@@ -17,6 +17,8 @@
 
 #include <math.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "lislib.h"
 
@@ -5275,6 +5277,11 @@ lis_fgcrodr_flexible_core(
     LIS_INT use_recycle;
     LIS_INT kcur;
     LIS_INT ri;
+    LIS_INT intra_recycle;
+    LIS_INT intra_trace;
+    LIS_INT recycle_counted;
+    const char *intra_option;
+    const char *trace_option;
 
     double time;
     double ptime;
@@ -5307,6 +5314,16 @@ lis_fgcrodr_flexible_core(
         use_recycle
         ? state->dim
         : 0;
+
+    /* Experimentally enable recycling at subsequent Arnoldi restarts.
+     * Without the opt-in, the historical cross-solve behavior is exact. */
+    intra_option=getenv("LIS_FGCRODR_INTRA_SOLVE_RECYCLE");
+    trace_option=getenv("LIS_FGCRODR_INTRA_TRACE");
+    intra_recycle=(intra_option!=NULL &&
+                   strcmp(intra_option,"1")==0);
+    intra_trace=(intra_recycle && trace_option!=NULL &&
+                 strcmp(trace_option,"1")==0);
+    recycle_counted=use_recycle;
 
     hraw = NULL;
     bcoef = NULL;
@@ -5396,39 +5413,23 @@ lis_fgcrodr_flexible_core(
         *sizeof(LIS_SCALAR));
 
 
-    if( use_recycle )
+    if( use_recycle || intra_recycle )
     {
-        bcoef =
-            (LIS_SCALAR *)lis_malloc(
-                (size_t)kcur
-                *(size_t)m
-                *sizeof(LIS_SCALAR),
-                "lis_fgcrodr_flexible_core::bcoef");
-
-        if( bcoef==NULL )
+        /* After the first cycle, kcur can increase from zero to
+         * target_dim, so reserve the maximum stride for all cycles. */
+        size_t capacity=(size_t)(intra_recycle ? state->target_dim : kcur)
+                        *(size_t)m;
+        bcoef=(LIS_SCALAR *)lis_malloc(
+            capacity*sizeof(LIS_SCALAR),
+            "lis_fgcrodr_flexible_core::bcoef");
+        if(bcoef==NULL)
         {
-            if( bcoef )
-            lis_free(bcoef);
-
-        if( hraw )
             lis_free(hraw);
-
-        lis_free(h);
-
-            LIS_SETERR_MEM(
-                (size_t)kcur
-                *(size_t)m
-                *sizeof(LIS_SCALAR));
-
+            lis_free(h);
+            LIS_SETERR_MEM(capacity*sizeof(LIS_SCALAR));
             return LIS_ERR_OUT_OF_MEMORY;
         }
-
-        memset(
-            bcoef,
-            0,
-            (size_t)kcur
-            *(size_t)m
-            *sizeof(LIS_SCALAR));
+        memset(bcoef,0,capacity*sizeof(LIS_SCALAR));
     }
 
 
@@ -5544,6 +5545,70 @@ lis_fgcrodr_flexible_core(
     while( iter<maxiter )
     {
         candidate = LIS_FALSE;
+
+        /*
+         * The first cycle builds harmonic Ritz vectors. At each later
+         * cycle, activate the latest valid A*Z=C relation, including
+         * changes in rank after an augmented harmonic update.
+         * Re-project the true residual before the next Arnoldi basis.
+         * This avoids the stale kcur and B-column stride from the
+         * first solve/cycle, and preserves FGMRES when opt-in is off.
+         */
+        if(intra_recycle && iter>0)
+        {
+            use_recycle=(state->valid && state->dim>0 &&
+                state->matrix==A &&
+                state->structure_generation==A->structure_generation &&
+                state->value_generation==A->value_generation);
+            kcur=use_recycle ? state->dim : 0;
+            if(use_recycle)
+            {
+                if(kcur>=m || kcur>state->target_dim)
+                {
+                    solver->retcode=LIS_ERR_ILL_ARG;
+                    solver->iter=iter;
+                    solver->ptime=ptime;
+                    if(bcoef) lis_free(bcoef);
+                    lis_free(hraw);
+                    lis_free(h);
+                    return LIS_ERR_ILL_ARG;
+                }
+                for(ri=0;ri<kcur;ri++)
+                {
+                    lis_vector_dot(state->c[ri],v[0],&gamma);
+                    lis_vector_axpy(gamma,state->z[ri],x);
+                    lis_vector_axpy(-gamma,state->c[ri],v[0]);
+                }
+                lis_vector_nrm2(v[0],&rnorm);
+                if(rnorm==0.0 || rnorm!=rnorm)
+                {
+                    solver->retcode=(rnorm==0.0) ?
+                        LIS_SUCCESS : LIS_BREAKDOWN;
+                    solver->iter=iter;
+                    solver->resid=rnorm;
+                    solver->ptime=ptime;
+                    if(bcoef) lis_free(bcoef);
+                    lis_free(hraw);
+                    lis_free(h);
+                    return solver->retcode;
+                }
+                bnrm2=1.0/rnorm;
+                memset(bcoef,0,
+                    (size_t)kcur*(size_t)m*sizeof(LIS_SCALAR));
+                if(!recycle_counted)
+                {
+                    state->uses++;
+                    recycle_counted=LIS_TRUE;
+                }
+                if(intra_trace)
+                    fprintf(stderr,
+                        "LIS_FGCRODR_INTRA_RECYCLE iter=%d k=%d "
+                        "relative=%.12e\n",
+                        (int)iter,(int)kcur,
+                        (double)(rnorm*solver->bnrm));
+            }
+        }
+
         /*
          * First Arnoldi vector:
          *
@@ -6411,7 +6476,10 @@ lis_fgcrodr_flexible_core(
         /* ---------------------------------------------------- */
 
 
-        if( use_recycle )
+        /* With opt-in within-solve recycling, projection is delayed
+         * until the next cycle, when the freshly built basis dimension
+         * is known. The old path remains unchanged by default. */
+        if( use_recycle && !intra_recycle )
         {
             for(ri=0;ri<kcur;ri++)
             {
@@ -6496,6 +6564,10 @@ lis_fgcrodr_flexible_core(
     solver->resid =
         nrm2;
 
+    /* Also release B on the ordinary maxiter path (previously leaked
+     * whenever an existing recycling subspace was active). */
+    if( bcoef )
+        lis_free(bcoef);
     if( hraw )
         lis_free(hraw);
 
