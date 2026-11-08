@@ -38,6 +38,7 @@ jobs:
         run: |
           set -euxo pipefail
           bash -n test/mfamg_replay_fgcrodr_sweep.sh
+          bash -n test/mfamg_replay_indefinite_ci.sh
           autoreconf -fiv
           mkdir -p build-ci
           cd build-ci
@@ -170,6 +171,13 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
+      - name: Probe symmetric-indefinite 480-row system (experimental, non-gating)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          bash test/mfamg_replay_indefinite_ci.sh \
+            "$PWD/build-ci/test/.libs/mfamgreplay.exe" \
+            "$PWD/build-ci/smoke"
       - name: Upload smoke logs even when failing
         if: always()
         uses: actions/upload-artifact@v4

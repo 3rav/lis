@@ -65,8 +65,11 @@ https://github.com/3rav/lis/actions/runs/42495507072
   was 9.570565480928e-7 (approximately 14.4% lower).
 - Windows/UCRT64 compilation and testmfamgmodes also passed.
 
-An additional build enabling the A*Z=C validator is pending; those
-relation/orthogonality checks must pass before promoting the code.
+Algebraic validation passed in CI (orthogonality 4.44e-16, A*Z=C
+relation 1.43e-16): https://github.com/3rav/lis/actions/runs/42495830822
+
+The experimental Windows UCRT64 replay EXE was uploaded successfully:
+https://github.com/3rav/lis/actions/runs/42496327918
 
 **Still unverified:** the 60,265-DOF contact snapshots and any production
 CalculiX integration. The small CI test is not evidence of a contact
@@ -81,3 +84,19 @@ acceleration.
 5. Do NOT merge to develop or modify CalculiX without verified numerical evidence.
 
 This work is an isolated experimental proposal, not a demonstrated acceleration yet.
+
+
+## Symmetric-indefinite pilot (separate from contact evidence)
+
+The test/mfamg_replay_indefinite_ci.sh generates a deterministic 480x480
+real symmetric, strictly diagonally dominant and nonsingular matrix
+with positive and negative diagonal blocks (hence indefinite), a
+heterogeneous RHS and two near-nullspace modes. No private CCX data.
+
+With restart=4 and maxiter=300, compare FGMRES, FGCRO-DR(k=0), and
+intra-solve FGCRO-DR(k=1,2) on identical inputs. Check the exact k=0
+fallback, a real restart, actual recycle use and C^T*C / AZ=C algebra.
+Report independent true relative residuals and statuses. This is a
+NON-GATING experimental CI step (continue-on-error). A green workflow
+does not establish pilot success: check its step and indef_*.log.
+Convergence and speedup are NOT assumed. Do not merge based on this test.
