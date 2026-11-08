@@ -6,9 +6,9 @@ set -uo pipefail
 
 root="${MFAMG_REPLAY_DATA:-$HOME/mfamg_replay}"
 exe="${MFAMG_REPLAY_EXE:-/ucrt64/bin/mfamgreplay.exe}"
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 cd -- "$root" || exit 2
 root="$PWD"
-script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 export PATH="/ucrt64/bin:$PATH"
 
 A31=challenge_31/A04.mtx
