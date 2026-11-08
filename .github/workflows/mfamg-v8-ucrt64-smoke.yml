@@ -129,6 +129,7 @@ jobs:
           old_rc=$?
           LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=1 \
           LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1 LIS_FGCRODR_INTRA_TRACE=1 \
+          LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1 \
             "$exe" A.mtx b_hard.mtx modes.mtx > hard_fgcrodr_intra.log 2>&1
           intra_rc=$?
           set -e
@@ -156,6 +157,10 @@ jobs:
           grep -q '^LIS_FGCRODR_INTRA_RECYCLE iter=' hard_fgcrodr_intra.log
           ! grep -q '^LIS_FGCRODR_INTRA_RECYCLE iter=' hard_fgcrodr_no_intra.log
           grep -q 'method=fgcrodr recycle_k=1' hard_fgcrodr_intra.log
+          grep -q '^REPLAY_RECYCLE_STATS .*uses=1 ' hard_fgcrodr_intra.log
+          grep -q '^REPLAY_RECYCLE_CHECK rc=0 ' hard_fgcrodr_intra.log
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' hard_fgcrodr_intra.log
+          test "$intra_rc" -eq 0
       - name: Upload smoke logs even when failing
         if: always()
         uses: actions/upload-artifact@v4
