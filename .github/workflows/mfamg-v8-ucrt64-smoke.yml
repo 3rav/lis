@@ -161,6 +161,14 @@ jobs:
           grep -q '^REPLAY_RECYCLE_CHECK rc=0 ' hard_fgcrodr_intra.log
           grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' hard_fgcrodr_intra.log
           test "$intra_rc" -eq 0
+      - name: Publish experimental UCRT64 mfamgreplay EXE
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-replay-ucrt64-experimental
+          path: build-ci/test/.libs/mfamgreplay.exe
+          if-no-files-found: error
+          retention-days: 30
       - name: Upload smoke logs even when failing
         if: always()
         uses: actions/upload-artifact@v4
