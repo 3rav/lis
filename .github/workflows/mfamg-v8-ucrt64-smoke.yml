@@ -226,3 +226,6 @@ jobs:
           python3 -m py_compile test/mfamg_mode_audit.py
           bash -n test/mfamg_mode_audit_smoke.sh
           bash test/mfamg_mode_audit_smoke.sh
+          python3 -m py_compile test/mfamg_mode_ritz_selection.py
+          bash -n test/mfamg_mode_ritz_selection_smoke.sh
+          bash test/mfamg_mode_ritz_selection_smoke.sh

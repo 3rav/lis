@@ -381,3 +381,52 @@ Public independent CI job `mode-audit-smoke` tests a synthetic
 five-row indefinite system, negative projected Ritz values,
 non-eigenvector residual, baseline mismatch and unsupported input.
 No private CCX matrices are used or uploaded. PR remains Draft.
+
+
+## OFFLINE projected-Ritz selection experiment (5 vs 6 extra modes)
+
+The first real 31-spring mode audit gave six independent extra
+directions with NEGATIVE individual Rayleigh quotients but only
+**five negative** and **one positive** Ritz values in the symmetric
+part of their six-dimensional projected operator:
+`-925.680248743,-463.766476123,-160.55219208,-74.6704595587,-5.84714873376,+101.892963799`.
+The extra modes are nearly orthogonal to the original 12, but their
+large full-operator normalized eigen-residuals (0.58..0.88)
+mean they must NOT be called exact eigenvectors of the full A.
+
+The new `test/mfamg_mode_ritz_selection.py` accepts that SAME
+offline 18-mode file and rotates its 6 extra directions into
+Ritz vectors of the symmetric projected operator. It writes two
+new local Matrix Market arrays without overwriting existing files:
+
+- `modes_negative_ritz.mtx`: original 12 + 5 negative-Ritz directions
+- `modes_all_ritz.mtx`: original 12 + all 6 rotated directions
+  (same 18-dimensional span as original input)
+
+This is a controlled experiment: the second output distinguishes
+any effects caused by rotating/orthogonalizing the basis itself
+from effects caused by excluding the positive Ritz direction.
+The rotation does not recover modes online, and negative curvature
+of the projection does not certify global negative eigenvectors.
+Never replace the production near-nullspace basis with these
+research-only arrays.
+
+From an up-to-date `$HOME/lis-v8` checkout, using Python 3:
+
+```bash
+mkdir -p "$HOME/mfamg_replay/v8_mode_audit/ritz"
+python3 test/mfamg_mode_ritz_selection.py \
+  "$HOME/mfamg_replay/challenge_31/A04.mtx" \
+  "$HOME/mfamg_replay/challenge_31/modes04.mtx" \
+  "$HOME/mfamg_replay/challenge_31/modes04_12plus6negative.mtx" \
+  --output-dir "$HOME/mfamg_replay/v8_mode_audit/ritz"
+```
+
+Before making any time or convergence claims, replay both outputs
+with the same MFAMG factor=4, k=8, restart=180 and maxiter=3000;
+compare with the original 18-mode run (status=0, 2772 iter,
+226.086 seconds). These two new real-snapshot runs have NOT yet
+been performed. Their presence is diagnostic, not evidence for
+replacing the offline enrichment with online mode generation.
+An independent Linux CI job checks both files on a synthetic
+indefinite example and rejects existing-output overwrites.
