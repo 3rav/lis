@@ -53,7 +53,7 @@ grep -q '^31_12m_f2_fgmres,31,60265,12,2,fgmres,0,180,1000,1,4,4,1000,' "$csv"
 grep -q '^31_12m_f2_fgcrodr_k0,31,60265,12,2,fgcrodr,0,180,1000,1,4,4,1000,' "$csv"
 grep -q '^116_12m_f2_fgmres,116,95000,12,2,fgmres,0,180,1000,0,0,0,592,' "$csv"
 grep -q '^116_12m_f2_fgcrodr_k8,116,95000,12,2,fgcrodr,8,180,1000,0,0,0,580,' "$csv"
-grep -q ',8,1,2,1,0,2,NA,NA,NA,v8_116_12m_f2_fgcrodr_k8.log$' "$csv"
+grep -q ',8,1,2,1,0,2,0,4.4e-16,1.8e-13,v8_116_12m_f2_fgcrodr_k8.log$' "$csv"
 test "$(find "$tmp/data/results" -maxdepth 1 -name '*.log' | wc -l)" -eq 9
 test -s "$tmp/data/results/v8_assessment.txt"
 grep -q '^ASSESS_NUMERIC_GATE=PASS_CONTACT_REPLAY_ONLYcat > "$tmp/fake_crash.sh" <<'CRASH'
