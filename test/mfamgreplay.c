@@ -222,7 +222,7 @@ int main(int argc,char **argv)
         return 2;
     }
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS) return 1;
-    if(replay_int_option("LIS_MFAMG_REPLAY_RESTART",180,20,600,
+    if(replay_int_option("LIS_MFAMG_REPLAY_RESTART",180,2,600,
                          &restart)!=0 ||
        replay_int_option("LIS_MFAMG_REPLAY_MAXITER",1000,100,3000,
                          &maxiter)!=0)
