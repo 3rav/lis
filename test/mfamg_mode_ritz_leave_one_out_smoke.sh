@@ -10,7 +10,8 @@ root = pathlib.Path(sys.argv[1])
 n = 8
 def write(path, cols):
     with (root / path).open('w', encoding='ascii') as f:
-        f.write('%%MatrixMarket matrix array real general\n%d %d\n' % (n, len(cols)))
+        f.write('%%MatrixMarket matrix array real general\n')
+        f.write('%d %d\n' % (n, len(cols)))
         for j in cols:
             for i in range(n):
                 f.write('%d\n' % (i == j))
