@@ -17,8 +17,10 @@
 #endif
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "lislib.h"
+#include "lis_snapshot.h"
 
 
 #define LIS_MFAMG_MAX_LEVELS 32
@@ -13318,6 +13320,59 @@ lis_precon_create_mfamg(
                 "MFAMG near-nullspace vectors are incompatible with the matrix\n");
 
             return LIS_ERR_ILL_ARG;
+        }
+    }
+
+
+    /*
+     * V7 capture the EXACT finest-level basis used by this setup.
+     * This is opt-in, nonfatal and independent of the algorithm.
+     * A unique name is used for every MFAMG preconditioner creation;
+     * mapping to CCX snapshots is through the solve sequence and nnz.
+     * Caller must create the destination directory. Serial only.
+     */
+    {
+        const char *export_prefix =
+            getenv("LIS_MFAMG_MODES_EXPORT_PREFIX");
+        if(export_prefix!=NULL && export_prefix[0]!='\0')
+        {
+            static unsigned long long export_call=0;
+            unsigned long long call=++export_call;
+            char prefix[2048];
+            int written;
+            LIS_INT export_status;
+
+            written=snprintf(
+                prefix,sizeof(prefix),
+                "%s_%06llu_n%lld_nnz%lld",
+                export_prefix,call,
+                (long long)A->n,(long long)A->nnz);
+            if(written<0 || (size_t)written>=sizeof(prefix))
+            {
+                fprintf(stderr,
+                    "LIS_MFAMG_MODES_EXPORT call=%llu "
+                    "status=%d reason=prefix_too_long\n",
+                    call,(int)LIS_ERR_ILL_ARG);
+            }
+            else if(A->nprocs!=1 || A->is!=0 || A->gn!=A->n)
+            {
+                fprintf(stderr,
+                    "LIS_MFAMG_MODES_EXPORT call=%llu "
+                    "status=%d reason=serial_only\n",
+                    call,(int)LIS_ERR_NOT_IMPLEMENTED);
+            }
+            else
+            {
+                export_status=lis_snapshot_export_modes_mm(
+                    mode_count,solver->near_nullspace,prefix);
+                fprintf(stderr,
+                    "LIS_MFAMG_MODES_EXPORT call=%llu n=%lld "
+                    "nnz=%lld modes=%lld status=%d "
+                    "path=%s_modes.mtx\n",
+                    call,(long long)A->n,(long long)A->nnz,
+                    (long long)mode_count,
+                    (int)export_status,prefix);
+            }
         }
     }
 
