@@ -24,6 +24,7 @@
 #include <math.h>
 #include <errno.h>
 #include "lislib.h"
+#include "lis_solver.h"
 
 static int read_modes(const char *path,LIS_MATRIX A,
                       LIS_INT *count_out,LIS_VECTOR **vectors_out)
@@ -206,8 +207,12 @@ int main(int argc,char **argv)
     LIS_SOLVER solver=NULL;
     LIS_INT err=0,nmodes=0,i,iter=0,status=-1;
     LIS_REAL reported=0.0;
+    LIS_REAL recycle_orth=0.0,recycle_relation=0.0;
+    LIS_UNSIGNED_INT recycle_builds=0,recycle_updates=0;
+    LIS_UNSIGNED_INT recycle_uses=0,recycle_rejects=0;
     double b2=0.0,r2=0.0,t0=0.0,t1=0.0;
     int rc=1,restart=180,maxiter=1000,recycle_k=8,use_recycling=0;
+    int recycle_validation_failed=0;
     const char *method="fgmres";
     const char *method_env;
     LIS_INT recycle_dim=0,recycle_action=0;
@@ -343,6 +348,36 @@ int main(int argc,char **argv)
         else
             fprintf(stderr,"REPLAY: FGCRO-DR recycle diagnostic rc=%lld\n",
                     (long long)recycle_rc);
+
+        recycle_rc=lis_fgcrodr_get_stats(solver,
+            &recycle_builds,&recycle_updates,
+            &recycle_uses,&recycle_rejects);
+        if(recycle_rc==LIS_SUCCESS)
+            printf("REPLAY_RECYCLE_STATS builds=%llu updates=%llu "
+                   "uses=%llu rejects=%llu\n",
+                   (unsigned long long)recycle_builds,
+                   (unsigned long long)recycle_updates,
+                   (unsigned long long)recycle_uses,
+                   (unsigned long long)recycle_rejects);
+
+        /* Expensive A*Z=C check is opt-in, never alters the result. */
+        {
+            const char *validate=getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE");
+            if(validate!=NULL && strcmp(validate,"1")==0)
+            {
+                LIS_INT validation_rc=lis_fgcrodr_validate_recycle(
+                    solver,&recycle_orth,&recycle_relation);
+                printf("REPLAY_RECYCLE_CHECK rc=%lld orth_error=%.12e "
+                       "relation_error=%.12e\n",
+                       (long long)validation_rc,
+                       (double)recycle_orth,(double)recycle_relation);
+                if(validation_rc!=LIS_SUCCESS ||
+                   !isfinite((double)recycle_orth) ||
+                   !isfinite((double)recycle_relation) ||
+                   recycle_orth>1.0e-8 || recycle_relation>1.0e-8)
+                    recycle_validation_failed=1;
+            }
+        }
     }
 
     if(lis_matvec(A,x,ax)==LIS_SUCCESS)
@@ -360,7 +395,8 @@ int main(int argc,char **argv)
            "wall_seconds=%.3f\n",
            (long long)err,(long long)status,(long long)iter,
            (double)reported,b2>0 ? sqrt(r2/b2) : sqrt(r2),t1-t0);
-    rc=(err==LIS_SUCCESS && status==0) ? 0 : 1;
+    rc=(err==LIS_SUCCESS && status==0 &&
+        !recycle_validation_failed) ? 0 : 1;
     err=0;
 done:
     if(err) fprintf(stderr,"REPLAY LIS error=%lld\n",(long long)err);
