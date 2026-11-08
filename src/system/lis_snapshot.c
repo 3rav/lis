@@ -17,6 +17,20 @@
 #include "lis_snapshot.h"
 #include <errno.h>
 
+/*
+ * Optional, read-only I/O diagnostics for CCX snapshot failures.
+ * The exporter never creates directories or replaces existing files.
+ */
+static void
+lis_snapshot_log_io(const char *stage,const char *path,int error_no)
+{
+    const char *diag=getenv("LIS_SNAPSHOT_IO_DIAG");
+    if(diag!=NULL && strcmp(diag,"1")==0)
+        fprintf(stderr,
+            "LIS_SNAPSHOT_IO stage=%s path=%s errno=%d\n",
+            stage,path,(int)error_no);
+}
+
 /* Check that neither output nor staging file exists before writing.
  * This is not a cross-process lock; callers must use unique prefixes.
  */
@@ -29,9 +43,16 @@ lis_snapshot_available(const char *path)
     if(existing!=NULL)
     {
         fclose(existing);
+        lis_snapshot_log_io("destination_exists",path,0);
         return LIS_ERR_FILE_IO;
     }
-    return errno==ENOENT ? LIS_SUCCESS : LIS_ERR_FILE_IO;
+    if(errno!=ENOENT)
+    {
+        int saved_errno=errno;
+        lis_snapshot_log_io("destination_probe",path,saved_errno);
+        return LIS_ERR_FILE_IO;
+    }
+    return LIS_SUCCESS;
 }
 
 static LIS_INT
@@ -151,7 +172,12 @@ lis_snapshot_emit(char *path,char *temporary,size_t cap,
     LIS_INT err=lis_snapshot_paths(path,temporary,cap,prefix,label,"mtx");
     if(err) return err;
     file=fopen(temporary,"w");
-    if(file==NULL) return LIS_ERR_FILE_IO;
+    if(file==NULL)
+    {
+        int saved_errno=errno;
+        lis_snapshot_log_io("temporary_open",temporary,saved_errno);
+        return LIS_ERR_FILE_IO;
+    }
     if(A!=NULL)
         err=lis_snapshot_write_matrix(file,A);
     else if(v!=NULL)
@@ -159,9 +185,17 @@ lis_snapshot_emit(char *path,char *temporary,size_t cap,
     else
         err=lis_snapshot_write_basis(file,basis[0]->n,count,basis);
     if(fclose(file)!=0 && err==LIS_SUCCESS)
+    {
+        int saved_errno=errno;
+        lis_snapshot_log_io("temporary_close",temporary,saved_errno);
         err=LIS_ERR_FILE_IO;
+    }
     if(err==LIS_SUCCESS && rename(temporary,path)!=0)
+    {
+        int saved_errno=errno;
+        lis_snapshot_log_io("publish_rename",path,saved_errno);
         err=LIS_ERR_FILE_IO;
+    }
     if(err!=LIS_SUCCESS)
         remove(temporary);
     return err;
