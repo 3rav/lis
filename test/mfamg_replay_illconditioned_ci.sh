@@ -4,7 +4,7 @@
 # T has diagonal 2+delta and +/- 1 neighbors (delta=1e-5).
 # Exact |lambda|min = 2+delta - 2*cos(pi/241), max = 2+delta+2*cos(pi/241).
 # The matrix is symmetric, indefinite, nonsingular and ill-conditioned.
-# Diagnostic-only until numerical outcomes have been inspected.
+# Gating convergence and algebraic regression; does not assert speedup.
 # Usage: bash test/mfamg_replay_illconditioned_ci.sh ABS_EXE ABS_OUTPUT_DIR
 set -euo pipefail
 if (( $# != 2 )); then
@@ -77,6 +77,18 @@ run_case() {
     echo "ERROR: nonfinite text in $log" >&2
     return 1
   fi
+  if (( rc != 0 )) || ! grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' "$log"; then
+    echo "ERROR: solver did not converge in $log" >&2
+    return 1
+  fi
+  awk '/^REPLAY_RESULT / {
+         for(i=1;i<=NF;i++) if($i ~ /^true_relative=/) {
+           split($i,p,"="); if(p[2]+0>=0 && p[2]+0<1.0e-5) ok=1
+         }
+       } END {exit !ok}' "$log" || {
+    echo "ERROR: true residual above tolerance in $log" >&2
+    return 1
+  }
 }
 
 run_case fgmres LIS_MFAMG_REPLAY_METHOD=fgmres LIS_FGCRODR_INTRA_SOLVE_RECYCLE=0
@@ -92,13 +104,31 @@ test "$(signature ill_fgmres.log)" = "$(signature ill_k0.log)" || {
   echo "ERROR: k=0 differs from FGMRES control on ill-conditioned problem" >&2
   exit 1
 }
+# Ensure the hard baseline really needs multiple restarts.
+awk '/^REPLAY_RESULT / {for(i=1;i<=NF;i++) if($i ~ /^iter=/) {
+       split($i,p,"="); if(p[2]>8) ok=1
+     }} END {exit !ok}' ill_fgmres.log || {
+  echo "ERROR: ill-conditioned baseline did not require two restarts" >&2
+  exit 1
+}
 for label in k1 k2; do
   log="ill_$label.log"
-  if grep -q '^REPLAY_RECYCLE_CHECK ' "$log"; then
-    grep -q '^REPLAY_RECYCLE_CHECK rc=0 ' "$log" || {
-      echo "ERROR: invalid recycle-space algebra in $log" >&2
-      exit 1
-    }
+  count=$(grep -c '^LIS_FGCRODR_INTRA_RECYCLE iter=' "$log" || true)
+  if (( count < 2 )); then
+    echo "ERROR: less than two active recycling restarts in $log" >&2
+    exit 1
   fi
+  grep -q '^REPLAY_RECYCLE_CHECK rc=0 ' "$log" || {
+    echo "ERROR: invalid recycle-space algebra in $log" >&2
+    exit 1
+  }
+  awk '/^REPLAY_RECYCLE_STATS / {
+         for(i=1;i<=NF;i++) if($i ~ /^updates=/) {
+           split($i,p,"="); if(p[2]+0>=2) ok=1
+         }
+       } END {exit !ok}' "$log" || {
+    echo "ERROR: fewer than two recycle updates in $log" >&2
+    exit 1
+  }
 done
-echo "ILL_PILOT_COMPLETE: convergence is not assumed; review true_relative, iter, use, update, rejects."
+echo "ILL_REGRESSION_COMPLETE: validated convergence and multiple active restarts."

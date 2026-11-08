@@ -119,20 +119,29 @@ Do not merge without testing the real contact snapshots.
 The separate test/mfamg_replay_illconditioned_ci.sh constructs a PUBLIC,
 deterministic 480x480 real symmetric system A=diag(T,-T), where each
 240x240 block T is tridiagonal with diagonal 2+1e-5 and off-diagonal -1.
-Therefore the eigenvalues are +/-[2+1e-5-2*cos(j*pi/241)],
-j=1..240; the matrix is nonsingular and indefinite. Its theoretical
-2-norm condition number is approximately 2.2e4, unlike the much easier
-diagonally dominant synthetic smoke system.
+Thus its eigenvalues are +/-[2+1e-5-2*cos(j*pi/241)], j=1..240,
+and its exact 2-norm condition number is about 22230.49.
 
-At restart=4 and maxiter=300, compare FGMRES, FGCRO-DR(k=0), and active
-FGCRO-DR(k=1,2). The matrices, RHS and near-nullspace vectors are
-identical across cases. Print independent true residual, iteration
-count, exit code, recycle-space statistics and algebraic validation.
-The exact k=0 fallback and valid recycle-space algebra are checked.
-Convergence or improvement is *not* a precondition for this initial
-NON-GATING experiment (continue-on-error), because failure is useful
-diagnostic evidence. Inspect the named CI step and ill_*.log; do not
-mistake a green overall workflow for an algorithmic result.
+Two independent Windows/UCRT64 workflow runs passed:
+https://github.com/3rav/lis/actions/runs/42505597543
+https://github.com/3rav/lis/actions/runs/42505602628
 
-Do not merge or modify production CalculiX/FGMRES/MFAMG on synthetic
-evidence alone; the 31/116-spring private snapshots remain the gate.
+With restart=4, maxiter=300 and equal preconditioner settings:
+- FGMRES and FGCRO-DR(k=0): 25 iterations, true_relative 9.690077339196e-6
+- FGCRO-DR(k=1): 22 iterations, true_relative 9.668199352259e-6
+- FGCRO-DR(k=2): 22 iterations, true_relative 8.337573750868e-6
+All solvers converged with status=0. Active recycling occurred after
+iterations 4, 8, 12, 16 and 20, with builds=1, updates=5, rejects=0.
+Orthogonality errors were below 1e-15; final A*Z=C relation errors
+were below 2e-13. k=0 gave an identical numeric fallback to FGMRES.
+
+This follow-up promotes the case to a GATING numerical CI regression:
+success/status=0, independent true-relative residual <1e-5, exact k=0
+fallback, at least two actual recycled restarts, multiple harmonic
+updates and valid recycle-space algebra. It does NOT assert a speedup.
+Measured wall times of 0.002-0.004 seconds are not meaningful as a
+performance comparison, and this synthetic SPD/negative-SPD block
+system is not a substitute for a contact Jacobian.
+
+No production code is changed. The private 31/116-spring replay remains
+the essential gate before any production use or merge.

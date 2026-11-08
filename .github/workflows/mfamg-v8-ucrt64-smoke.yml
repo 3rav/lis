@@ -178,8 +178,7 @@ jobs:
           bash test/mfamg_replay_indefinite_ci.sh \
             "$PWD/build-ci/test/.libs/mfamgreplay.exe" \
             "$PWD/build-ci/smoke"
-      - name: Probe ill-conditioned indefinite 480-row recycling (non-gating)
-        continue-on-error: true
+      - name: Check ill-conditioned indefinite 480-row recycling
         run: |
           set -euo pipefail
           bash test/mfamg_replay_illconditioned_ci.sh \
