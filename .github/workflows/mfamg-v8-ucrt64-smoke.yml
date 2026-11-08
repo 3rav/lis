@@ -171,8 +171,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
-      - name: Probe symmetric-indefinite 480-row system (experimental, non-gating)
-        continue-on-error: true
+      - name: Check symmetric-indefinite 480-row recycling
         run: |
           set -euo pipefail
           bash test/mfamg_replay_indefinite_ci.sh \

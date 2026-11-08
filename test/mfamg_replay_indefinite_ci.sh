@@ -65,6 +65,18 @@ run_case() {
     echo "ERROR: non-finite text in $log" >&2
     return 1
   fi
+  if (( rc != 0 )) || ! grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' "$log"; then
+    echo "ERROR: solver did not converge in $log" >&2
+    return 1
+  fi
+  awk '/^REPLAY_RESULT / {
+         for(i=1;i<=NF;i++) if($i ~ /^true_relative=/) {
+           split($i,p,"="); if(p[2]+0>=0 && p[2]+0<1.0e-5) ok=1
+         }
+       } END {exit !ok}' "$log" || {
+    echo "ERROR: true residual above tolerance in $log" >&2
+    return 1
+  }
 }
 run_case fgmres LIS_MFAMG_REPLAY_METHOD=fgmres LIS_FGCRODR_INTRA_SOLVE_RECYCLE=0
 run_case k0 LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=0 LIS_FGCRODR_INTRA_SOLVE_RECYCLE=0
@@ -96,5 +108,5 @@ for label in k1 k2; do
     exit 1
   }
 done
-# Pilot does not claim convergence or speedup.
+# Only convergence and algebra are gated; do NOT claim speedup.
 echo 'INDEFINITE_PROBE_COMPLETE: examine status, iter, true_relative, reuse.'

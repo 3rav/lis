@@ -96,7 +96,19 @@ heterogeneous RHS and two near-nullspace modes. No private CCX data.
 With restart=4 and maxiter=300, compare FGMRES, FGCRO-DR(k=0), and
 intra-solve FGCRO-DR(k=1,2) on identical inputs. Check the exact k=0
 fallback, a real restart, actual recycle use and C^T*C / AZ=C algebra.
-Report independent true relative residuals and statuses. This is a
-NON-GATING experimental CI step (continue-on-error). A green workflow
-does not establish pilot success: check its step and indef_*.log.
-Convergence and speedup are NOT assumed. Do not merge based on this test.
+Report independently computed true relative residuals and statuses.
+The pilot passed in two Windows UCRT64 CI runs:
+https://github.com/3rav/lis/actions/runs/42497389335
+https://github.com/3rav/lis/actions/runs/42497393714
+
+FGMRES and k=0 both converged in 7 iterations to 8.977625403445e-6.
+FGCRO-DR k=1 converged in 7 iterations to 8.330184788348e-6;
+k=2 in 7 iterations to 7.011277277581e-6. Both activated recycle
+at iter=4. Maximum orthogonality error was 1.22e-15,
+maximum AZ=C error 3.03e-16.
+
+This change promotes the synthetic-case probe into a GATING regression:
+solver convergence, independently measured true residual below 1e-5,
+exact k=0 fallback, actual recycle use and valid recycle-space algebra.
+It does NOT assert speedup; wall times around 0.002 s are uninformative.
+Do not merge without testing the real contact snapshots.
