@@ -112,3 +112,27 @@ solver convergence, independently measured true residual below 1e-5,
 exact k=0 fallback, actual recycle use and valid recycle-space algebra.
 It does NOT assert speedup; wall times around 0.002 s are uninformative.
 Do not merge without testing the real contact snapshots.
+
+
+## Near-singular symmetric-indefinite pilot (non-gating)
+
+The separate test/mfamg_replay_illconditioned_ci.sh constructs a PUBLIC,
+deterministic 480x480 real symmetric system A=diag(T,-T), where each
+240x240 block T is tridiagonal with diagonal 2+1e-5 and off-diagonal -1.
+Therefore the eigenvalues are +/-[2+1e-5-2*cos(j*pi/241)],
+j=1..240; the matrix is nonsingular and indefinite. Its theoretical
+2-norm condition number is approximately 2.2e4, unlike the much easier
+diagonally dominant synthetic smoke system.
+
+At restart=4 and maxiter=300, compare FGMRES, FGCRO-DR(k=0), and active
+FGCRO-DR(k=1,2). The matrices, RHS and near-nullspace vectors are
+identical across cases. Print independent true residual, iteration
+count, exit code, recycle-space statistics and algebraic validation.
+The exact k=0 fallback and valid recycle-space algebra are checked.
+Convergence or improvement is *not* a precondition for this initial
+NON-GATING experiment (continue-on-error), because failure is useful
+diagnostic evidence. Inspect the named CI step and ill_*.log; do not
+mistake a green overall workflow for an algorithmic result.
+
+Do not merge or modify production CalculiX/FGMRES/MFAMG on synthetic
+evidence alone; the 31/116-spring private snapshots remain the gate.
