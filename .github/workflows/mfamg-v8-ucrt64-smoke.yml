@@ -1,0 +1,107 @@
+name: MFAMG v8 UCRT64 smoke
+on:
+  pull_request:
+    branches:
+      - experiment/mfamg-modes-snapshot-v7-20261108
+  push:
+    branches:
+      - experiment/mfamg-fgcrodr-replay-v8-20261108
+  workflow_dispatch:
+
+jobs:
+  build-and-replay:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Preserve LF in checked-out Autotools sources
+        shell: pwsh
+        run: git config --global core.autocrlf input
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            autoconf
+            automake
+            libtool
+            make
+            git
+            file
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gcc-fortran
+      - name: Autotools configure and build
+        run: |
+          set -euxo pipefail
+          bash -n test/mfamg_replay_fgcrodr_sweep.sh
+          autoreconf -fiv
+          mkdir -p build-ci
+          cd build-ci
+          ../configure --prefix=/ucrt64 \
+            --enable-omp --enable-shared --disable-longlong \
+            --enable-half --disable-longdouble --enable-quad \
+            --disable-complex --disable-mpi --disable-test --with-gnu-ld
+          make -j2
+          make -C test mfamgreplay.exe testmfamgmodes.exe
+          file test/.libs/mfamgreplay.exe
+          test -s test/.libs/mfamgreplay.exe
+          ./test/testmfamgmodes.exe
+      - name: Generate a 240-row reproducible Matrix Market smoke system
+        run: |
+          set -euxo pipefail
+          mkdir -p build-ci/smoke
+          cd build-ci/smoke
+          {
+            echo '%%MatrixMarket matrix coordinate real general'
+            echo '240 240 718'
+            for ((i=1;i<=240;i++)); do
+              echo "$i $i 4"
+              if (( i>1 )); then echo "$i $((i-1)) -1"; fi
+              if (( i<240 )); then echo "$i $((i+1)) -1"; fi
+            done
+          } > A.mtx
+          {
+            echo '%%MatrixMarket matrix array real general'
+            echo '240 1'
+            for ((i=1;i<=240;i++)); do echo 1; done
+          } > b.mtx
+          {
+            echo '%%MatrixMarket matrix array real general'
+            echo '240 2'
+            for ((i=1;i<=240;i++)); do echo 1; done
+            for ((i=1;i<=240;i++)); do
+              awk -v i="$i" 'BEGIN { printf "%.17g\n", (i-120.5)/240 }'
+            done
+          } > modes.mtx
+      - name: Compare default FGMRES and FGCRO-DR on identical matrix
+        run: |
+          set -euxo pipefail
+          cd build-ci/smoke
+          export LIS_MFAMG_EXPERIMENT_FINE_AGG=1
+          export LIS_MFAMG_FINE_AGG_FACTOR=2
+          export LIS_MFAMG_EXPERIMENT_DEEP_MERGE=1
+          export LIS_MFAMG_VCYCLE_SMOOTH_STEPS=3
+          export LIS_FGMRES_PROJECTED_RELATIVE=1
+          exe=../test/.libs/mfamgreplay.exe
+          LIS_MFAMG_REPLAY_METHOD=fgmres \
+            "$exe" A.mtx b.mtx modes.mtx > fgmres.log 2>&1
+          cat fgmres.log
+          grep -q 'method=fgmres recycle_k=0' fgmres.log
+          grep -q 'REPLAY_RESULT solve_rc=0 status=0 ' fgmres.log
+          LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=8 \
+            "$exe" A.mtx b.mtx modes.mtx > fgcrodr.log 2>&1
+          cat fgcrodr.log
+          grep -q 'method=fgcrodr recycle_k=8' fgcrodr.log
+          grep -q 'REPLAY_RESULT solve_rc=0 status=0 ' fgcrodr.log
+          grep -q '^REPLAY_RECYCLE ' fgcrodr.log
+      - name: Upload smoke logs even when failing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-smoke-logs
+          path: build-ci/smoke/*.log
+          if-no-files-found: ignore
