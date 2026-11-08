@@ -33,6 +33,20 @@ static int toggle_experiment(int enabled)
 #endif
 }
 
+static int set_factor(int factor)
+{
+#ifdef _WIN32
+    if(factor==2) return _putenv("LIS_MFAMG_FINE_AGG_FACTOR=2");
+    if(factor==3) return _putenv("LIS_MFAMG_FINE_AGG_FACTOR=3");
+    if(factor==4) return _putenv("LIS_MFAMG_FINE_AGG_FACTOR=4");
+    return _putenv("LIS_MFAMG_FINE_AGG_FACTOR=");
+#else
+    if(factor==0) return unsetenv("LIS_MFAMG_FINE_AGG_FACTOR");
+    return setenv("LIS_MFAMG_FINE_AGG_FACTOR",
+        factor==2 ? "2" : (factor==3 ? "3" : "4"),1);
+#endif
+}
+
 static int run_test(void)
 {
     LIS_MATRIX A=NULL;
@@ -41,7 +55,7 @@ static int run_test(void)
     LIS_VECTOR basis[2]={NULL,NULL};
     LIS_INT levels[TEST_LEVEL_CAP], owned[TEST_LEVEL_CAP];
     LIS_INT nlevels=0, coarse_n=0, err=0;
-    LIS_INT i;
+    LIS_INT i, factor, previous_coarse=TEST_N;
     int failed=1;
 
     if(toggle_experiment(1)!=0) {
@@ -83,19 +97,39 @@ static int run_test(void)
     err=lis_solver_set_matrix(A,solver);
     if(err) goto done;
 
-    err=lis_precon_create(solver,&precon);
-    if(err) goto done;
-    err=lis_precon_mfamg_get_hierarchy_info(
-        precon,TEST_LEVEL_CAP,&nlevels,&coarse_n,levels,owned);
-    if(err) goto done;
-    if(nlevels<2 || levels[0]!=TEST_N || levels[1]>=TEST_N ||
-       levels[1]>TEST_N/2 || coarse_n<=0) {
-        fprintf(stderr,"MFAMG FINE AGG: bad hierarchy nlevels=%d first=%d coarse=%d\n",
-                (int)nlevels,(int)levels[1],(int)coarse_n);
-        goto done;
+    /*
+     * On the connected 1-D matrix with two independent smooth modes,
+     * increasing the first-level target from 4 to 6 to 8 must reduce
+     * the first coarse space without losing valid hierarchy levels.
+     * This exercises the real preconditioner creation path, not merely
+     * the environment parser.
+     */
+    for(factor=2;factor<=4;factor++)
+    {
+        if(set_factor((int)factor)!=0) goto done;
+        err=lis_precon_create(solver,&precon);
+        if(err) goto done;
+        err=lis_precon_mfamg_get_hierarchy_info(
+            precon,TEST_LEVEL_CAP,&nlevels,&coarse_n,levels,owned);
+        if(err) goto done;
+        if(nlevels<2 || levels[0]!=TEST_N ||
+           levels[1]>=TEST_N || levels[1]>TEST_N/2 ||
+           levels[1]>=previous_coarse || coarse_n<=0) {
+            fprintf(stderr,
+                "MFAMG FINE AGG factor=%d: bad hierarchy nlevels=%d "
+                "first=%d previous=%d terminal=%d\n",
+                (int)factor,(int)nlevels,(int)levels[1],
+                (int)previous_coarse,(int)coarse_n);
+            goto done;
+        }
+        printf("MFAMG FINE AGG: factor=%d n=%d coarse_level1=%d "
+               "nlevels=%d terminal=%d PASS\n",
+               (int)factor,TEST_N,(int)levels[1],
+               (int)nlevels,(int)coarse_n);
+        previous_coarse=levels[1];
+        lis_precon_destroy(precon);
+        precon=NULL;
     }
-    printf("MFAMG FINE AGG: n=%d coarse_level1=%d nlevels=%d terminal=%d PASS\n",
-           TEST_N,(int)levels[1],(int)nlevels,(int)coarse_n);
     failed=0;
 
 done:
@@ -105,7 +139,7 @@ done:
     if(basis[1]) lis_vector_destroy(basis[1]);
     if(basis[0]) lis_vector_destroy(basis[0]);
     if(A) lis_matrix_destroy(A);
-    if(toggle_experiment(0)!=0) failed=1;
+    if(toggle_experiment(0)!=0 || set_factor(0)!=0) failed=1;
     return failed;
 }
 
