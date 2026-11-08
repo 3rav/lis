@@ -39,6 +39,23 @@ LIS_INT lis_snapshot_export_mm(
     const char *prefix);
 
 /*
+ * Export ONLY the supplied near-nullspace basis as <prefix>_modes.mtx.
+ *
+ * This is the same n-by-basis_count, column-major Matrix Market format
+ * used by lis_snapshot_export_mm(), but does not export or access A.
+ * It is intended for MFAMG preconditioner setup where the basis is
+ * available only after the CCX numeric snapshot has been written.
+ *
+ * Serial real-valued vectors only. Existing files are not overwritten;
+ * the temporary file is removed on failure. The destination directory
+ * must exist. Borrowed input vectors are never modified.
+ */
+LIS_INT lis_snapshot_export_modes_mm(
+    LIS_INT basis_count,
+    LIS_VECTOR basis[],
+    const char *prefix);
+
+/*
  * Optional physical/entity DOF labels from the embedding application.
  *
  * The equation index is zero-based and enumerated in LIS active equation
