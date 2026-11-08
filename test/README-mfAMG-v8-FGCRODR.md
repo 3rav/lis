@@ -192,3 +192,21 @@ The CI-required test/mfamg_replay_v8_sweep_smoke.sh uses placeholders
 and fake executables to exercise the full runner, preserve status=4,
 count recycle cycles, and test handling of a crash before REPLAY_RESULT.
 It never reads private data and cannot prove contact convergence.
+
+
+## Automatic decision screen from private local replay
+
+The local sweep enables recycle-space algebra validation for k>0 and
+writes v8_assessment.txt through test/mfamg_replay_v8_assess.awk.
+The screen requires the 31-spring FGMRES baseline (60,265 equations,
+1000 iterations and true relative residual near 1.832690841870e-3),
+exact k=0 parity, useful k=8 residual reduction or convergence with
+valid AZ=C algebra, and preservation of convergence on the 116-spring
+control (historically 592 FGMRES iterations). It compares only matching
+matrix, modes, factor, restart and iteration-limit settings.
+An incomplete CSV causes a clear error. A failed numerical comparison
+produces FAIL_OR_INCONCLUSIVE rather than falsely suggesting success.
+PASS_CONTACT_REPLAY_ONLY means the one-snapshot numerical screen passed;
+PRODUCTION_GATE is always BLOCKED_NEEDS_REPEATED_TIMING_AND_NEWTON_SEQUENCE.
+This is deliberately conservative: timings require repeated large runs,
+and Newton-step operator changes still need validation. Do not merge.

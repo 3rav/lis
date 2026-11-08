@@ -65,8 +65,13 @@ run_case() {
   fi
   if [[ "$method" == fgcrodr ]]; then
     export LIS_MFAMG_REPLAY_RECYCLE_DIM="$k"
+    if (( k > 0 )); then
+      export LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1
+    else
+      unset LIS_MFAMG_REPLAY_VALIDATE_RECYCLE
+    fi
   else
-    unset LIS_MFAMG_REPLAY_RECYCLE_DIM
+    unset LIS_MFAMG_REPLAY_RECYCLE_DIM LIS_MFAMG_REPLAY_VALIDATE_RECYCLE
   fi
   echo
   echo "==== $id | method=$method | factor=$factor | k=$k ===="
@@ -111,8 +116,11 @@ awk -f "$script_dir/mfamg_replay_v8_report.awk" "${case_logs[@]}" >"$results_dir
 echo "MFAMG v8 finished: CSV=$results_dir/v8_summary.csv"
 cat "$results_dir/v8_summary.csv"
 echo "Reminder: process_exit and solve_rc do NOT imply status=0 or convergence."
+assessment_errors=0
+awk -f "$script_dir/mfamg_replay_v8_assess.awk" "$results_dir/v8_summary.csv" >"$results_dir/v8_assessment.txt" || assessment_errors=1
+cat "$results_dir/v8_assessment.txt"
 
-if (( case_errors || summary_errors )); then
+if (( case_errors || summary_errors || assessment_errors )); then
   echo "ERROR: malformed case; logs and CSV retained for inspection." >&2
   exit 2
 fi
