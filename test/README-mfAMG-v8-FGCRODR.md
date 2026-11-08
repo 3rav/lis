@@ -422,11 +422,54 @@ python3 test/mfamg_mode_ritz_selection.py \
   --output-dir "$HOME/mfamg_replay/v8_mode_audit/ritz"
 ```
 
-Before making any time or convergence claims, replay both outputs
-with the same MFAMG factor=4, k=8, restart=180 and maxiter=3000;
-compare with the original 18-mode run (status=0, 2772 iter,
-226.086 seconds). These two new real-snapshot runs have NOT yet
-been performed. Their presence is diagnostic, not evidence for
-replacing the offline enrichment with online mode generation.
+The two real-snapshot runs described below were completed locally
+with the same MFAMG factor=4, k=8, restart=180 and maxiter=3000.
+Their interpretation remains diagnostic, not evidence for
+replacing offline enrichment with online mode generation.
 An independent Linux CI job checks both files on a synthetic
 indefinite example and rejects existing-output overwrites.
+
+
+## Real 31-spring Ritz selection experiment: 17 vs 18 modes (2026-11-08)
+
+A real Windows UCRT64 replay on the private 60,265-DOF, 3,623,639-entry
+31-spring A04 operator tested the new Ritz-selected basis and full
+Ritz-rotated control against the previously recorded unrotated
+18-mode enrichment (same MFAMG factor=4, FGCRO-DR(k=8),
+restart=180, maxiter=3000, tolerance=1e-5):
+
+| Mode basis | Status | Iterations | true_relative | Wall time, s |
+| --- | ---: | ---: | ---: | ---: |
+| Original 12 + 6 offline modes | **0 (converged)** | 2772 | 9.986595263773e-6 | 226.086 |
+| Original 12 + 5 negative Ritz directions | **4 (MAXITER)** | 3001 | 4.193222729068e-5 | 235.031 |
+| Original 12 + all 6 rotated Ritz directions | **0 (converged)** | 2805 | 9.950907090924e-6 | 227.719 |
+
+For the 17-mode case, recycling was active (builds=1, updates=16,
+uses=1, rejects=0), with recycle validation rc=0,
+orth_error=9.769962616701e-15 and relation_error=2.061032868769e-9.
+Despite valid algebra the solver did **not** reach the tolerance.
+
+For the rotated 18-mode control, recycling was active (builds=1,
+updates=15, uses=1, rejects=0), validation rc=0,
+orth_error=1.587618925214e-14 and relation_error=7.848487326205e-9.
+It converged after only 33 more iterations / 1.633 s more than the
+unrotated 18-mode case, supporting robustness to this basis rotation
+at this one snapshot. Note that AZ=C error is close to the 1e-8 gate.
+
+**Important inference:** retaining the extra sixth Ritz direction
+(the positive-curvature direction in the 6-dimensional symmetric
+projected operator) matters for convergence *within 3000 iterations*
+in this setup. Selecting only negative projected Ritz directions
+fails here, although each of the six original offline vectors had a
+negative individual Rayleigh quotient. Neither individual Rayleigh
+sign nor projected Ritz sign alone is a sufficient universal rule
+for enrichment. This is not proof that the sixth direction is
+indispensable at every iteration cap or for every contact operator.
+
+**Research status:** all six source directions are still produced
+OFFLINE. The selector only rotates and drops directions; it cannot
+generate them from A and the original 12 modes alone. No production
+MFAMG, CalculiX, or v7 change is justified. No private data files
+or complete logs are uploaded to the repository. PR remains Draft
+and blocked pending online enrichment, repeated time measurements,
+and a changed-operator Newton sequence experiment.
