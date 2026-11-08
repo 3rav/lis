@@ -13663,28 +13663,67 @@ lis_precon_create_mfamg(
 
 
     /*
-     * Diagnostic experiment: permit a larger first-level aggregate for
-     * multivector near-nullspaces.  The default remains exactly the
-     * historical two-unknown aggregation; opt in explicitly per process.
-     * The size expression is bounded by A->n without integer overflow.
+     * V6 opt-in fine-level aggregate factor experiment.
+     *
+     * The v1 2*mode_count target remains unchanged by default.
+     * A contact configuration with many independent local QR modes
+     * can generate a large first coarse space.  Factors 3 or 4 allow
+     * larger connected aggregates without dropping any basis modes:
+     * the existing local QR still determines each aggregate's rank.
+     *
+     * Only the FIRST transfer is affected, and this parameter has
+     * no effect unless the original fine-aggregation opt-in is set.
+     * Use division to cap target size without integer overflow.
      */
     {
         const char *experiment =
             getenv("LIS_MFAMG_EXPERIMENT_FINE_AGG");
+        const char *factor_env =
+            getenv("LIS_MFAMG_FINE_AGG_FACTOR");
+        const char *diag_env =
+            getenv("LIS_MFAMG_DIAG");
         LIS_INT target = 2;
+        LIS_INT factor = 2;
 
         if(mode_count>1 && experiment!=NULL &&
            strcmp(experiment,"1")==0)
         {
-            target = (mode_count>A->n/2) ? A->n : 2*mode_count;
+            if(factor_env!=NULL && factor_env[0]!='\0')
+            {
+                if(strcmp(factor_env,"2")==0) factor=2;
+                else if(strcmp(factor_env,"3")==0) factor=3;
+                else if(strcmp(factor_env,"4")==0) factor=4;
+                else
+                {
+                    LIS_SETERR(
+                        LIS_ERR_ILL_ARG,
+                        "LIS_MFAMG_FINE_AGG_FACTOR must be 2, 3 or 4\n");
+                    err = LIS_ERR_ILL_ARG;
+                }
+            }
+
+            if(err==LIS_SUCCESS)
+            {
+                target = (mode_count>A->n/factor)
+                    ? A->n : factor*mode_count;
+                if(diag_env!=NULL && strcmp(diag_env,"1")==0)
+                    fprintf(stderr,
+                        "LIS_MFAMG_FINE_AGG_CONFIG n=%d modes=%d "
+                        "factor=%d target=%d\n",
+                        (int)A->n,(int)mode_count,
+                        (int)factor,(int)target);
+            }
         }
 
-        if(target==2)
-            err = lis_mfamg_build_aggregates(
-                A,level,max_row_nnz,cols,vals);
-        else
-            err = lis_mfamg_build_aggregates_sized(
-                A,level,target,max_row_nnz,cols,vals);
+        if(err==LIS_SUCCESS)
+        {
+            if(target==2)
+                err = lis_mfamg_build_aggregates(
+                    A,level,max_row_nnz,cols,vals);
+            else
+                err = lis_mfamg_build_aggregates_sized(
+                    A,level,target,max_row_nnz,cols,vals);
+        }
     }
 
     if(err)
