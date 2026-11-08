@@ -38,6 +38,8 @@ jobs:
         run: |
           set -euxo pipefail
           bash -n test/mfamg_replay_fgcrodr_sweep.sh
+          bash -n test/mfamg_replay_v8_report_smoke.sh
+          bash test/mfamg_replay_v8_report_smoke.sh
           bash -n test/mfamg_replay_indefinite_ci.sh
           bash -n test/mfamg_replay_illconditioned_ci.sh
           autoreconf -fiv

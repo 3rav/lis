@@ -145,3 +145,35 @@ system is not a substitute for a contact Jacobian.
 
 No production code is changed. The private 31/116-spring replay remains
 the essential gate before any production use or merge.
+
+
+## Local contact-snapshot CSV summary (no private data in CI)
+
+The local runner test/mfamg_replay_fgcrodr_sweep.sh now writes its case
+logs under $MFAMG_V8_RESULTS_DIR (default: $MFAMG_REPLAY_DATA/v8_results).
+After completing the sweep, it generates v8_summary.csv via the portable
+test/mfamg_replay_v8_report.awk parser. The compact CSV includes: system
+31/116, mode count, factor, solver method, recycle k, restart/maxiter,
+process exit, solve return code, solver status, iteration count, both
+residuals, runtime, recycle-space size/stats, true number of intra-solve
+recycle *cycle activations* from trace lines, orthogonality error and AZ=C
+relation error. Missing optional diagnostics are marked NA, not zero.
+
+The standard run now includes **both** FGMRES and FGCRO-DR k=8 for the
+116-spring control as well as the previous 31-spring cases. The optional
+MFAMG_V8_FULL=1 includes k=0 and k=16 controls and 18-mode FGMRES.
+
+Do not mistake process_exit=0 or solve_rc=0 for successful convergence:
+the solver status and independent true_relative must be considered.
+In particular, the known 31-spring baseline ran to maxiter=1000 with
+true_relative around 1.832690841870e-3, not the 1e-5 tolerance.
+The report deliberately keeps this nonconverged baseline as evidence.
+
+A self-contained synthetic log-parser regression
+test/mfamg_replay_v8_report_smoke.sh is run in Windows UCRT64 CI. This
+test checks that a MAXITER result and its nonzero process exit are
+preserved, active recycle cycles are counted independently of uses,
+and missing REPLAY_RESULT is rejected. It does not run private matrices.
+
+Logs and CSV remain on the local user's computer; do not upload private
+contact snapshots or associated diagnostic logs to the public repo.

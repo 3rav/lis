@@ -7,6 +7,8 @@ set -uo pipefail
 root="${MFAMG_REPLAY_DATA:-$HOME/mfamg_replay}"
 exe="${MFAMG_REPLAY_EXE:-/ucrt64/bin/mfamgreplay.exe}"
 cd -- "$root" || exit 2
+root="$PWD"
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 export PATH="/ucrt64/bin:$PATH"
 
 A31=challenge_31/A04.mtx
@@ -41,9 +43,17 @@ export LIS_MFAMG_REPLAY_RESTART=180
 export LIS_MFAMG_REPLAY_MAXITER=1000
 unset LIS_MFAMG_MODES_EXPORT_PREFIX
 
+# Keep private snapshot logs/results under the snapshot root (or local override).
+results_dir="${MFAMG_V8_RESULTS_DIR:-$root/v8_results}"
+mkdir -p -- "$results_dir" || exit 2
+results_dir="$(cd -- "$results_dir" && pwd)"
+case_logs=()
+
 run_case() {
   local id="$1" A="$2" b="$3" modes="$4" factor="$5" method="$6" k="$7"
-  local rc log="v8_${id}.log"
+  local rc snapshot=31 log="$results_dir/v8_${id}.log"
+  [[ "$id" == 116_* ]] && snapshot=116
+  case_logs+=("$log")
   export LIS_MFAMG_FINE_AGG_FACTOR="$factor"
   export LIS_MFAMG_REPLAY_METHOD="$method"
   if [[ "$method" == fgcrodr ]]; then
@@ -59,8 +69,10 @@ run_case() {
   fi
   echo
   echo "==== $id | method=$method | factor=$factor | k=$k ===="
-  "$exe" "$A" "$b" "$modes" >"$log" 2>&1
+  printf "REPLAY_SWEEP_META case=%s snapshot=%s factor=%s\n" "$id" "$snapshot" "$factor" > "$log"
+  "$exe" "$A" "$b" "$modes" >>"$log" 2>&1
   rc=$?
+  printf "REPLAY_SWEEP_EXIT process_exit=%d\n" "$rc" >>"$log"
   echo "process_exit=$rc log=$log bytes=$(wc -c < "$log")"
   grep -E '^REPLAY n=|^REPLAY_RECYCLE|^REPLAY_RESULT|^REPLAY LIS error|^REPLAY:|^LIS_FGCRODR_INTRA_RECYCLE ' "$log" | tail -n 10 || true
   grep -q '^REPLAY_RESULT ' "$log" || {
@@ -84,6 +96,7 @@ run_case() {
 run_case 31_12m_f2_fgmres "$A31" "$B31" "$M12" 2 fgmres 0 || exit 2
 run_case 31_12m_f2_fgcrodr_k8 "$A31" "$B31" "$M12" 2 fgcrodr 8 || exit 2
 run_case 31_18m_f4_fgcrodr_k8 "$A31" "$B31" "$M18" 4 fgcrodr 8 || exit 2
+run_case 116_12m_f2_fgmres "$A116" "$B116" "$M116" 2 fgmres 0 || exit 2
 run_case 116_12m_f2_fgcrodr_k8 "$A116" "$B116" "$M116" 2 fgcrodr 8 || exit 2
 
 if [[ "${MFAMG_V8_FULL:-0}" == 1 ]]; then
@@ -91,6 +104,11 @@ if [[ "${MFAMG_V8_FULL:-0}" == 1 ]]; then
   run_case 31_12m_f2_fgcrodr_k16 "$A31" "$B31" "$M12" 2 fgcrodr 16 || exit 2
   run_case 31_18m_f4_fgmres "$A31" "$B31" "$M18" 4 fgmres 0 || exit 2
   run_case 31_18m_f4_fgcrodr_k16 "$A31" "$B31" "$M18" 4 fgcrodr 16 || exit 2
-  run_case 116_12m_f2_fgmres "$A116" "$B116" "$M116" 2 fgmres 0 || exit 2
 fi
-echo "MFAMG v8 finished: compare status, iter, true_relative, wall_seconds."
+awk -f "$script_dir/mfamg_replay_v8_report.awk" "${case_logs[@]}" >"$results_dir/v8_summary.csv" || {
+  echo "ERROR: failed to extract CSV summary" >&2
+  exit 2
+}
+echo "MFAMG v8 finished: CSV=$results_dir/v8_summary.csv"
+cat "$results_dir/v8_summary.csv"
+echo "Reminder: process_exit and solve_rc do NOT imply status=0 or convergence."
