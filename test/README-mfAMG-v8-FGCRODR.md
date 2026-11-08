@@ -343,3 +343,41 @@ in an automated CalculiX workflow. The remaining research gates
 are (1) deterministic online negative-mode discovery/reconstruction,
 (2) repeat-run timing variability, and (3) changed-operator Newton
 sequence tests. No production integration or merge is justified.
+
+## Read-only spectral audit of OFFLINE added modes
+
+Before building an online negative-mode enrichment algorithm, analyze
+the six known extra modes on the private fixed 31-spring matrix. The
+standalone script `test/mfamg_mode_audit.py` uses only Python 3
+standard library; it streams the sparse Matrix Market coordinate file,
+so it does not retain the ~3.6M sparse matrix entries in memory.
+
+From `$HOME/lis-v8` in MSYS2 UCRT64 (requires `python3`):
+
+```bash
+mkdir -p "$HOME/mfamg_replay/v8_mode_audit"
+python3 test/mfamg_mode_audit.py \
+  "$HOME/mfamg_replay/challenge_31/A04.mtx" \
+  "$HOME/mfamg_replay/challenge_31/modes04.mtx" \
+  "$HOME/mfamg_replay/challenge_31/modes04_12plus6negative.mtx" \
+  --csv-out "$HOME/mfamg_replay/v8_mode_audit/modes.csv" \
+  | tee "$HOME/mfamg_replay/v8_mode_audit/summary.txt"
+```
+
+The report checks exact first-12 correspondence (relative tolerance
+1e-10), original mode norms and Rayleigh quotients, normalized
+full-operator eigenvector residual estimates, independence from the
+baseline 12-dimensional span, rank and orthogonality after two-pass
+modified Gram-Schmidt, and the six-dimensional Ritz values of the
+**symmetric part of the projected operator** on the extra directions.
+The projected symmetry diagnostic does not certify that the entire
+CCX matrix is symmetric. Rayleigh/short Ritz results are descriptive
+and do not prove the extra vectors are actual eigenvectors or that
+they can be constructed online; further algorithm design and real
+Newton-step validation remain necessary. Only the user-controlled
+local CSV and stdout summary are written; no snapshot file is modified.
+
+Public independent CI job `mode-audit-smoke` tests a synthetic
+five-row indefinite system, negative projected Ritz values,
+non-eigenvector residual, baseline mismatch and unsupported input.
+No private CCX matrices are used or uploaded. PR remains Draft.

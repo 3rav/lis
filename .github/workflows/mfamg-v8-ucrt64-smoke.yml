@@ -214,3 +214,15 @@ jobs:
           name: mfamg-v8-smoke-logs
           path: build-ci/smoke/*.log
           if-no-files-found: ignore
+
+  mode-audit-smoke:
+    name: Offline mode audit (no private data)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Matrix Market spectral audit on a synthetic system
+        run: |
+          python3 -m py_compile test/mfamg_mode_audit.py
+          bash -n test/mfamg_mode_audit_smoke.sh
+          bash test/mfamg_mode_audit_smoke.sh
