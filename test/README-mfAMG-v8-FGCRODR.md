@@ -233,3 +233,38 @@ The six additional negative-eigenvalue modes were built OFFLINE;
 the result does not demonstrate online mode discovery. Do not merge
 until production-feasible enrichment, repeated timing and changed-
 operator Newton sequence validation have been demonstrated.
+
+
+## Extended real contact baseline: 6000 FGMRES iterations (2026-11-08)
+
+The user ran the Windows/UCRT64 v8 replay built with the 6000-iteration
+bound on the local, private **31-spring, 60,265-DOF** snapshot, using
+the same OFFLINE 18 modes (12 baseline + 6 negative-eigenvalue modes),
+MFAMG fine-aggregation factor=4, smooth_steps=3, projected-relative
+criterion and restart=180 as in the prior converged k=8 run.
+
+| Method | maxiter | Solver status | iterations | independently measured true-relative residual | seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| FGMRES | 3000 | 4 (MAXITER) | 3001 | 4.442649280794e-5 | 207.988 |
+| **FGMRES (extended)** | **6000** | **4 (MAXITER)** | **6001** | **3.833810842564e-5** | **399.776** |
+| FGCRO-DR k=8 (same preconditioner) | 3000 | **0 (converged)** | **2772** | **9.986595263773e-6** | **226.086** |
+
+After an additional 3000 FGMRES iterations the residual improved
+only 13.70%, and remained 3.834 times the convergence tolerance of
+1e-5. The measured FGMRES run took 173.690 seconds longer than the
+converged FGCRO-DR run yet did NOT achieve the same accuracy.
+
+**Scientific claim:** in these single local runs, FGCRO-DR reached the
+requested tolerance within 3000 iterations whereas FGMRES did not
+reach it even within 6000 iterations. This is strong evidence of
+improved *convergence* on this one fixed real contact snapshot and
+preconditioner combination, not a statistically validated speedup
+at matched target residual: the FGMRES time-to-tolerance is unknown.
+
+**Remaining limits:** the extra six near-negative modes were selected
+OFFLINE (not demonstrated in online production CalculiX), wall times
+have no repeated-run uncertainty estimates, the changed-operator
+Newton sequence is untested, and the FGCRO-DR final AZ=C validation
+error of 7.687679465279e-9 is relatively close to the 1e-8 threshold.
+Neither the private contact files nor raw logs are published.
+Keep PR #47 Draft; no production changes or merge.
