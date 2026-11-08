@@ -56,6 +56,25 @@ jobs:
           file test/.libs/mfamgreplay.exe
           test -s test/.libs/mfamgreplay.exe
           ./test/testmfamgmodes.exe
+      - name: Check opt-in extended replay iteration limit (no contact data)
+        run: |
+          set -euo pipefail
+          exe="$PWD/build-ci/test/.libs/mfamgreplay.exe"
+          if LIS_MFAMG_REPLAY_MAXITER=6001 "$exe" missing-A.mtx missing-b.mtx missing-modes.mtx > build-ci/maxiter_rejected.log 2>&1; then
+            echo "ERROR: 6001-iteration request was accepted" >&2
+            exit 1
+          fi
+          grep -q 'invalid LIS_MFAMG_REPLAY_MAXITER=6001 (expected integer 100..6000)' build-ci/maxiter_rejected.log
+          # Reaching file I/O demonstrates that 6000 passed replay option parsing.
+          if LIS_MFAMG_REPLAY_MAXITER=6000 "$exe" missing-A.mtx missing-b.mtx missing-modes.mtx > build-ci/maxiter_accepted.log 2>&1; then
+            echo "ERROR: missing input files were unexpectedly accepted" >&2
+            exit 1
+          fi
+          if grep -q 'invalid LIS_MFAMG_REPLAY_MAXITER=' build-ci/maxiter_accepted.log; then
+            echo "ERROR: the 6000-iteration option was incorrectly rejected" >&2
+            exit 1
+          fi
+          echo "EXTENDED_MAXITER_OPTION_OK"
       - name: Generate a 240-row reproducible Matrix Market smoke system
         run: |
           set -euxo pipefail

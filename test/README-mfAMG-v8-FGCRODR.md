@@ -24,7 +24,7 @@ The new replay-only options are:
     LIS_MFAMG_REPLAY_METHOD=fgmres|fgcrodr     (default fgmres)
     LIS_MFAMG_REPLAY_RECYCLE_DIM=0..64        (default 8; only with fgcrodr)
     LIS_MFAMG_REPLAY_RESTART=2..600           (default 180)
-    LIS_MFAMG_REPLAY_MAXITER=100..3000        (default 1000)
+    LIS_MFAMG_REPLAY_MAXITER=100..6000        (default 1000)
 
 Recycle dimension must be strictly less than restart. The MFAMG library and production CCX solver are unchanged. Without new settings replay retains exactly the original FGMRES defaults.
 
@@ -210,3 +210,26 @@ PASS_CONTACT_REPLAY_ONLY means the one-snapshot numerical screen passed;
 PRODUCTION_GATE is always BLOCKED_NEEDS_REPEATED_TIMING_AND_NEWTON_SEQUENCE.
 This is deliberately conservative: timings require repeated large runs,
 and Newton-step operator changes still need validation. Do not merge.
+
+
+## Extended FGMRES time-to-convergence control
+
+The first real 31-spring 60,265-DOF replay with the OFFLINE 18-mode
+factor=4 preconditioner gave FGMRES status=4 and true_relative
+4.442649280794e-5 at iteration 3001 (maxiter=3000). The opt-in
+FGCRO-DR(k=8) reached status=0 at iteration 2772 with true_relative
+9.986595263773e-6 and a validated recycle relation (AZ=C error
+7.687679465279e-9, close to the existing 1e-8 rejection threshold).
+
+To compare time-to-the-SAME-tolerance instead of comparing converged
+FGCRO-DR to a stopped FGMRES, the replay-only maximum allowable
+LIS_MFAMG_REPLAY_MAXITER is raised from 3000 to 6000. This DOES NOT
+change the default 1000 or the production solver, the MFAMG library,
+or CalculiX. The restart memory bound remains unchanged. A CI option
+smoke checks that 6000 parses and 6001 rejects before any real matrix
+is opened. An updated EXE is required to use the extended limit.
+
+The six additional negative-eigenvalue modes were built OFFLINE;
+the result does not demonstrate online mode discovery. Do not merge
+until production-feasible enrichment, repeated timing and changed-
+operator Newton sequence validation have been demonstrated.

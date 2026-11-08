@@ -173,7 +173,8 @@ done:
 /*
  * Offline-only tuning. The original restart=180 and maxiter=1000
  * remain unchanged unless the caller explicitly selects an override.
- * Bounds limit accidental excessive FGMRES vector allocation.
+ * The restart bound limits vector allocation; the maxiter bound limits
+ * runaway work on difficult contact snapshots.
  */
 static int replay_int_option(const char *name,int fallback,
                              int lower,int upper,int *result)
@@ -229,7 +230,7 @@ int main(int argc,char **argv)
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS) return 1;
     if(replay_int_option("LIS_MFAMG_REPLAY_RESTART",180,2,600,
                          &restart)!=0 ||
-       replay_int_option("LIS_MFAMG_REPLAY_MAXITER",1000,100,3000,
+       replay_int_option("LIS_MFAMG_REPLAY_MAXITER",1000,100,6000,
                          &maxiter)!=0)
         goto done;
 
