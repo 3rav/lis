@@ -115,11 +115,15 @@ jobs:
           export LIS_MFAMG_VCYCLE_SMOOTH_STEPS=1
           export LIS_MFAMG_REPLAY_RESTART=4
           export LIS_MFAMG_REPLAY_MAXITER=100
+          export LIS_FGMRES_PROJECTED_RELATIVE=1
           exe=../test/.libs/mfamgreplay.exe
           set +e
           LIS_MFAMG_REPLAY_METHOD=fgmres \
             "$exe" A.mtx b_hard.mtx modes.mtx > hard_fgmres.log 2>&1
           fgmres_rc=$?
+          LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=0 \
+            "$exe" A.mtx b_hard.mtx modes.mtx > hard_fgcrodr_k0.log 2>&1
+          zero_rc=$?
           LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=2 \
             "$exe" A.mtx b_hard.mtx modes.mtx > hard_fgcrodr_no_intra.log 2>&1
           old_rc=$?
@@ -128,8 +132,14 @@ jobs:
             "$exe" A.mtx b_hard.mtx modes.mtx > hard_fgcrodr_intra.log 2>&1
           intra_rc=$?
           set -e
-          echo "exit codes: fgmres=$fgmres_rc legacy=$old_rc intra=$intra_rc"
-          for log in hard_fgmres.log hard_fgcrodr_no_intra.log hard_fgcrodr_intra.log; do
+          echo "exit codes: fgmres=$fgmres_rc k0=$zero_rc legacy=$old_rc intra=$intra_rc"
+          test "$fgmres_rc" -eq "$zero_rc"
+          # k=0 is a bitwise numerical fallback to the existing FGMRES.
+          extract_result() {
+            grep '^REPLAY_RESULT ' "$1" | sed -E 's/^.*status=([^ ]+) iter=([^ ]+) reported_residual=([^ ]+) true_relative=([^ ]+) wall_seconds=.*$/\1 \2 \3 \4/'
+          }
+          test "$(extract_result hard_fgmres.log)" = "$(extract_result hard_fgcrodr_k0.log)"
+          for log in hard_fgmres.log hard_fgcrodr_k0.log hard_fgcrodr_no_intra.log hard_fgcrodr_intra.log; do
             echo "==== $log ===="
             grep -E '^REPLAY n=|^REPLAY_RECYCLE|^REPLAY_RESULT|^REPLAY LIS error|^LIS_FGCRODR_INTRA_RECYCLE ' "$log" || true
             grep -q '^REPLAY_RESULT ' "$log"
