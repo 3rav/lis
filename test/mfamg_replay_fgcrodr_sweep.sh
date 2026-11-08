@@ -47,6 +47,12 @@ run_case() {
   export LIS_MFAMG_FINE_AGG_FACTOR="$factor"
   export LIS_MFAMG_REPLAY_METHOD="$method"
   if [[ "$method" == fgcrodr ]]; then
+    export LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1
+    export LIS_FGCRODR_INTRA_TRACE=1
+  else
+    unset LIS_FGCRODR_INTRA_SOLVE_RECYCLE LIS_FGCRODR_INTRA_TRACE
+  fi
+  if [[ "$method" == fgcrodr ]]; then
     export LIS_MFAMG_REPLAY_RECYCLE_DIM="$k"
   else
     unset LIS_MFAMG_REPLAY_RECYCLE_DIM
@@ -56,12 +62,18 @@ run_case() {
   "$exe" "$A" "$b" "$modes" >"$log" 2>&1
   rc=$?
   echo "process_exit=$rc log=$log bytes=$(wc -c < "$log")"
-  grep -E '^REPLAY n=|^REPLAY_RECYCLE|^REPLAY_RESULT|^REPLAY LIS error|^REPLAY:' "$log" | tail -n 10 || true
+  grep -E '^REPLAY n=|^REPLAY_RECYCLE|^REPLAY_RESULT|^REPLAY LIS error|^REPLAY:|^LIS_FGCRODR_INTRA_RECYCLE ' "$log" | tail -n 10 || true
   grep -q '^REPLAY_RESULT ' "$log" || {
     echo "ERROR: no REPLAY_RESULT; inspect $log" >&2
     tail -n 30 "$log"
     return 2
   }
+  if [[ "$method" == fgcrodr && "$k" != 0 ]]; then
+    if ! grep -q '^REPLAY_RECYCLE ' "$log"; then
+      echo "ERROR: no recycle-space diagnostics in $log" >&2
+      return 2
+    fi
+  fi
   if ! grep -q "method=$method recycle_k=$k" "$log"; then
     echo "ERROR: method confirmation failed in $log" >&2
     return 2
