@@ -87,6 +87,79 @@ done:
     return failed;
 }
 
+/*
+ * The generic LIS vector importer expects a LIS-specific Matrix Market
+ * object: "vector" followed by indexed values. The opt-in CCX snapshot
+ * exporter deliberately writes standard Matrix Market n-by-1 arrays:
+ * "matrix array real general" followed by n values.
+ *
+ * Read that exact snapshot format directly. Do not modify source files
+ * or change the semantics of the generic lis_input_vector() API.
+ */
+static int read_snapshot_column(const char *path,LIS_VECTOR v)
+{
+    FILE *f=NULL;
+    char line[256];
+    long long rows=0,columns=0;
+    LIS_INT i;
+    double value;
+    int failed=1;
+
+    if(path==NULL || v==NULL || v->n<=0 || v->value==NULL)
+        return 1;
+    f=fopen(path,"r");
+    if(f==NULL)
+    {
+        perror(path);
+        return 1;
+    }
+    if(fgets(line,sizeof(line),f)==NULL ||
+       strncmp(line,"%%MatrixMarket matrix array real general",40)!=0)
+    {
+        fprintf(stderr,
+            "REPLAY: %s: expected Matrix Market matrix array real general\n",
+            path);
+        goto done;
+    }
+    do
+    {
+        if(fgets(line,sizeof(line),f)==NULL)
+        {
+            fprintf(stderr,"REPLAY: %s: missing dimensions\n",path);
+            goto done;
+        }
+    } while(line[0]=='%' || line[0]=='\n' || line[0]=='\r');
+
+    if(sscanf(line,"%lld %lld",&rows,&columns)!=2 ||
+       rows!=(long long)v->n || columns!=1)
+    {
+        fprintf(stderr,
+            "REPLAY: %s: RHS dimensions %lldx%lld, expected %lldx1\n",
+            path,rows,columns,(long long)v->n);
+        goto done;
+    }
+    for(i=0;i<v->n;i++)
+    {
+        if(fscanf(f,"%lf",&value)!=1 || !isfinite(value))
+        {
+            fprintf(stderr,
+                "REPLAY: %s: invalid value at row %lld\n",
+                path,(long long)i+1);
+            goto done;
+        }
+        v->value[i]=(LIS_SCALAR)value;
+    }
+    if(fscanf(f,"%lf",&value)==1 || ferror(f))
+    {
+        fprintf(stderr,"REPLAY: %s: excess or invalid trailing data\n",path);
+        goto done;
+    }
+    failed=0;
+done:
+    if(fclose(f)!=0) failed=1;
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -129,15 +202,13 @@ int main(int argc,char **argv)
     if(err) goto done;
     err=lis_vector_duplicate(A,&ax);
     if(err) goto done;
-    err=lis_input_vector(b,argv[2]);
-    if(err) goto done;
+    if(read_snapshot_column(argv[2],b)!=0) goto done;
     if(read_modes(argv[3],A,&nmodes,&modes)!=0) goto done;
     err=lis_vector_set_all((LIS_SCALAR)0.0,x);
     if(err) goto done;
     if(argc==5)
     {
-        err=lis_input_vector(x,argv[4]);
-        if(err) goto done;
+        if(read_snapshot_column(argv[4],x)!=0) goto done;
     }
 
     err=lis_solver_create(&solver);
