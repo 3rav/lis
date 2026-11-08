@@ -3,7 +3,15 @@
  * Usage: mfamgreplay A.mtx b.mtx modes.mtx [x0.mtx]
  *
  * MFAMG environment knobs are inherited from the caller. The default
- * options match the 2026-11-08 contact experiments. No output is written.
+ * FGMRES options match the 2026-11-08 contact experiments.
+ *
+ * Opt-in offline recycling experiment:
+ *   LIS_MFAMG_REPLAY_METHOD=fgcrodr
+ *   LIS_MFAMG_REPLAY_RECYCLE_DIM=8  (allowed 0..64, less than restart)
+ *
+ * FGCRO-DR maintains an A*Z=C recycle relation while allowing flexible
+ * right preconditioning. No solver or MFAMG production path is modified.
+ * No output files are written by this program.
  */
 #ifdef HAVE_CONFIG_H
 #include "lis_config.h"
@@ -199,7 +207,11 @@ int main(int argc,char **argv)
     LIS_INT err=0,nmodes=0,i,iter=0,status=-1;
     LIS_REAL reported=0.0;
     double b2=0.0,r2=0.0,t0=0.0,t1=0.0;
-    int rc=1,restart=180,maxiter=1000;
+    int rc=1,restart=180,maxiter=1000,recycle_k=8,use_recycling=0;
+    const char *method="fgmres";
+    const char *method_env;
+    LIS_INT recycle_dim=0,recycle_action=0;
+    LIS_REAL recycle_quality=0.0,recycle_quality_min=0.0;
     int optlen;
     char solver_options[256];
 
@@ -215,6 +227,42 @@ int main(int argc,char **argv)
        replay_int_option("LIS_MFAMG_REPLAY_MAXITER",1000,100,3000,
                          &maxiter)!=0)
         goto done;
+
+    method_env=getenv("LIS_MFAMG_REPLAY_METHOD");
+    if(method_env!=NULL)
+    {
+        if(strcmp(method_env,"fgmres")==0)
+            method="fgmres";
+        else if(strcmp(method_env,"fgcrodr")==0)
+        {
+            method="fgcrodr";
+            use_recycling=1;
+        }
+        else
+        {
+            fprintf(stderr,
+                "REPLAY: LIS_MFAMG_REPLAY_METHOD must be fgmres or fgcrodr\n");
+            goto done;
+        }
+    }
+    if(use_recycling)
+    {
+        if(replay_int_option("LIS_MFAMG_REPLAY_RECYCLE_DIM",8,0,64,
+                             &recycle_k)!=0)
+            goto done;
+        if(recycle_k>=restart)
+        {
+            fprintf(stderr,
+                "REPLAY: recycle dimension must be less than restart\n");
+            goto done;
+        }
+    }
+    else if(getenv("LIS_MFAMG_REPLAY_RECYCLE_DIM")!=NULL)
+    {
+        fprintf(stderr,
+            "REPLAY: recycle dimension requires LIS_MFAMG_REPLAY_METHOD=fgcrodr\n");
+        goto done;
+    }
 #if defined(_COMPLEX)
     fprintf(stderr,"REPLAY: real-valued LIS build required\n");
     goto done;
@@ -252,8 +300,9 @@ int main(int argc,char **argv)
     err=lis_solver_create(&solver);
     if(err) goto done;
     optlen=snprintf(solver_options,sizeof(solver_options),
-        "-i fgmres -p mfamg -scale none -tol 1.0e-5 "
-        "-maxiter %d -restart %d -print none",maxiter,restart);
+        "-i %s -p mfamg -scale none -tol 1.0e-5 "
+        "-maxiter %d -restart %d -print none",
+        method,maxiter,restart);
     if(optlen<0 || (size_t)optlen>=sizeof(solver_options))
     {
         fprintf(stderr,"REPLAY: solver options too long\n");
@@ -261,18 +310,40 @@ int main(int argc,char **argv)
     }
     err=lis_solver_set_option(solver_options,solver);
     if(err) goto done;
+    if(use_recycling)
+    {
+        optlen=snprintf(solver_options,sizeof(solver_options),
+            "-fgcrodr_k %d",recycle_k);
+        if(optlen<0 || (size_t)optlen>=sizeof(solver_options))
+            goto done;
+        err=lis_solver_set_option(solver_options,solver);
+        if(err) goto done;
+    }
     err=lis_solver_set_near_nullspace(solver,nmodes,modes);
     if(err) goto done;
 
-    printf("REPLAY n=%lld nnz=%lld modes=%lld restart=%d maxiter=%d tol=1e-5\n",
+    printf("REPLAY n=%lld nnz=%lld modes=%lld restart=%d maxiter=%d tol=1e-5 method=%s recycle_k=%d\n",
            (long long)A->n,(long long)A->nnz,(long long)nmodes,
-           restart,maxiter);
+           restart,maxiter,method,use_recycling?recycle_k:0);
     t0=lis_wtime();
     err=lis_solve(A,b,x,solver);
     t1=lis_wtime();
     lis_solver_get_iter(solver,&iter);
     lis_solver_get_residualnorm(solver,&reported);
     lis_solver_get_status(solver,&status);
+    if(use_recycling)
+    {
+        LIS_INT recycle_rc=lis_solver_get_fgcrodr_recycle(
+            solver,&recycle_dim,&recycle_action,
+            &recycle_quality,&recycle_quality_min);
+        if(recycle_rc==LIS_SUCCESS)
+            printf("REPLAY_RECYCLE dim=%lld action=%lld quality=%.9e min_quality=%.9e\n",
+                   (long long)recycle_dim,(long long)recycle_action,
+                   (double)recycle_quality,(double)recycle_quality_min);
+        else
+            fprintf(stderr,"REPLAY: FGCRO-DR recycle diagnostic rc=%lld\n",
+                    (long long)recycle_rc);
+    }
 
     if(lis_matvec(A,x,ax)==LIS_SUCCESS)
     {
