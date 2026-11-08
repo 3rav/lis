@@ -18,7 +18,7 @@
 #include "lislib.h"
 #include "lis_snapshot.h"
 
-#define N 120
+#define N 240
 #define PREFIX "mfamg-v7-regression"
 
 static int toggle_export(int enabled)
@@ -31,6 +31,30 @@ static int toggle_export(int enabled)
     return enabled ?
         setenv("LIS_MFAMG_MODES_EXPORT_PREFIX",PREFIX,1) :
         unsetenv("LIS_MFAMG_MODES_EXPORT_PREFIX");
+#endif
+}
+
+/*
+ * Match the already-established v6 multivector hierarchy regression:
+ * the default pairwise path on a tiny 1-D matrix is not guaranteed to
+ * coarsen a two-mode tentative space.  Force the opt-in fine target=4.
+ */
+static int toggle_fine_aggregation(int enabled)
+{
+#ifdef _WIN32
+    if(_putenv(enabled ?
+        "LIS_MFAMG_EXPERIMENT_FINE_AGG=1" :
+        "LIS_MFAMG_EXPERIMENT_FINE_AGG=")!=0)
+        return 1;
+    return _putenv(enabled ?
+        "LIS_MFAMG_FINE_AGG_FACTOR=2" :
+        "LIS_MFAMG_FINE_AGG_FACTOR=");
+#else
+    if(enabled)
+        return setenv("LIS_MFAMG_EXPERIMENT_FINE_AGG","1",1) ||
+               setenv("LIS_MFAMG_FINE_AGG_FACTOR","2",1);
+    return unsetenv("LIS_MFAMG_EXPERIMENT_FINE_AGG") ||
+           unsetenv("LIS_MFAMG_FINE_AGG_FACTOR");
 #endif
 }
 
@@ -72,7 +96,7 @@ int main(int argc,char **argv)
     LIS_INT err=0,i;
     char base[256],path[288],other[288];
     FILE *f=NULL;
-    int failed=1,export_enabled=0;
+    int failed=1,export_enabled=0,fine_enabled=0;
 
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS) return 1;
 #ifdef _COMPLEX
@@ -128,6 +152,8 @@ int main(int argc,char **argv)
     remove(path);
     if(toggle_export(1)!=0) goto done;
     export_enabled=1;
+    if(toggle_fine_aggregation(1)!=0) goto done;
+    fine_enabled=1;
 
     err=lis_solver_create(&solver);
     if(err) goto done;
@@ -173,6 +199,7 @@ done:
     if(modes[1]) lis_vector_destroy(modes[1]);
     if(modes[0]) lis_vector_destroy(modes[0]);
     if(A) lis_matrix_destroy(A);
+    if(fine_enabled && toggle_fine_aggregation(0)!=0) failed=1;
     if(export_enabled && toggle_export(0)!=0) failed=1;
     if(export_enabled) remove(path);
     lis_finalize();
