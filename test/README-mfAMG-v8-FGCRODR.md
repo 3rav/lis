@@ -303,10 +303,43 @@ For 18 modes, factor=4 single-run wall times were about 27.6%
 lower for FGMRES and 24.1% lower for k=8, but these timings are
 not repeated benchmark measurements.
 
-**Next diagnostic:** rerun 18 modes / factor=2 / FGCRO-DR(k=8)
-at maxiter=3000, to see whether factor=4 was needed for
-convergence (18/factor=4/k=8 previously reached true_relative
-9.986595263773e-6 after 2772 iterations). This does not replace
+**Completed diagnostic:** rerun 18 modes / factor=2 / FGCRO-DR(k=8)
+at maxiter=3000, to test whether factor=4 was needed for
+convergence (both factor=2 and factor=4 now converge at this limit;
+see the result below). This does not replace
 the central need to create the six extra modes online: the 18-mode
 snapshot remains an OFFLINE diagnostic, not a demonstrated production
 recipe. Keep PR Draft / NO MERGE, preserve v7 and CalculiX.
+
+
+## Factor=2 versus factor=4 at actual 18-mode convergence (2026-11-08)
+
+The user completed the 31-spring/60,265-DOF real snapshot with
+18 OFFLINE modes, FGCRO-DR(k=8), restart=180, maxiter=3000,
+and the same MFAMG settings except fine-aggregation factor:
+
+| Metric | factor=2 | factor=4 |
+| --- | ---: | ---: |
+| Solver status | 0 (converged) | 0 (converged) |
+| Iterations | 2634 | 2772 |
+| true_relative | 9.868651998311e-6 | 9.986595263773e-6 |
+| wall_seconds | 279.149 | 226.086 |
+| Harmonic-Ritz updates | 14 | 15 |
+| Recycle rejections | 0 | 0 |
+| orth_error | 2.198241588758e-14 | 2.575717417130e-14 |
+| relation_error (AZ=C) | 7.574320088498e-9 | 7.687679465279e-9 |
+
+**Interpretation:** factor=4 is *not necessary for convergence*.
+With factor=2 the method converges in 138 fewer iterations
+(4.98% fewer than factor=4), but spends 53.063 seconds more
+(23.47% longer relative to factor=4). This demonstrates the
+difference between iteration count and full preconditioned cost:
+factor=4 is the faster one of these two *single* converged
+FGCRO-DR measurements. Both AZ=C errors pass the 1e-8 cutoff,
+though they are close enough to merit longer-run stability checks.
+
+The extra six modes were selected OFFLINE and remain unproven
+in an automated CalculiX workflow. The remaining research gates
+are (1) deterministic online negative-mode discovery/reconstruction,
+(2) repeat-run timing variability, and (3) changed-operator Newton
+sequence tests. No production integration or merge is justified.
