@@ -5280,6 +5280,8 @@ lis_fgcrodr_flexible_core(
     LIS_INT intra_recycle;
     LIS_INT intra_trace;
     LIS_INT recycle_counted;
+    LIS_INT normalize_projected;
+    const char *normalized_option;
     const char *intra_option;
     const char *trace_option;
 
@@ -5319,6 +5321,9 @@ lis_fgcrodr_flexible_core(
      * Without the opt-in, the historical cross-solve behavior is exact. */
     intra_option=getenv("LIS_FGCRODR_INTRA_SOLVE_RECYCLE");
     trace_option=getenv("LIS_FGCRODR_INTRA_TRACE");
+    normalized_option=getenv("LIS_FGMRES_PROJECTED_RELATIVE");
+    normalize_projected=(normalized_option!=NULL &&
+        strcmp(normalized_option,"1")==0);
     intra_recycle=(intra_option!=NULL &&
                    strcmp(intra_option,"1")==0);
     intra_trace=(intra_recycle && trace_option!=NULL &&
@@ -6024,8 +6029,17 @@ lis_fgcrodr_flexible_core(
             /* Convergence                                      */
             /* ------------------------------------------------ */
 
+            /*
+             * Match the opt-in relative projected-residual semantics
+             * already used by LIS FGMRES v5. Keep the small-system
+             * least-squares right-hand side in physical units for
+             * back substitution. True residual is still recomputed
+             * before declaring convergence.
+             */
             nrm2 =
                 fabs(s->value[i1]);
+            if(normalize_projected)
+                nrm2 *= solver->bnrm;
 
 
             if( output )
