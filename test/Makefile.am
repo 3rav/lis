@@ -137,6 +137,9 @@ testfgmresprojected_SOURCES = testfgmresprojected.c
 # Opt-in first-level multivector aggregation regression.
 test_PROGRAMS += testmfamgfineagg
 testmfamgfineagg_SOURCES = testmfamgfineagg.c
+# Modes-only exporter uses the exact finest MFAMG basis.
+test_PROGRAMS += testmfamgmodes
+testmfamgmodes_SOURCES = testmfamgmodes.c
 getestuser_SOURCES = getestuser.c
 testoperator_SOURCES = testoperator.c
 testdiagonal_SOURCES = testdiagonal.c
@@ -263,6 +266,7 @@ TESTS += testfgmresprojected$(EXEEXT)
 TESTS += testmfamgvcycle$(EXEEXT)
 TESTS += testmfamgdeepmerge$(EXEEXT)
 TESTS += testmfamgfineagg$(EXEEXT)
+TESTS += testmfamgmodes$(EXEEXT)
 TESTS += testmatrixautosession$(EXEEXT) testvectorreal64$(EXEEXT) testgesolvepair$(EXEEXT) testabi$(EXEEXT) testrcoalloc$(EXEEXT)
 
 if ENABLE_HALF_REAL_DOUBLE
