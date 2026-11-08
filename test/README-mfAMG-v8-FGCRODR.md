@@ -268,3 +268,45 @@ Newton sequence is untested, and the FGCRO-DR final AZ=C validation
 error of 7.687679465279e-9 is relatively close to the 1e-8 threshold.
 Neither the private contact files nor raw logs are published.
 Keep PR #47 Draft; no production changes or merge.
+
+
+## Factorial isolation: 12/18 OFFLINE modes × MFAMG factor=2/4 (2026-11-08)
+
+The user ran the missing two combinations on a private 31-spring,
+60,265-DOF real contact snapshot, with restart=180, maxiter=1000 and
+identical solver/preconditioner options. Results below integrate the
+earlier real-snapshot runs, and are **single-run measurements**:
+
+| Modes | MFAMG fine factor | FGMRES true_relative | FGMRES seconds | FGCRO-DR(k=8) true_relative | FGCRO-DR seconds |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 12 | 2 | 1.832690841867e-3 | 33.995 | 4.518330164961e-4 | 45.963 |
+| 12 | 4 | 1.924037018838e-3 | 29.754 | 4.852053168278e-4 | 41.307 |
+| 18 | 2 | 2.361246837060e-4 | 96.903 | 1.778285835728e-4 | 108.061 |
+| 18 | 4 | 2.275074776069e-4 | 70.134 | 1.677387800578e-4 | 82.006 |
+
+All eight solver runs stopped at status=4, iter=1001; do not
+misinterpret the lower residual as convergence to tol=1e-5.
+Every FGCRO-DR run with k=8 had successful validation; the two
+new runs had AZ=C relation errors 3.133714268681e-11 (12/f4)
+and 1.051279499587e-10 (18/f2), and orthogonality errors below
+2e-14.
+
+**Isolated mode effect:** at factor=2, 12→18 offline modes reduce
+FGMRES residual 7.76× and FGCRO-DR(k=8) residual 2.54×. At
+factor=4, the factors are 8.46× and 2.89×, respectively. The extra
+six offline negative-eigenvalue modes dominate the improvement.
+
+**Isolated aggregation effect:** at 12 modes, factor=2→4 actually
+increases residual by 4.98% (FGMRES) and 7.39% (k=8); at 18 modes,
+it reduces residual by only 3.65% and 5.67%, respectively.
+For 18 modes, factor=4 single-run wall times were about 27.6%
+lower for FGMRES and 24.1% lower for k=8, but these timings are
+not repeated benchmark measurements.
+
+**Next diagnostic:** rerun 18 modes / factor=2 / FGCRO-DR(k=8)
+at maxiter=3000, to see whether factor=4 was needed for
+convergence (18/factor=4/k=8 previously reached true_relative
+9.986595263773e-6 after 2772 iterations). This does not replace
+the central need to create the six extra modes online: the 18-mode
+snapshot remains an OFFLINE diagnostic, not a demonstrated production
+recipe. Keep PR Draft / NO MERGE, preserve v7 and CalculiX.
