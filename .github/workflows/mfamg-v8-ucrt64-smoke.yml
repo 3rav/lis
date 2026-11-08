@@ -98,6 +98,51 @@ jobs:
           grep -q 'method=fgcrodr recycle_k=8' fgcrodr.log
           grep -q 'REPLAY_RESULT solve_rc=0 status=0 ' fgcrodr.log
           grep -q '^REPLAY_RECYCLE ' fgcrodr.log
+      - name: Exercise within-solve recycling after a forced Arnoldi restart
+        run: |
+          set -euo pipefail
+          cd build-ci/smoke
+          {
+            echo '%%MatrixMarket matrix array real general'
+            echo '240 1'
+            for ((i=1;i<=240;i++)); do
+              echo "$(( (i*37)%23 - 11 ))"
+            done
+          } > b_hard.mtx
+          export LIS_MFAMG_EXPERIMENT_FINE_AGG=1
+          export LIS_MFAMG_FINE_AGG_FACTOR=2
+          export LIS_MFAMG_EXPERIMENT_DEEP_MERGE=1
+          export LIS_MFAMG_VCYCLE_SMOOTH_STEPS=1
+          export LIS_MFAMG_REPLAY_RESTART=4
+          export LIS_MFAMG_REPLAY_MAXITER=100
+          exe=../test/.libs/mfamgreplay.exe
+          set +e
+          LIS_MFAMG_REPLAY_METHOD=fgmres \
+            "$exe" A.mtx b_hard.mtx modes.mtx > hard_fgmres.log 2>&1
+          fgmres_rc=$?
+          LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=2 \
+            "$exe" A.mtx b_hard.mtx modes.mtx > hard_fgcrodr_no_intra.log 2>&1
+          old_rc=$?
+          LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=2 \
+          LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1 LIS_FGCRODR_INTRA_TRACE=1 \
+            "$exe" A.mtx b_hard.mtx modes.mtx > hard_fgcrodr_intra.log 2>&1
+          intra_rc=$?
+          set -e
+          echo "exit codes: fgmres=$fgmres_rc legacy=$old_rc intra=$intra_rc"
+          for log in hard_fgmres.log hard_fgcrodr_no_intra.log hard_fgcrodr_intra.log; do
+            echo "==== $log ===="
+            grep -E '^REPLAY n=|^REPLAY_RECYCLE|^REPLAY_RESULT|^REPLAY LIS error|^LIS_FGCRODR_INTRA_RECYCLE ' "$log" || true
+            grep -q '^REPLAY_RESULT ' "$log"
+            if grep -qiE 'nan|[+-]inf' "$log"; then
+              echo "ERROR: nonfinite text in $log" >&2
+              exit 1
+            fi
+          done
+          # Key requirement: the newly built space must be actively used
+          # at the next cycle, not simply built at the end of a solve.
+          grep -q '^LIS_FGCRODR_INTRA_RECYCLE iter=' hard_fgcrodr_intra.log
+          ! grep -q '^LIS_FGCRODR_INTRA_RECYCLE iter=' hard_fgcrodr_no_intra.log
+          grep -q 'method=fgcrodr recycle_k=2' hard_fgcrodr_intra.log
       - name: Upload smoke logs even when failing
         if: always()
         uses: actions/upload-artifact@v4
