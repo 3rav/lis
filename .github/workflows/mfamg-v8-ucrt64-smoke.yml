@@ -167,6 +167,7 @@ jobs:
         with:
           name: mfamg-v8-replay-ucrt64-experimental
           path: build-ci/test/.libs/mfamgreplay.exe
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
       - name: Upload smoke logs even when failing
