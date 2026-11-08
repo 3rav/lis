@@ -193,6 +193,10 @@ endif
 
 bin_PROGRAMS = esolve esolver gesolve gesolver hpcg_kernel hpcg_spmvtest lsolve spmvtest1 spmvtest2 spmvtest2b spmvtest3 spmvtest3b spmvtest4 spmvtest5
 
+# Offline replay of exact contact A/b/modes without CalculiX.
+bin_PROGRAMS += mfamgreplay
+mfamgreplay_SOURCES = mfamgreplay.c
+
 lsolve_SOURCES = test1.c
 esolve_SOURCES = etest5.c
 esolver_SOURCES = etest5b.c
