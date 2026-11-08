@@ -177,3 +177,18 @@ and missing REPLAY_RESULT is rejected. It does not run private matrices.
 
 Logs and CSV remain on the local user's computer; do not upload private
 contact snapshots or associated diagnostic logs to the public repo.
+
+
+## End-to-end private sweep reporting regression
+
+The standard sweep includes both 31-spring FGMRES and k=0 controls,
+plus the 116-spring FGMRES baseline. MFAMG_V8_FULL=1 runs nine
+configurations, including k=16 and offline 18-mode comparisons.
+All cases are attempted even if one crashes, and the available logs
+are combined into the CSV. A missing REPLAY_RESULT produces a nonzero
+runner exit, while a valid MAXITER result is retained as data.
+
+The CI-required test/mfamg_replay_v8_sweep_smoke.sh uses placeholders
+and fake executables to exercise the full runner, preserve status=4,
+count recycle cycles, and test handling of a crash before REPLAY_RESULT.
+It never reads private data and cannot prove contact convergence.

@@ -48,6 +48,7 @@ results_dir="${MFAMG_V8_RESULTS_DIR:-$root/v8_results}"
 mkdir -p -- "$results_dir" || exit 2
 results_dir="$(cd -- "$results_dir" && pwd)"
 case_logs=()
+case_errors=0
 
 run_case() {
   local id="$1" A="$2" b="$3" modes="$4" factor="$5" method="$6" k="$7"
@@ -93,22 +94,25 @@ run_case() {
   return 0
 }
 
-run_case 31_12m_f2_fgmres "$A31" "$B31" "$M12" 2 fgmres 0 || exit 2
-run_case 31_12m_f2_fgcrodr_k8 "$A31" "$B31" "$M12" 2 fgcrodr 8 || exit 2
-run_case 31_18m_f4_fgcrodr_k8 "$A31" "$B31" "$M18" 4 fgcrodr 8 || exit 2
-run_case 116_12m_f2_fgmres "$A116" "$B116" "$M116" 2 fgmres 0 || exit 2
-run_case 116_12m_f2_fgcrodr_k8 "$A116" "$B116" "$M116" 2 fgcrodr 8 || exit 2
+run_case 31_12m_f2_fgmres "$A31" "$B31" "$M12" 2 fgmres 0 || case_errors=1
+run_case 31_12m_f2_fgcrodr_k0 "$A31" "$B31" "$M12" 2 fgcrodr 0 || case_errors=1
+run_case 31_12m_f2_fgcrodr_k8 "$A31" "$B31" "$M12" 2 fgcrodr 8 || case_errors=1
+run_case 31_18m_f4_fgcrodr_k8 "$A31" "$B31" "$M18" 4 fgcrodr 8 || case_errors=1
+run_case 116_12m_f2_fgmres "$A116" "$B116" "$M116" 2 fgmres 0 || case_errors=1
+run_case 116_12m_f2_fgcrodr_k8 "$A116" "$B116" "$M116" 2 fgcrodr 8 || case_errors=1
 
 if [[ "${MFAMG_V8_FULL:-0}" == 1 ]]; then
-  run_case 31_12m_f2_fgcrodr_k0 "$A31" "$B31" "$M12" 2 fgcrodr 0 || exit 2
-  run_case 31_12m_f2_fgcrodr_k16 "$A31" "$B31" "$M12" 2 fgcrodr 16 || exit 2
-  run_case 31_18m_f4_fgmres "$A31" "$B31" "$M18" 4 fgmres 0 || exit 2
-  run_case 31_18m_f4_fgcrodr_k16 "$A31" "$B31" "$M18" 4 fgcrodr 16 || exit 2
+  run_case 31_12m_f2_fgcrodr_k16 "$A31" "$B31" "$M12" 2 fgcrodr 16 || case_errors=1
+  run_case 31_18m_f4_fgmres "$A31" "$B31" "$M18" 4 fgmres 0 || case_errors=1
+  run_case 31_18m_f4_fgcrodr_k16 "$A31" "$B31" "$M18" 4 fgcrodr 16 || case_errors=1
 fi
-awk -f "$script_dir/mfamg_replay_v8_report.awk" "${case_logs[@]}" >"$results_dir/v8_summary.csv" || {
-  echo "ERROR: failed to extract CSV summary" >&2
-  exit 2
-}
+ summary_errors=0
+awk -f "$script_dir/mfamg_replay_v8_report.awk" "${case_logs[@]}" >"$results_dir/v8_summary.csv" || summary_errors=1
 echo "MFAMG v8 finished: CSV=$results_dir/v8_summary.csv"
 cat "$results_dir/v8_summary.csv"
 echo "Reminder: process_exit and solve_rc do NOT imply status=0 or convergence."
+
+if (( case_errors || summary_errors )); then
+  echo "ERROR: malformed case; logs and CSV retained for inspection." >&2
+  exit 2
+fi
