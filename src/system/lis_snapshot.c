@@ -76,6 +76,16 @@ lis_snapshot_export_mm(
     (void)basis_count; (void)basis; (void)prefix;
     return LIS_ERR_NOT_IMPLEMENTED;
 }
+
+LIS_INT
+lis_snapshot_export_modes_mm(
+    LIS_INT basis_count,
+    LIS_VECTOR basis[],
+    const char *prefix)
+{
+    (void)basis_count; (void)basis; (void)prefix;
+    return LIS_ERR_NOT_IMPLEMENTED;
+}
 #else
 
 static LIS_INT
@@ -317,6 +327,64 @@ cleanup:
     if(temporary) lis_free(temporary);
     if(path) lis_free(path);
     if(owned) lis_matrix_destroy(owned);
+    return err;
+}
+
+/*
+ * Export only the near-nullspace modes at MFAMG setup time.
+ * Keep identical ordering/formatting to the combined snapshot exporter,
+ * without a second (potentially multi-gigabyte) copy of the matrix.
+ */
+LIS_INT
+lis_snapshot_export_modes_mm(
+    LIS_INT basis_count,
+    LIS_VECTOR basis[],
+    const char *prefix)
+{
+    LIS_INT m,err;
+    LIS_INT n;
+    size_t length;
+    char *path=NULL,*temporary=NULL;
+
+    if(basis_count<=0 || basis==NULL ||
+       prefix==NULL || prefix[0]=='\0' || basis[0]==NULL)
+        return LIS_ERR_ILL_ARG;
+
+    n=basis[0]->n;
+    if(n<=0) return LIS_ERR_ILL_ARG;
+    for(m=0;m<basis_count;m++)
+    {
+        if(basis[m]==NULL) return LIS_ERR_ILL_ARG;
+        err=lis_snapshot_check_vector(basis[m],n);
+        if(err) return err;
+    }
+
+    length=strlen(prefix);
+    if(length>((size_t)-1)-32) return LIS_ERR_ILL_ARG;
+    path=(char *)lis_malloc(
+        length+32,"lis_snapshot_export_modes_mm::path");
+    temporary=(char *)lis_malloc(
+        length+32,"lis_snapshot_export_modes_mm::temporary");
+    if(path==NULL || temporary==NULL)
+    {
+        err=LIS_OUT_OF_MEMORY;
+        goto done;
+    }
+    err=lis_snapshot_paths(
+        path,temporary,length+32,prefix,"modes","mtx");
+    if(err) goto done;
+    err=lis_snapshot_available(path);
+    if(err) goto done;
+    err=lis_snapshot_available(temporary);
+    if(err) goto done;
+
+    err=lis_snapshot_emit(
+        path,temporary,length+32,prefix,"modes",
+        NULL,NULL,basis_count,basis);
+
+done:
+    if(temporary) lis_free(temporary);
+    if(path) lis_free(path);
     return err;
 }
 #endif
