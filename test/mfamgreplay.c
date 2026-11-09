@@ -211,7 +211,7 @@ int main(int argc,char **argv)
     LIS_REAL recycle_orth=0.0,recycle_relation=0.0;
     LIS_UNSIGNED_INT recycle_builds=0,recycle_updates=0;
     LIS_UNSIGNED_INT recycle_uses=0,recycle_rejects=0;
-    double b2=0.0,r2=0.0,t0=0.0,t1=0.0;
+    double b_norm=0.0,r_norm=0.0,true_relative=0.0,t0=0.0,t1=0.0;
     int rc=1,restart=180,maxiter=1000,recycle_k=8,use_recycling=0;
     int recycle_validation_failed=0;
     const char *method="fgmres";
@@ -381,22 +381,51 @@ int main(int argc,char **argv)
         }
     }
 
-    if(lis_matvec(A,x,ax)==LIS_SUCCESS)
+    /*
+     * Fail closed: a failed explicit A*x must NEVER turn an
+     * uninitialized residual accumulator into apparent convergence.
+     * hypot() avoids overflow when squaring large contact RHS entries.
+     */
     {
-        for(i=0;i<A->n;i++)
+        LIS_INT matvec_rc=lis_matvec(A,x,ax);
+        if(matvec_rc!=LIS_SUCCESS)
         {
-            double bv=(double)b->value[i];
-            double diff=bv-(double)ax->value[i];
-            b2+=bv*bv;
-            r2+=diff*diff;
+            fprintf(stderr,"REPLAY_TRUE_RESIDUAL_ERROR matvec_rc=%lld\n",
+                    (long long)matvec_rc);
+            err=matvec_rc;
+            goto done;
         }
+    }
+    for(i=0;i<A->n;i++)
+    {
+        const double bv=(double)b->value[i];
+        const double axv=(double)ax->value[i];
+        const double diff=bv-axv;
+        if(!isfinite(bv) || !isfinite(axv) || !isfinite(diff))
+        {
+            fprintf(stderr,"REPLAY_TRUE_RESIDUAL_ERROR nonfinite row=%lld\n",
+                    (long long)(i+1));
+            rc=1;
+            goto done;
+        }
+        b_norm=hypot(b_norm,bv);
+        r_norm=hypot(r_norm,diff);
+    }
+    true_relative=b_norm>0.0 ? r_norm/b_norm : r_norm;
+    if(!isfinite(b_norm) || !isfinite(r_norm) ||
+       !isfinite(true_relative) || !isfinite((double)reported))
+    {
+        fprintf(stderr,"REPLAY_TRUE_RESIDUAL_ERROR nonfinite norm\n");
+        rc=1;
+        goto done;
     }
     printf("REPLAY_RESULT solve_rc=%lld status=%lld iter=%lld "
            "reported_residual=%.12e true_relative=%.12e "
            "wall_seconds=%.3f\n",
            (long long)err,(long long)status,(long long)iter,
-           (double)reported,b2>0 ? sqrt(r2/b2) : sqrt(r2),t1-t0);
+           (double)reported,true_relative,t1-t0);
     rc=(err==LIS_SUCCESS && status==0 &&
+        true_relative<=1.0e-5 &&
         !recycle_validation_failed) ? 0 : 1;
     err=0;
 done:
