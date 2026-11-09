@@ -172,9 +172,11 @@ def main():
             raise ValueError("output directory already exists: " + str(a.out_dir))
         a.out_dir.mkdir(parents=True)
         os.chmod(a.out_dir, 0o700)
-        env = os.environ.copy()
+        # Do not inherit unrelated experimental LIS_* toggles from the
+        # caller's shell; they can silently alter the compared solver.
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith("LIS_")}
         env.update(ENV)
-        env.pop("LIS_MFAMG_MODES_EXPORT_PREFIX", None)
         rows = []
         # Journal completed runs immediately: a late failing replay must not
         # discard evidence from earlier expensive, private local solves.
