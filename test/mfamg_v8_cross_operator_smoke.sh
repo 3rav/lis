@@ -53,15 +53,17 @@ done
     fi
   done
 } > A_bad_graph.mtx
-for step in 1 2; do
+for step in 1 2 3; do
   {
     echo '%%MatrixMarket matrix array real general'
     echo '240 1'
     for ((i=1; i<=240; i++)); do
       if (( step == 1 )); then
         echo "$(( (i*37)%23 - 11 ))"
-      else
+      elif (( step == 2 )); then
         echo "$(( (i*29)%19 - 9 ))"
+      else
+        echo "$(( (i*31)%17 - 8 ))"
       fi
     done
   } > "b${step}.mtx"
@@ -136,8 +138,57 @@ grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' replacement.log
 grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' replacement.log
 grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=[1-9][0-9]* ' replacement.log
 
+# THREE genuine successive same-LIS_SOLVER solves in ONE process.
+# 1: A4 / b1, 2: A5 / b2 (same object, shift -1), 3: A_mixed
+# / b3 (same graph, off-diagonal value replacement). This is one
+# real synthetic 3-step lifetime, unlike the pairwise Python runner.
+LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1 \
+LIS_MFAMG_REPLAY_THIRD_A=A_mixed.mtx \
+LIS_MFAMG_REPLAY_THIRD_B=b3.mtx \
+LIS_MFAMG_REPLAY_THIRD_REPLACE_VALUES=1 \
+  "$exe" A4.mtx b1.mtx modes.mtx > three_keep.log 2>&1
+grep -q '^REPLAY_SEQUENCE_MATRIX step=3 mode=inplace_replace_values ' three_keep.log
+grep -q '^REPLAY_SEQUENCE_RECYCLE_CHECK step=3 rc=0 ' three_keep.log
+grep -q '^REPLAY_SEQUENCE_RESULT step=3 solve_rc=0 status=0 ' three_keep.log
+grep -Eq '^REPLAY_SEQUENCE_POLICY step=3 cross_uses_delta=[1-9][0-9]* ' three_keep.log
+
+# In the SAME three-step process a third operator with a NEW graph
+# must trigger REJECT rather than silently recycling A2's Z.
+LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1 \
+LIS_MFAMG_REPLAY_THIRD_A=A_bad_graph.mtx \
+LIS_MFAMG_REPLAY_THIRD_B=b3.mtx \
+  "$exe" A4.mtx b1.mtx modes.mtx > three_reject.log 2>&1
+grep -q '^REPLAY_SEQUENCE_MATRIX step=3 mode=separate_object' three_reject.log
+grep -q '^REPLAY_SEQUENCE_RECYCLE_CHECK step=3 rc=0 ' three_reject.log
+grep -q '^REPLAY_SEQUENCE_RESULT step=3 solve_rc=0 status=0 ' three_reject.log
+grep -Eq '^REPLAY_SEQUENCE_POLICY step=3 cross_uses_delta=0 keeps_delta=0 transports_delta=0 rejects_delta=[1-9][0-9]*$' three_reject.log
+
+# A third-step graph mismatch must be denied BEFORE any third solve.
+if LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1 \
+   LIS_MFAMG_REPLAY_THIRD_A=A_bad_graph.mtx \
+   LIS_MFAMG_REPLAY_THIRD_B=b3.mtx \
+   LIS_MFAMG_REPLAY_THIRD_REPLACE_VALUES=1 \
+   "$exe" A4.mtx b1.mtx modes.mtx > three_bad_graph.log 2>&1; then
+  echo "ERROR: third step accepted changed graph for value replacement" >&2
+  exit 1
+fi
+grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' three_bad_graph.log
+grep -q 'REPLAY_SEQUENCE_ERROR third CSR preflight rejected' three_bad_graph.log
+! grep -q '^REPLAY_SEQUENCE_STEP step=3' three_bad_graph.log
+
+# Both step-3 filenames are mandatory and cannot bypass the gate.
+if LIS_MFAMG_REPLAY_THIRD_A=A_mixed.mtx \
+   "$exe" A4.mtx b1.mtx modes.mtx > three_missing_rhs.log 2>&1; then
+  echo "ERROR: incomplete third step accepted" >&2
+  exit 1
+fi
+grep -q 'third step requires NEXT_A/B and THIRD_A/B' three_missing_rhs.log
+
 unset LIS_MFAMG_REPLAY_NEXT_A LIS_MFAMG_REPLAY_NEXT_B
 "$exe" A5.mtx b2.mtx modes.mtx > fresh.log 2>&1
+"$exe" A_bad_graph.mtx b3.mtx modes.mtx > fresh_bad_graph.log 2>&1
+grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' fresh_bad_graph.log
+
 "$exe" A_mixed.mtx b2.mtx modes.mtx > fresh_mixed.log 2>&1
 grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' fresh_mixed.log
 grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' fresh.log
@@ -145,6 +196,9 @@ grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' fresh.log
 for item in "separate.log:REPLAY_NEWTON_RESULT" \
             "inplace.log:REPLAY_NEWTON_RESULT" \
             "replacement.log:REPLAY_NEWTON_RESULT" \
+            "three_keep.log:REPLAY_SEQUENCE_RESULT" \
+            "three_reject.log:REPLAY_SEQUENCE_RESULT" \
+            "fresh_bad_graph.log:REPLAY_RESULT" \
             "fresh_mixed.log:REPLAY_RESULT" \
             "fresh.log:REPLAY_RESULT"; do
   log="${item%%:*}"
