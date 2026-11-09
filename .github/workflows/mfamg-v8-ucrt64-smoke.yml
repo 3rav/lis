@@ -238,6 +238,161 @@ jobs:
           grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' newton_inplace_solver.log
           grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' newton_inplace_solver.log
           grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=[1-9][0-9]* ' newton_inplace_solver.log
+          # Same-CSR graph, arbitrary data-source replacement. This
+          # particular Windows control is a diagonal-only A2; the Linux
+          # smoke also exercises independent OFF-DIAGONAL changes.
+          LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES=1 \
+            "$exe" A.mtx b_hard.mtx modes.mtx > newton_replaced_solver.log 2>&1
+          grep -Eq '^REPLAY_NEWTON_MATRIX mode=inplace_replace_values changed_nnz=[1-9][0-9]*
+          "$exe" A_newton2.mtx b_newton2.mtx modes.mtx > newton_fresh_solver.log 2>&1
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_fresh_solver.log
+          # Avoid relying on Python in the Windows UCRT64 runner.
+          for entry in "newton_same_solver.log:REPLAY_NEWTON_RESULT" \
+                       "newton_inplace_solver.log:REPLAY_NEWTON_RESULT" \
+                       "newton_replaced_solver.log:REPLAY_NEWTON_RESULT" \
+                       "newton_fresh_solver.log:REPLAY_RESULT"; do
+            log="${entry%%:*}"
+            marker="${entry#*:}"
+            awk -v wanted="$marker" '
+              $1==wanted {
+                count++
+                for (i=2;i<=NF;i++) if ($i ~ /^true_relative=/) {
+                  split($i,v,"=")
+                  if ((v[2]+0) > 1e-5 || (v[2]+0) < 0) bad=1
+                  found++
+                }
+              }
+              END { if(count!=1 || found!=1 || bad) exit 1 }
+            ' "$log"
+          done
+          echo MFAMG_V8_CHANGED_OPERATOR_SAME_SOLVER_OK
+          if LIS_MFAMG_REPLAY_NEXT_A=A_newton2.mtx "$exe" A.mtx b_hard.mtx modes.mtx \
+                > newton_missing_rhs.log 2>&1; then
+            echo 'ERROR: incomplete A2/B2 input was accepted' >&2
+            exit 1
+          fi
+          grep -q 'specify both NEXT_A and NEXT_B' newton_missing_rhs.log
+          if LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1 \
+                "$exe" A.mtx b_hard.mtx modes.mtx > newton_shift_without_A2.log 2>&1; then
+            echo 'ERROR: diagonal shift without A2/b2 was accepted' >&2
+            exit 1
+          fi
+          grep -q 'diagonal shift requires NEXT_A and NEXT_B' newton_shift_without_A2.log
+          # Step 1 may succeed but any step-2 I/O failure must still fail.
+          if LIS_MFAMG_REPLAY_NEXT_A=A_newton2.mtx \
+             LIS_MFAMG_REPLAY_NEXT_B=nonexistent-step2-RHS.mtx \
+             "$exe" A.mtx b_hard.mtx modes.mtx > newton_bad_rhs.log 2>&1; then
+            echo 'ERROR: missing second RHS produced a successful exit' >&2
+            exit 1
+          fi
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_bad_rhs.log
+          {
+            echo '%%MatrixMarket matrix coordinate real general'
+            echo '3 3 3'
+            for ((i=1;i<=3;i++)); do echo "$i $i 4"; done
+          } > A_wrong_size.mtx
+          if LIS_MFAMG_REPLAY_NEXT_A=A_wrong_size.mtx \
+             LIS_MFAMG_REPLAY_NEXT_B=b_newton2.mtx \
+             "$exe" A.mtx b_hard.mtx modes.mtx > newton_bad_shape.log 2>&1; then
+            echo 'ERROR: incompatible second operator was accepted' >&2
+            exit 1
+          fi
+          grep -q 'operator dimensions/distribution changed' newton_bad_shape.log
+      - name: Publish experimental UCRT64 mfamgreplay EXE
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-replay-ucrt64-experimental
+          path: build-ci/test/.libs/mfamgreplay.exe
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+      - name: Check symmetric-indefinite 480-row recycling
+        run: |
+          set -euo pipefail
+          bash test/mfamg_replay_indefinite_ci.sh \
+            "$PWD/build-ci/test/.libs/mfamgreplay.exe" \
+            "$PWD/build-ci/smoke"
+      - name: Check ill-conditioned indefinite 480-row recycling
+        run: |
+          set -euo pipefail
+          bash test/mfamg_replay_illconditioned_ci.sh \
+            "$PWD/build-ci/test/.libs/mfamgreplay.exe" \
+            "$PWD/build-ci/smoke"
+      - name: Upload smoke logs even when failing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-smoke-logs
+          path: build-ci/smoke/*.log
+          if-no-files-found: ignore
+
+  mode-audit-smoke:
+    name: Offline mode audit (no private data)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Matrix Market spectral audit on a synthetic system
+        run: |
+          python3 -m py_compile test/mfamg_mode_audit.py
+          bash -n test/mfamg_mode_audit_smoke.sh
+          bash test/mfamg_mode_audit_smoke.sh
+          python3 -m py_compile test/mfamg_mode_ritz_selection.py
+          bash -n test/mfamg_mode_ritz_selection_smoke.sh
+          bash test/mfamg_mode_ritz_selection_smoke.sh
+          python3 -m py_compile test/mfamg_mode_ritz_leave_one_out.py
+          bash -n test/mfamg_mode_ritz_leave_one_out_smoke.sh
+          bash -n test/mfamg_replay_ritz_leave_one_out.sh
+          bash test/mfamg_mode_ritz_leave_one_out_smoke.sh
+          python3 -m py_compile test/mfamg_replay_v8_repeats.py
+          bash -n test/mfamg_replay_v8_repeats_smoke.sh
+          bash test/mfamg_replay_v8_repeats_smoke.sh
+          python3 -m py_compile test/mfamg_mode_auto_candidates.py
+          bash -n test/mfamg_mode_auto_candidates_smoke.sh
+          bash test/mfamg_mode_auto_candidates_smoke.sh
+          python3 -m py_compile test/mfamg_replay_v8_candidate_compare.py
+          bash -n test/mfamg_replay_v8_candidate_compare_smoke.sh
+          bash test/mfamg_replay_v8_candidate_compare_smoke.sh
+
+  linux-operator-transport:
+    name: Linux C replay A1/A2 transport (synthetic only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build real-valued serial LIS and experimental replay
+        run: |
+          set -euxo pipefail
+          autoreconf -fiv
+          mkdir -p build-linux
+          cd build-linux
+          ../configure --enable-shared --disable-complex --disable-mpi --disable-test \
+            CFLAGS="-O1 -g -fsanitize=address -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address"
+          make -j2
+          make -C test mfamgreplay
+          # Libtool wrapper configures the dynamic-library lookup path.
+          test -s test/mfamgreplay
+      - name: Require cross-operator REJECT and same-object KEEP/TRANSPORT
+        run: |
+          set -euo pipefail
+          bash -n test/mfamg_v8_cross_operator_smoke.sh
+          export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1:print_stacktrace=1"
+          bash test/mfamg_v8_cross_operator_smoke.sh \
+            "$PWD/build-linux/test/mfamgreplay" \
+            "$PWD/build-linux/cross-operator-smoke"
+      - name: Archive public synthetic Linux replay logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-linux-cross-operator-synthetic
+          path: build-linux/cross-operator-smoke/*.log
+          if-no-files-found: ignore
+ newton_replaced_solver.log
+          grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=[1-9][0-9]* ' newton_replaced_solver.log
+          grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' newton_replaced_solver.log
+          grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' newton_replaced_solver.log
           unset LIS_MFAMG_REPLAY_NEXT_A LIS_MFAMG_REPLAY_NEXT_B
           "$exe" A_newton2.mtx b_newton2.mtx modes.mtx > newton_fresh_solver.log 2>&1
           grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_fresh_solver.log
