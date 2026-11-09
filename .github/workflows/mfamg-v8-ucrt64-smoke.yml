@@ -206,6 +206,14 @@ jobs:
               echo "$(( (i*29)%19 - 9 ))"
             done
           } > b_newton2.mtx
+          exe=../test/.libs/mfamgreplay.exe
+          "$exe" --compare-csr A.mtx A_newton2.mtx > csr_preflight_ok.log 2>&1
+          grep -q '^REPLAY_CSR_COMPARE compatible=1 n=240 nnz=718 changed_nnz=240$' csr_preflight_ok.log
+          if "$exe" --compare-csr A.mtx A.mtx > csr_preflight_unchanged.log 2>&1; then
+            echo 'ERROR: unchanged A was accepted as changed by CSR preflight' >&2
+            exit 1
+          fi
+          grep -q '^REPLAY_CSR_COMPARE compatible=0$' csr_preflight_unchanged.log
           export LIS_MFAMG_EXPERIMENT_FINE_AGG=1
           export LIS_MFAMG_FINE_AGG_FACTOR=2
           export LIS_MFAMG_EXPERIMENT_DEEP_MERGE=1
