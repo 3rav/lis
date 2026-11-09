@@ -186,6 +186,60 @@ jobs:
           grep -q '^REPLAY_RECYCLE_CHECK rc=0 ' hard_fgcrodr_intra.log
           grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' hard_fgcrodr_intra.log
           test "$intra_rc" -eq 0
+      - name: Test changed operator A1 to A2 with the SAME solver and MFAMG modes
+        run: |
+          set -euo pipefail
+          cd build-ci/smoke
+          {
+            echo '%%MatrixMarket matrix coordinate real general'
+            echo '240 240 718'
+            for ((i=1;i<=240;i++)); do
+              echo "$i $i 5"
+              if (( i>1 )); then echo "$i $((i-1)) -1"; fi
+              if (( i<240 )); then echo "$i $((i+1)) -1"; fi
+            done
+          } > A_newton2.mtx
+          export LIS_MFAMG_EXPERIMENT_FINE_AGG=1
+          export LIS_MFAMG_FINE_AGG_FACTOR=2
+          export LIS_MFAMG_EXPERIMENT_DEEP_MERGE=1
+          export LIS_MFAMG_VCYCLE_SMOOTH_STEPS=1
+          export LIS_MFAMG_REPLAY_RESTART=2
+          export LIS_MFAMG_REPLAY_MAXITER=100
+          export LIS_FGMRES_PROJECTED_RELATIVE=1
+          export LIS_MFAMG_REPLAY_METHOD=fgcrodr
+          export LIS_MFAMG_REPLAY_RECYCLE_DIM=1
+          export LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1
+          export LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1
+          exe=../test/.libs/mfamgreplay.exe
+          export LIS_MFAMG_REPLAY_NEXT_A=A_newton2.mtx
+          export LIS_MFAMG_REPLAY_NEXT_B=b_hard.mtx
+          "$exe" A.mtx b_hard.mtx modes.mtx > newton_same_solver.log 2>&1
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_same_solver.log
+          grep -q '^REPLAY_NEWTON_STEP step=2 n=240 ' newton_same_solver.log
+          grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' newton_same_solver.log
+          grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' newton_same_solver.log
+          unset LIS_MFAMG_REPLAY_NEXT_A LIS_MFAMG_REPLAY_NEXT_B
+          "$exe" A_newton2.mtx b_hard.mtx modes.mtx > newton_fresh_solver.log 2>&1
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_fresh_solver.log
+          python3 - <<'PY'
+          import re
+          def relative(path, prefix):
+              result = re.findall(r"^" + prefix + r".* true_relative=([0-9.eE+-]+) ",
+                                  open(path, encoding="utf-8").read(), re.MULTILINE)
+              assert len(result) == 1, (path, result)
+              return float(result[0])
+          reused = relative("newton_same_solver.log", "REPLAY_NEWTON_RESULT")
+          fresh = relative("newton_fresh_solver.log", "REPLAY_RESULT")
+          assert reused <= 1e-5 and fresh <= 1e-5, (reused, fresh)
+          print("MFAMG_V8_CHANGED_OPERATOR_SAME_SOLVER_OK reused=%.9g fresh=%.9g" %
+                (reused, fresh))
+          PY
+          if LIS_MFAMG_REPLAY_NEXT_A=A_newton2.mtx "$exe" A.mtx b_hard.mtx modes.mtx \
+                > newton_missing_rhs.log 2>&1; then
+            echo 'ERROR: incomplete A2/B2 input was accepted' >&2
+            exit 1
+          fi
+          grep -q 'specify both NEXT_A and NEXT_B' newton_missing_rhs.log
       - name: Publish experimental UCRT64 mfamgreplay EXE
         if: success()
         uses: actions/upload-artifact@v4
