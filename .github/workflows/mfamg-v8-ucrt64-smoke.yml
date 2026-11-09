@@ -441,6 +441,7 @@ jobs:
           bash test/mfamg_replay_v8_repeats_smoke.sh
           python3 -m py_compile test/mfamg_v8_solver_pair_compare.py
           bash -n test/mfamg_v8_solver_pair_compare_smoke.sh
+          bash -n test/mfamg_v8_31_upstream214_one_shot.sh
           bash test/mfamg_v8_solver_pair_compare_smoke.sh
           python3 -m py_compile test/mfamg_mode_auto_candidates.py
           bash -n test/mfamg_mode_auto_candidates_smoke.sh
