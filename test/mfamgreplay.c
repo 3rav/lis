@@ -448,7 +448,11 @@ int main(int argc,char **argv)
         double bnorm2=0.0,rnorm2=0.0,true2=0.0;
         double start2,end2;
         int second_ok=1;
+        int first_ok=(rc==0);
 
+        /* Default to failure before any second-step allocation or I/O:
+         * early goto done must never reuse a successful step-1 rc. */
+        rc=1;
         err2=lis_matrix_create(LIS_COMM_WORLD,&A2);
         if(err2) { err=err2; goto done; }
         err2=lis_input_matrix(A2,next_matrix);
@@ -534,8 +538,9 @@ int main(int argc,char **argv)
                "reported_residual=%.12e true_relative=%.12e wall_seconds=%.3f\n",
                (long long)err2,(long long)status2,(long long)iter2,
                (double)reported2,true2,end2-start2);
-        if(err2!=LIS_SUCCESS || status2!=0 || true2>1.0e-5 || !second_ok)
-            rc=1;
+        if(first_ok && err2==LIS_SUCCESS && status2==0 &&
+           true2<=1.0e-5 && second_ok)
+            rc=0;
     }
     err=0;
 done:
