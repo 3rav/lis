@@ -119,6 +119,12 @@ def parse(text, exit_code, tol, log, expected_modes):
     if any(len(group) != 1 for group in groups.values()):
         raise ValueError("expected exactly one REPLAY header, REPLAY_RESULT, REPLAY_RECYCLE_STATS and REPLAY_RECYCLE_CHECK")
     hdr = groups["REPLAY"][0]
+    declared_tol = real(hdr, "tol")
+    # The replay binary currently hardcodes its own solver tolerance.
+    # A caller-provided --tol must NEVER silently mislabel that solve.
+    if declared_tol <= 0 or not math.isclose(
+            declared_tol, tol, rel_tol=1e-12, abs_tol=0.0):
+        raise ValueError("unexpected replay tolerance (header vs --tol)")
     n, nnz, modes = (integer(hdr, k) for k in ("n", "nnz", "modes"))
     if (n <= 0 or nnz <= 0 or modes != expected_modes or
             hdr.get("method") != "fgcrodr" or integer(hdr, "recycle_k") != 8 or
