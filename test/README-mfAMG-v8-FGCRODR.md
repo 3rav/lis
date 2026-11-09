@@ -618,12 +618,11 @@ NO MERGE: PR remains Draft; production LIS and CalculiX untouched.
 
 PR #47 remains Draft. The independent standalone FGCRO-DR feature
 in anishida/lis#214 and its prerequisite MAXITER leak fix in
-anishida/lis#213 were **both merged into upstream master** on
+anishida/lis#213 were **both merged into upstream `develop` (not `master`)** on
 2026-11-09 (merge commits 3d3b31ec and 030aa748). The experimental
 v8 branch predates the merged per-solver option/profile logic,
 so do NOT cherry-pick overlapping numerical solver diffs.
-The remaining gate is **reconciliation with already merged upstream
-code**, not waiting for upstream PR review.
+The solver file now matches accepted upstream `develop` #214 byte-for-byte. The remaining gate is verification of the research-only replay option bridge and the final upstream integration path, not waiting for upstream review.
 
 ### Matched replay: independent 17-vs-18 mode benchmark
 
@@ -1292,7 +1291,7 @@ the gate passed. This job adds no merge or deployment action.
 
 A separate `test/testmfamgv8maxiter.c` target (based on the
 standalone regression in upstream anishida/lis#213, but named separately
-to avoid duplicating its future upstream test target) forces two solves
+to avoid duplicating the already-merged upstream test target) forces two solves
 in the same LIS solver: first a converged solve that builds a nonempty
 recycling basis, then a deliberate ordinary MAXITER exit with that
 basis active. It verifies active use, nonzero remaining residual and
@@ -1309,46 +1308,49 @@ operator against normal FGMRES/k=0. The intra-solve code now treats
 k=0 as a no-op rather than allocating zero bytes for its B
 coefficient workspace (which is allocator-dependent). The complete
 `REPLAY_RESULT` numerical signature, other than wall time, must
-match FGMRES. This is a small experimental fail-safe, **not**
-reconciliation with upstream #214's per-solver option interface.
+match FGMRES. The accepted upstream solver now supplies the per-solver implementation; a separate offline-replay compatibility bridge translates the old test flags.
 
 These synthetic checks do not establish a contact speedup or substitute
 for true consecutive Newton data. PR remains Draft until the separate
 real-data and upstream review gates are addressed.
 
-### Upstream FGCRO-DR reconciliation (review gate, not a merge)
+### Upstream FGCRO-DR reconciliation (merged `develop`; PR #47 stays Draft)
 
-The research PR #47 deliberately predates standalone LIS solver work
-proposed in fork PRs #49/#50 and **now merged** upstream PRs #213/#214.
-Upstream **#213** covers the missing `bcoef` deallocation on the
-ordinary FGCRO-DR MAXITER path (and an independent LSan regression).
-**#214** builds on that leak fix and adds opt-in harmonic Ritz
-intra-solve recycling with **per-solver options**:
+Official anishida/lis PRs **#213** (active-recycle MAXITER leak fix) and
+**#214** (per-solver opt-in intra-solve harmonic Ritz recycling) were
+merged on 2026-11-09 into upstream **`develop`, NOT `master`**.
+
+The historical v7 solver source is byte-identical to the base used by
+both upstream PRs (blob `0358908c841f2f242cde8bb3d06bca1c41ec0b85`).
+PR #47's solver file was replaced with the exact accepted #214 source
+at merge commit `3d3b31ec40812ec6b04a82c9192cf9d69093d474`
+(blob `815a73ada1d18d970ec9b6d24306d23ff631fb35`).
+**No competing implementation was cherry-picked or combined.**
+
+`test/mfamgreplay.c` is the ONLY compatibility bridge for historical
+research environment switches. In FGCRO-DR mode it maps
+`LIS_FGCRODR_INTRA_SOLVE_RECYCLE`, `LIS_FGCRODR_INTRA_TRACE` and
+`LIS_FGMRES_PROJECTED_RELATIVE` to per-solver options
 `-fgcrodr_intra`, `-fgcrodr_intra_trace` and
-`-fgcrodr_projected_relative`, rather than process-wide
-experimental environment flags.
+`-fgcrodr_projected_relative`. The upstream source itself reads
+no experimental process-global environment flags.
 
-PR #47's experimental `src/solver/lis_solver_fgcrodr.c` has
-overlapping implementation and uses older process-global research
-switches. **Do not blindly cherry-pick #213/#214 into #47**, or claim
-the source-level integration gate is closed: that would duplicate
-numerical changes and may silently alter the default behavior.
-The reviewed integration choice is to keep #47 Draft, preserve
-its private/synthetic research harness, and reconcile the solver
-source with the upstream feature interface when those upstream
-changes have a verified merge/rebase path against upstream master.
-The accepted upstream solver feature is distinct from CalculiX
-production integration. Upstream acceptance does not imply that #47's
-duplicate experimental solver edits can be merged as-is.
+Before marking the source gate complete, check the entire latest CI
+after the replacement and verify that the bridge still exercises
+real reuse, AZ=C, true residual, no-leak MAXITER, k=0 and
+same-object value-generation/changed-operator behavior.
+Then repeat private real benchmarks on the NEW executable, because
+old 31-spring times were from the replaced experimental core.
+Upstream `develop` integration and production CalculiX deployment
+are separate decisions; neither Ready nor merge is automatic.
 
-Green synthetic CI means replay tests passed for this branch.
-It does **not** verify source parity with the now-merged upstream
-solver or substitute for real 31/116-spring and Newton-sequence data.
+Green synthetic CI confirms only those tests. It does NOT prove
+Newton/contact speedup, TRANSPORT branch coverage or production safety.
 
 ### Outstanding release gates
 
-1. Reconcile the solver implementation with upstream #213/#214;
-   retain default behavior and all new regression safeguards.
+1. Confirm upstream #213/#214 source-blob reconciliation, the replay
+   option bridge and latest CI; keep the accepted upstream interface.
 2. Repeat private 31-spring and 116-spring benchmarks with true
    residuals, paired timing medians and any MAXITER failures recorded.
 3. Compare automatically generated candidates against baseline
