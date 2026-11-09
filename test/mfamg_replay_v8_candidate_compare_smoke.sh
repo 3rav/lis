@@ -14,7 +14,7 @@ n = 24
 cols = [[float(i == j) for i in range(n)] for j in range(18)]
 def write(name, vectors):
     text = "%%MatrixMarket matrix array real general\n"
-    text += "% synthetic CI only\n%d %d\n" % (n, len(vectors))
+    text += "%% synthetic CI only\n%d %d\n" % (n, len(vectors))
     text += "".join("%.17g\n" % x for col in vectors for x in col)
     (p / name).write_text(text, encoding="ascii")
 write("baseline.mtx", cols[:12])
