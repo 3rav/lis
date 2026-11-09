@@ -203,8 +203,8 @@ static int replay_int_option(const char *name,int fallback,
 
 int main(int argc,char **argv)
 {
-    LIS_MATRIX A=NULL;
-    LIS_VECTOR b=NULL,x=NULL,ax=NULL,*modes=NULL;
+    LIS_MATRIX A=NULL,A2=NULL;
+    LIS_VECTOR b=NULL,x=NULL,ax=NULL,b2=NULL,x2=NULL,ax2=NULL,*modes=NULL;
     LIS_SOLVER solver=NULL;
     LIS_INT err=0,nmodes=0,i,iter=0,status=-1;
     LIS_REAL reported=0.0;
@@ -214,6 +214,8 @@ int main(int argc,char **argv)
     double b_norm=0.0,r_norm=0.0,true_relative=0.0,t0=0.0,t1=0.0;
     int rc=1,restart=180,maxiter=1000,recycle_k=8,use_recycling=0;
     int recycle_validation_failed=0;
+    const char *next_matrix=getenv("LIS_MFAMG_REPLAY_NEXT_A");
+    const char *next_rhs=getenv("LIS_MFAMG_REPLAY_NEXT_B");
     const char *method="fgmres";
     const char *method_env;
     LIS_INT recycle_dim=0,recycle_action=0;
@@ -221,6 +223,11 @@ int main(int argc,char **argv)
     int optlen;
     char solver_options[256];
 
+    if((next_matrix==NULL)!=(next_rhs==NULL))
+    {
+        fprintf(stderr,"REPLAY_NEWTON_ERROR specify both NEXT_A and NEXT_B\n");
+        return 2;
+    }
     if(argc!=4 && argc!=5)
     {
         fprintf(stderr,
@@ -427,10 +434,117 @@ int main(int argc,char **argv)
     rc=(err==LIS_SUCCESS && status==0 &&
         true_relative<=1.0e-5 &&
         !recycle_validation_failed) ? 0 : 1;
+    /*
+     * Optional two-operator in-process experiment: retain exactly the
+     * same LIS_SOLVER and MFAMG baseline modes while changing A and b.
+     * Each step starts from zero, like a Newton linear correction.  This
+     * is not a complete nonlinear Newton/contact trajectory.
+     */
+    if(next_matrix!=NULL)
+    {
+        LIS_INT err2,iter2=0,status2=-1;
+        LIS_REAL reported2=0.0,orth2=0.0,relation2=0.0;
+        LIS_UNSIGNED_INT builds2=0,updates2=0,uses2=0,rejects2=0;
+        double bnorm2=0.0,rnorm2=0.0,true2=0.0;
+        double start2,end2;
+        int second_ok=1;
+
+        err2=lis_matrix_create(LIS_COMM_WORLD,&A2);
+        if(err2) { err=err2; goto done; }
+        err2=lis_input_matrix(A2,next_matrix);
+        if(err2) { err=err2; goto done; }
+        if(A2->n!=A->n || A2->np!=A->np)
+        {
+            fprintf(stderr,"REPLAY_NEWTON_ERROR operator dimensions/distribution changed\n");
+            goto done;
+        }
+        err2=lis_vector_duplicate(A2,&b2);
+        if(err2) { err=err2; goto done; }
+        err2=lis_vector_duplicate(A2,&x2);
+        if(err2) { err=err2; goto done; }
+        err2=lis_vector_duplicate(A2,&ax2);
+        if(err2) { err=err2; goto done; }
+        if(read_snapshot_column(next_rhs,b2)!=0) goto done;
+        err2=lis_vector_set_all((LIS_SCALAR)0.0,x2);
+        if(err2) { err=err2; goto done; }
+
+        printf("REPLAY_NEWTON_STEP step=2 n=%lld nnz=%lld modes=%lld method=%s recycle_k=%d\n",
+               (long long)A2->n,(long long)A2->nnz,(long long)nmodes,
+               method,use_recycling?recycle_k:0);
+        start2=lis_wtime();
+        err2=lis_solve(A2,b2,x2,solver);
+        end2=lis_wtime();
+        if(lis_solver_get_iter(solver,&iter2)!=LIS_SUCCESS ||
+           lis_solver_get_residualnorm(solver,&reported2)!=LIS_SUCCESS ||
+           lis_solver_get_status(solver,&status2)!=LIS_SUCCESS)
+        {
+            fprintf(stderr,"REPLAY_NEWTON_ERROR missing second-solve diagnostics\n");
+            goto done;
+        }
+        if(use_recycling)
+        {
+            LIS_INT vrc=lis_fgcrodr_get_stats(
+                solver,&builds2,&updates2,&uses2,&rejects2);
+            if(vrc!=LIS_SUCCESS)
+            {
+                fprintf(stderr,"REPLAY_NEWTON_ERROR missing recycle statistics\n");
+                second_ok=0;
+            }
+            printf("REPLAY_NEWTON_RECYCLE_STATS builds=%llu updates=%llu uses=%llu rejects=%llu\n",
+                   (unsigned long long)builds2,(unsigned long long)updates2,
+                   (unsigned long long)uses2,(unsigned long long)rejects2);
+            if(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE")!=NULL &&
+               strcmp(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE"),"1")==0)
+            {
+                vrc=lis_fgcrodr_validate_recycle(solver,&orth2,&relation2);
+                printf("REPLAY_NEWTON_RECYCLE_CHECK rc=%lld orth_error=%.12e relation_error=%.12e\n",
+                       (long long)vrc,(double)orth2,(double)relation2);
+                if(vrc!=LIS_SUCCESS || !isfinite((double)orth2) ||
+                   !isfinite((double)relation2) || orth2>1.0e-8 ||
+                   relation2>1.0e-8)
+                    second_ok=0;
+            }
+        }
+        if(lis_matvec(A2,x2,ax2)!=LIS_SUCCESS)
+        {
+            fprintf(stderr,"REPLAY_NEWTON_ERROR explicit A2*x2 failed\n");
+            goto done;
+        }
+        for(i=0;i<A2->n;i++)
+        {
+            const double bv=(double)b2->value[i];
+            const double av=(double)ax2->value[i];
+            const double diff=bv-av;
+            if(!isfinite(bv) || !isfinite(av) || !isfinite(diff))
+            {
+                fprintf(stderr,"REPLAY_NEWTON_ERROR nonfinite residual row=%lld\n",
+                        (long long)(i+1));
+                goto done;
+            }
+            bnorm2=hypot(bnorm2,bv);
+            rnorm2=hypot(rnorm2,diff);
+        }
+        true2=bnorm2>0.0 ? rnorm2/bnorm2 : rnorm2;
+        if(!isfinite(true2) || !isfinite((double)reported2))
+        {
+            fprintf(stderr,"REPLAY_NEWTON_ERROR nonfinite second residual norm\n");
+            goto done;
+        }
+        printf("REPLAY_NEWTON_RESULT step=2 solve_rc=%lld status=%lld iter=%lld "
+               "reported_residual=%.12e true_relative=%.12e wall_seconds=%.3f\n",
+               (long long)err2,(long long)status2,(long long)iter2,
+               (double)reported2,true2,end2-start2);
+        if(err2!=LIS_SUCCESS || status2!=0 || true2>1.0e-5 || !second_ok)
+            rc=1;
+    }
     err=0;
 done:
     if(err) fprintf(stderr,"REPLAY LIS error=%lld\n",(long long)err);
     if(solver) lis_solver_destroy(solver);
+    if(ax2) lis_vector_destroy(ax2);
+    if(x2) lis_vector_destroy(x2);
+    if(b2) lis_vector_destroy(b2);
+    if(A2) lis_matrix_destroy(A2);
     if(modes)
     {
         for(i=0;i<nmodes;i++)
