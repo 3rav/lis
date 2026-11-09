@@ -1249,6 +1249,26 @@ trajectory through the actual nonlinear CCX/Newton state, nor
 evidence of speedup. In particular, real step ordering and changed
 contact topology must be verified before drawing conclusions.
 
+### Pinned v7 vs v8 default FGMRES numerical parity (public CI)
+
+A new Linux CI job `linux-v7-v8-fgmres-parity` independently
+checks out the exact historical v7 base commit
+`c4bc64eb55cd3ca0ff0a00db5472aafbafb7a122` and the v8 HEAD,
+configures and compiles both from their OWN source trees with matching
+flags, and runs the actual compiled offline replay executable on
+the **same newly generated 240-row synthetic A/b and two near-nullspace
+modes**. Both select FGMRES, no FGCRO-DR recycling. It compares solver
+status, return code, iteration count, imported dimensions, fixed options
+and explicit true-relative residual with numeric tolerance, but **never
+compares wall-clock times**. The test cannot use private contact data
+and is intentionally separate from the real-data v8 FGCRODR benchmark.
+
+A PASS would protect a narrow historical-v7 baseline parity contract;
+it does not demonstrate any contact speedup, general solver behavior
+on nonsymmetric contact graphs, or production CalculiX integration.
+The actual CI result must be checked on the latest HEAD before claiming
+the gate passed. This job adds no merge or deployment action.
+
 ### v8 MAXITER/LSan and zero-recycle regression safeguards
 
 A separate `test/testmfamgv8maxiter.c` target (based on the
