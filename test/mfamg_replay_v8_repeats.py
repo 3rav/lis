@@ -119,7 +119,7 @@ def assess(rows, expected_pairs):
     accepted = complete and all(row["converged"] for row in rows)
     metrics = {}
     for name, group in groups.items():
-         metrics[name] = {
+        metrics[name] = {
             "runs": len(group),
             "converged": sum(r["converged"] for r in group),
             "median_wall_seconds": statistics.median(r["wall_seconds"] for r in group) if accepted else None,
