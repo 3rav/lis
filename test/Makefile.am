@@ -35,6 +35,9 @@ testmfamgv8maxiter_SOURCES = testmfamgv8maxiter.c
 # Accepted upstream #214 per-solver integration regression (distinct target).
 test_PROGRAMS += testmfamgv8intra
 testmfamgv8intra_SOURCES = testmfamgv8intra.c
+# Explicit nonuniform changed-value TRANSPORT branch: orth/AZ=C/residual.
+test_PROGRAMS += testmfamgv8transport
+testmfamgv8transport_SOURCES = testmfamgv8transport.c
 
 # Keep optional session tests separate from the long test_PROGRAMS list.
 test_PROGRAMS += testmatrixautosession testvectorreal64 benchautojacobirefresh testabi testgesolvepair testrcoalloc
