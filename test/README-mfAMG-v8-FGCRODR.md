@@ -1007,6 +1007,109 @@ real Newton validation also requires numerical comparison with an
 independent solution at step 2 and several successive operator
 updates, which the current two-step smoke does not cover.
 
+### Local adjacent-snapshot sequence runner (automatic private validation)
+
+The new `test/mfamg_v8_snapshot_sequence.py` turns a **user-held** list of
+real consecutive contact/Newton A/b snapshots into a reproducible
+**pairwise** validation. It does not need files sent to GitHub or to
+the assistant. It uses the same fixed FGCRO-DR/MFAMG environment as the
+paired 17-vs-18 runner, sanitizes inherited LIS variables and
+fingerprints every input, the modes, the CSV and the executable.
+
+Create a local CSV **outside the repository**. For example, after
+substituting actual existing files and their correct Newton order:
+
+```csv
+step,matrix,rhs
+n01,/PRIVATE/STEP01/A.mtx,/PRIVATE/STEP01/b.mtx
+n02,/PRIVATE/STEP02/A.mtx,/PRIVATE/STEP02/b.mtx
+n03,/PRIVATE/STEP03/A.mtx,/PRIVATE/STEP03/b.mtx
+```
+
+Only the header and the format are real. The A/b locations above
+are **placeholders** and must not be used as if they existed.
+Relative paths in the CSV resolve relative to the CSV directory.
+Each step ID must be unique, and the table must have 2–50 rows.
+
+Run with an actual serial, real-valued, locally built v8 replay binary:
+
+```bash
+python3 test/mfamg_v8_snapshot_sequence.py \
+  --exe "$HOME/lis-v8/bin6000/mfamgreplay.exe" \
+  --modes "/PRIVATE/REAL/12plus6_modes.mtx" \
+  --snapshots "/PRIVATE/REAL/newton_steps.csv" \
+  --out-dir "/PRIVATE/REAL/v8_sequence_NEW" \
+  --fresh-control
+```
+
+**Every transition runs three checks** (with `--fresh-control`):
+(1) exact read-only `--compare-csr A_i A_{i+1}`,
+(2) same-`LIS_SOLVER` A_i→A_{i+1} *within that pair*,
+and (3) an independent fresh-solver A_{i+1} control.
+The preflight selects `NEXT_REPLACE_VALUES=1` **only** when
+CSR graphs/index ordering match, every coefficient is finite and A
+has actually changed. If the graph differs (or A is unchanged),
+it selects the safe separate-object/rebuild path. Invalid imports,
+missing preflight markers or unexpected errors **never silently
+become a graph-mismatch/rebuild classification**.
+
+Each pair checks the initial and next true residual (≤1e-5),
+FGCRO-DR status, k=8, restart=180, maxiter=3000, the
+reported policy deltas, and second-step `AZ=C`/orthogonality
+errors (≤1e-8). A fresh solver, if requested, must also converge.
+A graph-changing pair MUST NOT report cross-operator reuse.
+A same-graph pair may legitimately **REJECT** its recycled space
+if the solver considers it unsuitable; convergence and diagnostics,
+not mandatory KEEP, are the pass criteria. Results are journaled
+after each pair so a failure does not erase previous work.
+`--continue-on-failure` allows additional diagnostic pairs
+after failure; otherwise the first failed pair ends the test.
+
+All outputs stay local in the **new** private directory:
+`manifest.json`, `transitions.csv`, `summary.json`,
+plus per-pair CSR/replay/fresh logs. The runner never uploads them,
+does not overwrite an existing directory, and detects modified
+inputs between paired solves. `PAIRWISE_PASS` means all adjacent
+windows met their measured gates, not a speedup or solver production
+approval. It contains no invented time medians.
+
+**Important boundary:** every adjacent transition starts a NEW
+process, keeping the solver only across A_i→A_{i+1} *inside that
+transition*. This is **not** one solver persisted across an entire
+nonlinear Newton/contact trajectory. It is a local structural and
+numerical screening step before actual in-application validation.
+
+Public CI uses a fully mock, synthetic three-snapshot CSV and covers
+same-graph transfer, changed-graph REJECT, fresh controls, MAXITER,
+malformed preflight, forbidden input changes, and non-overwriting.
+
+### Upstream FGCRO-DR reconciliation (review gate, not a merge)
+
+The research PR #47 deliberately predates standalone LIS solver work
+proposed in fork PRs #49/#50 and official upstream PRs #213/#214.
+Upstream **#213** covers the missing `bcoef` deallocation on the
+ordinary FGCRO-DR MAXITER path (and an independent LSan regression).
+**#214** builds on that leak fix and adds opt-in harmonic Ritz
+intra-solve recycling with **per-solver options**:
+`-fgcrodr_intra`, `-fgcrodr_intra_trace` and
+`-fgcrodr_projected_relative`, rather than process-wide
+experimental environment flags.
+
+PR #47's experimental `src/solver/lis_solver_fgcrodr.c` has
+overlapping implementation and uses older process-global research
+switches. **Do not blindly cherry-pick #213/#214 into #47**, or claim
+the source-level integration gate is closed: that would duplicate
+numerical changes and may silently alter the default behavior.
+The reviewed integration choice is to keep #47 Draft, preserve
+its private/synthetic research harness, and reconcile the solver
+source with the upstream feature interface when those upstream
+changes have an agreed merge/rebase path. The upstream proposals
+are distinct from CalculiX production integration.
+
+Green synthetic CI means replay tests passed for this branch.
+It does **not** verify source parity with pending upstream changes
+or substitute for real 31/116-spring and Newton-sequence data.
+
 ### Outstanding release gates
 
 1. Reconcile the solver implementation with upstream #213/#214;
