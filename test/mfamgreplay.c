@@ -234,6 +234,9 @@ int main(int argc,char **argv)
         fprintf(stderr,"REPLAY_NEWTON_ERROR specify both NEXT_A and NEXT_B\n");
         return 2;
     }
+    /* Preserve the first and second diagnostics if a later solve crashes. */
+    if(next_matrix!=NULL)
+        setvbuf(stdout,NULL,_IONBF,0);
     if(argc!=4 && argc!=5)
     {
         fprintf(stderr,
