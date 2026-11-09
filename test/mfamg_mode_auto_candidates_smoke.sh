@@ -48,4 +48,43 @@ if python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A.mtx" "$tmp/base.mtx" \
   echo 'ERROR: automatic mode output overwritten' >&2
   exit 1
 fi
+# The signed-curvature filter is distinct from A^T A: negative
+# quadratic form is tested on a known symmetric-indefinite operator.
+cat > "$tmp/A_indef.mtx" <<'N'
+%%MatrixMarket matrix coordinate real general
+8 8 8
+1 1 10
+2 2 12
+3 3 -3
+4 4 -1
+5 5 0.03
+6 6 4
+7 7 5
+8 8 6
+N
+python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 2 --steps 180 --seed 51 \
+  --output "$tmp/negative.mtx" > "$tmp/negative_report.txt"
+grep -q '^AUTO_MODE_TARGET=negative-curvature
+ "$tmp/negative_report.txt"
+grep -q '^AUTO_MODE_01_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
+grep -q '^AUTO_MODE_02_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
+python3 "$here/mfamg_mode_audit.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" "$tmp/negative.mtx" \
+  --csv-out "$tmp/negative_audit.csv" > "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_NEW_RANK=2
+ "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_SYMPART_NEGATIVE_COUNT=2
+ "$tmp/negative_audit.txt"
+python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 2 --steps 180 --seed 51 \
+  --output "$tmp/negative_copy.mtx" > /dev/null
+cmp "$tmp/negative.mtx" "$tmp/negative_copy.mtx"
+if python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 1 --steps 180 --seed 51 \
+  --output "$tmp/not_negative.mtx" > "$tmp/positive_attempt.txt" 2>&1; then
+  echo 'ERROR: negative-curvature filter accepted a positive definite matrix' >&2
+  exit 1
+fi
+grep -q 'has no verified negative curvature' "$tmp/positive_attempt.txt"
+test ! -e "$tmp/not_negative.mtx"
 echo AUTO_MODE_CANDIDATES_SMOKE_OK
