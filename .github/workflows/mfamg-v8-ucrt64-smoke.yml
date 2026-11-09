@@ -252,6 +252,26 @@ jobs:
             exit 1
           fi
           grep -q 'specify both NEXT_A and NEXT_B' newton_missing_rhs.log
+          # Step 1 may succeed but any step-2 I/O failure must still fail.
+          if LIS_MFAMG_REPLAY_NEXT_A=A_newton2.mtx \
+             LIS_MFAMG_REPLAY_NEXT_B=nonexistent-step2-RHS.mtx \
+             "$exe" A.mtx b_hard.mtx modes.mtx > newton_bad_rhs.log 2>&1; then
+            echo 'ERROR: missing second RHS produced a successful exit' >&2
+            exit 1
+          fi
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_bad_rhs.log
+          {
+            echo '%%MatrixMarket matrix coordinate real general'
+            echo '3 3 3'
+            for ((i=1;i<=3;i++)); do echo "$i $i 4"; done
+          } > A_wrong_size.mtx
+          if LIS_MFAMG_REPLAY_NEXT_A=A_wrong_size.mtx \
+             LIS_MFAMG_REPLAY_NEXT_B=b_newton2.mtx \
+             "$exe" A.mtx b_hard.mtx modes.mtx > newton_bad_shape.log 2>&1; then
+            echo 'ERROR: incompatible second operator was accepted' >&2
+            exit 1
+          fi
+          grep -q 'operator dimensions/distribution changed' newton_bad_shape.log
       - name: Publish experimental UCRT64 mfamgreplay EXE
         if: success()
         uses: actions/upload-artifact@v4
