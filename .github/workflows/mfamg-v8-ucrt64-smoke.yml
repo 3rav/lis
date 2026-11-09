@@ -221,19 +221,24 @@ jobs:
           unset LIS_MFAMG_REPLAY_NEXT_A LIS_MFAMG_REPLAY_NEXT_B
           "$exe" A_newton2.mtx b_hard.mtx modes.mtx > newton_fresh_solver.log 2>&1
           grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_fresh_solver.log
-          python3 - <<'PY'
-          import re
-          def relative(path, prefix):
-              result = re.findall(r"^" + prefix + r".* true_relative=([0-9.eE+-]+) ",
-                                  open(path, encoding="utf-8").read(), re.MULTILINE)
-              assert len(result) == 1, (path, result)
-              return float(result[0])
-          reused = relative("newton_same_solver.log", "REPLAY_NEWTON_RESULT")
-          fresh = relative("newton_fresh_solver.log", "REPLAY_RESULT")
-          assert reused <= 1e-5 and fresh <= 1e-5, (reused, fresh)
-          print("MFAMG_V8_CHANGED_OPERATOR_SAME_SOLVER_OK reused=%.9g fresh=%.9g" %
-                (reused, fresh))
-          PY
+          # Avoid relying on Python in the Windows UCRT64 runner.
+          for entry in "newton_same_solver.log:REPLAY_NEWTON_RESULT" \
+                       "newton_fresh_solver.log:REPLAY_RESULT"; do
+            log="${entry%%:*}"
+            marker="${entry#*:}"
+            awk -v wanted="$marker" '
+              $1==wanted {
+                count++
+                for (i=2;i<=NF;i++) if ($i ~ /^true_relative=/) {
+                  split($i,v,"=")
+                  if ((v[2]+0) > 1e-5 || (v[2]+0) < 0) bad=1
+                  found++
+                }
+              }
+              END { if(count!=1 || found!=1 || bad) exit 1 }
+            ' "$log"
+          done
+          echo MFAMG_V8_CHANGED_OPERATOR_SAME_SOLVER_OK
           if LIS_MFAMG_REPLAY_NEXT_A=A_newton2.mtx "$exe" A.mtx b_hard.mtx modes.mtx \
                 > newton_missing_rhs.log 2>&1; then
             echo 'ERROR: incomplete A2/B2 input was accepted' >&2
