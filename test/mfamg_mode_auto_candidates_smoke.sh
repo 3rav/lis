@@ -66,6 +66,137 @@ python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A_indef.mtx" "$tmp/base.mtx"
   --target negative-curvature --count 2 --steps 180 --seed 51 \
   --output "$tmp/negative.mtx" > "$tmp/negative_report.txt"
 grep -q '^AUTO_MODE_TARGET=negative-curvature
+grep -q '^AUTO_MODE_01_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
+grep -q '^AUTO_MODE_02_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
+python3 "$here/mfamg_mode_audit.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" "$tmp/negative.mtx" \
+  --csv-out "$tmp/negative_audit.csv" > "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_NEW_RANK=2
+grep -q '^MODE_AUDIT_EXTRA_SYMPART_NEGATIVE_COUNT=2
+python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 2 --steps 180 --seed 51 \
+  --output "$tmp/negative_copy.mtx" > /dev/null
+cmp "$tmp/negative.mtx" "$tmp/negative_copy.mtx"
+if python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 1 --steps 180 --seed 51 \
+  --output "$tmp/not_negative.mtx" > "$tmp/positive_attempt.txt" 2>&1; then
+  echo 'ERROR: negative-curvature filter accepted a positive definite matrix' >&2
+  exit 1
+fi
+grep -q 'has no verified negative curvature' "$tmp/positive_attempt.txt"
+test ! -e "$tmp/not_negative.mtx"
+echo AUTO_MODE_CANDIDATES_SMOKE_OK
+ "$tmp/negative_report.txt"
+grep -q '^AUTO_MODE_01_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
+grep -q '^AUTO_MODE_02_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
+python3 "$here/mfamg_mode_audit.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" "$tmp/negative.mtx" \
+  --csv-out "$tmp/negative_audit.csv" > "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_NEW_RANK=2
+ "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_SYMPART_NEGATIVE_COUNT=2
+ "$tmp/negative_audit.txt"
+python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 2 --steps 180 --seed 51 \
+  --output "$tmp/negative_copy.mtx" > /dev/null
+cmp "$tmp/negative.mtx" "$tmp/negative_copy.mtx"
+if python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 1 --steps 180 --seed 51 \
+  --output "$tmp/not_negative.mtx" > "$tmp/positive_attempt.txt" 2>&1; then
+  echo 'ERROR: negative-curvature filter accepted a positive definite matrix' >&2
+  exit 1
+fi
+grep -q 'has no verified negative curvature' "$tmp/positive_attempt.txt"
+test ! -e "$tmp/not_negative.mtx"
+echo AUTO_MODE_CANDIDATES_SMOKE_OK
+ "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_SYMPART_NEGATIVE_COUNT=2
+ "$tmp/negative_audit.txt"
+python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 2 --steps 180 --seed 51 \
+  --output "$tmp/negative_copy.mtx" > /dev/null
+cmp "$tmp/negative.mtx" "$tmp/negative_copy.mtx"
+if python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 1 --steps 180 --seed 51 \
+  --output "$tmp/not_negative.mtx" > "$tmp/positive_attempt.txt" 2>&1; then
+  echo 'ERROR: negative-curvature filter accepted a positive definite matrix' >&2
+  exit 1
+fi
+grep -q 'has no verified negative curvature' "$tmp/positive_attempt.txt"
+test ! -e "$tmp/not_negative.mtx"
+echo AUTO_MODE_CANDIDATES_SMOKE_OK
+ "$tmp/negative_report.txt"
+grep -q '^AUTO_MODE_01_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
+grep -q '^AUTO_MODE_02_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
+python3 "$here/mfamg_mode_audit.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" "$tmp/negative.mtx" \
+  --csv-out "$tmp/negative_audit.csv" > "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_NEW_RANK=2
+ "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_SYMPART_NEGATIVE_COUNT=2
+ "$tmp/negative_audit.txt"
+python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 2 --steps 180 --seed 51 \
+  --output "$tmp/negative_copy.mtx" > /dev/null
+cmp "$tmp/negative.mtx" "$tmp/negative_copy.mtx"
+if python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 1 --steps 180 --seed 51 \
+  --output "$tmp/not_negative.mtx" > "$tmp/positive_attempt.txt" 2>&1; then
+  echo 'ERROR: negative-curvature filter accepted a positive definite matrix' >&2
+  exit 1
+fi
+grep -q 'has no verified negative curvature' "$tmp/positive_attempt.txt"
+test ! -e "$tmp/not_negative.mtx"
+echo AUTO_MODE_CANDIDATES_SMOKE_OK
+ "$tmp/negative_audit.txt"
+python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 2 --steps 180 --seed 51 \
+  --output "$tmp/negative_copy.mtx" > /dev/null
+cmp "$tmp/negative.mtx" "$tmp/negative_copy.mtx"
+if python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 1 --steps 180 --seed 51 \
+  --output "$tmp/not_negative.mtx" > "$tmp/positive_attempt.txt" 2>&1; then
+  echo 'ERROR: negative-curvature filter accepted a positive definite matrix' >&2
+  exit 1
+fi
+grep -q 'has no verified negative curvature' "$tmp/positive_attempt.txt"
+test ! -e "$tmp/not_negative.mtx"
+echo AUTO_MODE_CANDIDATES_SMOKE_OK
+ "$tmp/negative_report.txt"
+grep -q '^AUTO_MODE_01_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
+grep -q '^AUTO_MODE_02_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
+python3 "$here/mfamg_mode_audit.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" "$tmp/negative.mtx" \
+  --csv-out "$tmp/negative_audit.csv" > "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_NEW_RANK=2
+ "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_SYMPART_NEGATIVE_COUNT=2
+ "$tmp/negative_audit.txt"
+python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 2 --steps 180 --seed 51 \
+  --output "$tmp/negative_copy.mtx" > /dev/null
+cmp "$tmp/negative.mtx" "$tmp/negative_copy.mtx"
+if python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 1 --steps 180 --seed 51 \
+  --output "$tmp/not_negative.mtx" > "$tmp/positive_attempt.txt" 2>&1; then
+  echo 'ERROR: negative-curvature filter accepted a positive definite matrix' >&2
+  exit 1
+fi
+grep -q 'has no verified negative curvature' "$tmp/positive_attempt.txt"
+test ! -e "$tmp/not_negative.mtx"
+echo AUTO_MODE_CANDIDATES_SMOKE_OK
+ "$tmp/negative_audit.txt"
+grep -q '^MODE_AUDIT_EXTRA_SYMPART_NEGATIVE_COUNT=2
+ "$tmp/negative_audit.txt"
+python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A_indef.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 2 --steps 180 --seed 51 \
+  --output "$tmp/negative_copy.mtx" > /dev/null
+cmp "$tmp/negative.mtx" "$tmp/negative_copy.mtx"
+if python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A.mtx" "$tmp/base.mtx" \
+  --target negative-curvature --count 1 --steps 180 --seed 51 \
+  --output "$tmp/not_negative.mtx" > "$tmp/positive_attempt.txt" 2>&1; then
+  echo 'ERROR: negative-curvature filter accepted a positive definite matrix' >&2
+  exit 1
+fi
+grep -q 'has no verified negative curvature' "$tmp/positive_attempt.txt"
+test ! -e "$tmp/not_negative.mtx"
+echo AUTO_MODE_CANDIDATES_SMOKE_OK
  "$tmp/negative_report.txt"
 grep -q '^AUTO_MODE_01_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
 grep -q '^AUTO_MODE_02_RAYLEIGH_AFTER=-' "$tmp/negative_report.txt"
