@@ -50,7 +50,7 @@ call() {
   python3 "$here/mfamg_replay_v8_candidate_compare.py" \
     --exe "$tmp/replay.py" --matrix "$tmp/A.mtx" --rhs "$tmp/b.mtx" \
     --baseline "$tmp/baseline.mtx" \
-    --generated "\${2:-$tmp/generated.mtx}" \
+    --generated "${2:-$tmp/generated.mtx}" \
     --offline-control "$tmp/offline.mtx" \
     --out-dir "$1" --repetitions 2 --require-offline-control-converged
 }
