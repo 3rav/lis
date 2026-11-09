@@ -175,25 +175,38 @@ def inspect_preflight(exit_code, log):
     raise ValueError("CSR preflight failed for unsupported reason")
 
 
-def evaluate_replay(log, exit_code, graph, tol, n, mode_count):
+def validate_header(fields, n, mode_count, tol):
+    if integer(fields, "n") != n or integer(fields, "modes") != mode_count:
+        raise ValueError("replay header row count or mode count mismatch")
+    if (fields.get("method") != "fgcrodr" or
+            integer(fields, "recycle_k") != 8 or
+            integer(fields, "restart") != 180 or
+            integer(fields, "maxiter") != 3000 or
+            not math.isclose(real(fields, "tol"), tol, rel_tol=1e-12)):
+        raise ValueError("replay solver configuration mismatch")
+
+
+def evaluate_replay(log, exit_code, graph, tol, n, mode_count,
+                    expected_changed):
     header = one_line(log, "REPLAY")
+    validate_header(header, n, mode_count, tol)
+    step = one_line(log, "REPLAY_NEWTON_STEP")
+    if (integer(step, "step") != 2 or integer(step, "n") != n or
+            integer(step, "modes") != mode_count or
+            step.get("method") != "fgcrodr" or
+            integer(step, "recycle_k") != 8):
+        raise ValueError("second Newton step diagnostics mismatch")
     first = parse_solve(log, "REPLAY_RESULT", tol)
     second = parse_solve(log, "REPLAY_NEWTON_RESULT", tol)
+    first_check = parse_check(log, "REPLAY_RECYCLE_CHECK")
     check = parse_check(log, "REPLAY_NEWTON_RECYCLE_CHECK")
     policy = one_line(log, "REPLAY_NEWTON_POLICY")
-    mode = one_line(log, "REPLAY_NEWTON_MATRIX").get("mode", "")
+    matrix = one_line(log, "REPLAY_NEWTON_MATRIX")
+    mode = matrix.get("mode", "")
     expected_mode = ("inplace_replace_values" if graph == "same_csr"
                      else "separate_object")
-    if mode != expected_mode or integer(header, "n") != n:
-        raise ValueError("replay matrix mode or row count differs from preflight")
-    if integer(header, "modes") != mode_count:
-        raise ValueError("replay modes count differs from input modes")
-    if header.get("method") != "fgcrodr" or integer(header, "recycle_k") != 8:
-        raise ValueError("replay not using requested FGCRODR k=8")
-    if (integer(header, "restart") != 180 or
-            integer(header, "maxiter") != 3000 or
-            not math.isclose(real(header, "tol"), tol, rel_tol=1e-12)):
-        raise ValueError("replay solver configuration mismatch")
+    if mode != expected_mode:
+        raise ValueError("replay second matrix mode differs from preflight")
     p = {key: integer(policy, key) for key in
          ("cross_uses_delta", "keeps_delta",
           "transports_delta", "rejects_delta")}
@@ -203,12 +216,12 @@ def evaluate_replay(log, exit_code, graph, tol, n, mode_count):
                                 p["keeps_delta"] != 0 or
                                 p["transports_delta"] != 0):
         raise ValueError("stale basis reused across a distinct matrix object")
-    if graph == "same_csr" and integer(
-            one_line(log, "REPLAY_NEWTON_MATRIX"), "changed_nnz") <= 0:
-        raise ValueError("in-place replay did not change A")
+    if graph == "same_csr" and integer(matrix, "changed_nnz") != expected_changed:
+        raise ValueError("in-place changed_nnz disagrees with CSR preflight")
     # A policy may legitimately reject an unstable transported basis.
     return first, second, check, p, (
-        exit_code == 0 and first["ok"] and second["ok"] and check["valid"])
+        exit_code == 0 and first["ok"] and second["ok"]
+        and first_check["valid"] and check["valid"])
 
 
 def main():
@@ -306,7 +319,8 @@ def main():
                     row["exit"] = code
                     check_unchanged(active_paths, baseline_hashes)
                     first, second, check, policy, ok = evaluate_replay(
-                        read_log(out / logs[1]), code, graph, args.tol, n, len(modes))
+                        read_log(out / logs[1]), code, graph, args.tol, n,
+                        len(modes), changed)
                     row.update(first_status=first["status"],
                                first_true_relative=first["true_relative"],
                                second_status=second["status"],
@@ -324,14 +338,15 @@ def main():
                         row["fresh_exit"] = code2
                         check_unchanged(active_paths, baseline_hashes)
                         fresh_header = one_line(read_log(out / logs[2]), "REPLAY")
-                        if integer(fresh_header, "n") != n:
-                            raise ValueError("fresh control row count mismatch")
+                        validate_header(fresh_header, n, len(modes), args.tol)
+                        fresh_check = parse_check(
+                            read_log(out / logs[2]), "REPLAY_RECYCLE_CHECK")
                         fresh = parse_solve(read_log(out / logs[2]), "REPLAY_RESULT", args.tol)
                         row.update(fresh_status=fresh["status"],
                                    fresh_true_relative=fresh["true_relative"],
                                    fresh_iter=fresh["iter"],
                                    fresh_wall_seconds=fresh["wall_seconds"])
-                        ok = ok and code2 == 0 and fresh["ok"]
+                        ok = ok and code2 == 0 and fresh["ok"] and fresh_check["valid"]
                     row["pair_pass"] = int(ok)
                     if not ok:
                         row["error"] = "one or more solves/algebraic checks did not converge"
