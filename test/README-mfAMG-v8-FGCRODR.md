@@ -712,6 +712,66 @@ may interpret Bash `$HOME` differently (`C:/Users/...` rather than
 directory; use `mkdir` for the build directory without deleting it,
 and keep each benchmark output path unique.
 
+### Paired FGMRES control vs FGCRO-DR (same A/b/modes)
+
+To isolate the algorithmic opt-in, the new
+`test/mfamg_v8_solver_pair_compare.py` compares `fgmres` against
+`fgcrodr` **on the same compiled v8 executable**, using the exact
+same A04/b04 and all-18 Ritz modes. No historical-v7 binary is implied
+by this default experiment. The runner also supports an explicit
+`--exe-v7` for a separately compiled historical v7 FGMRES control,
+which it labels separately and checks for the genuinely older log
+format. An EXE with v8 `method=` header is rejected when supplied
+as the alleged historical v7 baseline.
+
+Run **locally** in UCRT64, not in CI, using the already compiled v8
+executable and the previously verified private inputs:
+
+    cd "$HOME/lis-v8"
+    ROOT="$HOME/mfamg_replay"
+    python3 test/mfamg_v8_solver_pair_compare.py \
+      --exe-v8 "$(cygpath -m "$ROOT/build-v8-abba-20261109/test/.libs/mfamgreplay.exe")" \
+      --matrix "$(cygpath -m "$ROOT/challenge_31/A04.mtx")" \
+      --rhs "$(cygpath -m "$ROOT/challenge_31/b04.mtx")" \
+      --modes "$(cygpath -m "$ROOT/v8_mode_audit/ritz/modes_all_ritz.mtx")" \
+      --expected-modes 18 --pairs 3 --require-both-converged \
+      --out-dir "$(cygpath -m "$ROOT/v8_pair_fgmres_vs_fgcrodr_NEW")"
+
+Order is FGMRES/FGCRODR, FGCRODR/FGMRES,
+FGMRES/FGCRODR. Each run starts a fresh process. The runner cleans
+inherited `LIS_*` variables and fixes the shared MFAMG environment;
+only the method-specific recycling settings differ. FGCRO-DR uses
+k=8, restart=180, maxiter=3000, tol=1e-5, active intra-solve
+recycling and checked relation `AZ=C`; FGMRES controls use no FGCRO-DR
+recycling settings. Common-mode configuration, actual input and EXE
+SHA-256/size, fresh-process records, and per-run logs remain private
+under the new output directory.
+
+For an **actual historical v7 vs v8** test, first compile an independent
+v7 `mfamgreplay.exe` from the exact original v7 source and the same
+toolchain/configuration, then add
+`--exe-v7 "$(cygpath -m "$ROOT/path_to_separate_v7/mfamgreplay.exe")"`.
+The v7 and v8 binaries must be different files. Differences between
+these EXEs may reflect more than the solver algorithm, hence the
+same-binary comparison should be examined first.
+
+A positive speedup is reported **only when every paired run of both
+methods converged**, has true-relative residual <=1e-5, consistent
+method/configuration, and the FGCRO-DR recycling counters/algebra
+actually validate. The percentage from separately computed medians
+and the median of within-pair percentages are reported separately;
+they are different estimators. A MAXITER/control failure yields an
+`INCONCLUSIVE_NONCONVERGENCE` assessment with no speedup number.
+Unexpected headers, missing replay data, changed inputs, and
+preexisting output directories fail closed.
+
+No real FGMRES-vs-FGCRODR comparison has been measured yet.
+Passing mock CI asserts behavior of the benchmark runner, not its
+physical performance. A fixed A/b replay is not an actual CCX Newton
+trajectory or a production integration test. Do not publish any private
+matrix, mode or raw contact logs. Windows output directories use
+Windows ACLs; do not assume POSIX chmod 0700 there.
+
 ### Automatic candidate mode experiment, WITHOUT offline enrichment
 
 test/mfamg_mode_auto_candidates.py is a research-only prototype.
