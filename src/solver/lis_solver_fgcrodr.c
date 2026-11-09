@@ -5324,8 +5324,11 @@ lis_fgcrodr_flexible_core(
     normalized_option=getenv("LIS_FGMRES_PROJECTED_RELATIVE");
     normalize_projected=(normalized_option!=NULL &&
         strcmp(normalized_option,"1")==0);
+    /* k=0 is the FGMRES-equivalent control: do not allocate a zero-size
+     * recycle B workspace merely because the process-wide opt-in is set.
+     * This is also important on allocators where malloc(0) returns NULL. */
     intra_recycle=(intra_option!=NULL &&
-                   strcmp(intra_option,"1")==0);
+                   strcmp(intra_option,"1")==0 && state->target_dim>0);
     intra_trace=(intra_recycle && trace_option!=NULL &&
                  strcmp(trace_option,"1")==0);
     recycle_counted=use_recycle;
