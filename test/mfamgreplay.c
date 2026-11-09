@@ -216,6 +216,7 @@ int main(int argc,char **argv)
     int recycle_validation_failed=0;
     const char *next_matrix=getenv("LIS_MFAMG_REPLAY_NEXT_A");
     const char *next_rhs=getenv("LIS_MFAMG_REPLAY_NEXT_B");
+    const char *next_diag_shift=getenv("LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT");
     const char *method="fgmres";
     const char *method_env;
     LIS_INT recycle_dim=0,recycle_action=0;
@@ -223,6 +224,11 @@ int main(int argc,char **argv)
     int optlen;
     char solver_options[256];
 
+    if(next_diag_shift!=NULL && (next_matrix==NULL || next_rhs==NULL))
+    {
+        fprintf(stderr,"REPLAY_NEWTON_ERROR diagonal shift requires NEXT_A and NEXT_B\n");
+        return 2;
+    }
     if((next_matrix==NULL)!=(next_rhs==NULL))
     {
         fprintf(stderr,"REPLAY_NEWTON_ERROR specify both NEXT_A and NEXT_B\n");
@@ -443,6 +449,12 @@ int main(int argc,char **argv)
     if(next_matrix!=NULL)
     {
         LIS_INT err2,iter2=0,status2=-1;
+        LIS_MATRIX solve_matrix=A2;
+        LIS_UNSIGNED_INT before_cross=0,before_keep=0;
+        LIS_UNSIGNED_INT before_transport=0,before_reject=0;
+        LIS_UNSIGNED_INT after_cross=0,after_keep=0;
+        LIS_UNSIGNED_INT after_transport=0,after_reject=0;
+        LIS_INT policies_available=LIS_FALSE;
         LIS_REAL reported2=0.0,orth2=0.0,relation2=0.0;
         LIS_UNSIGNED_INT builds2=0,updates2=0,uses2=0,rejects2=0;
         double bnorm2=0.0,rnorm2=0.0,true2=0.0;
@@ -472,11 +484,50 @@ int main(int argc,char **argv)
         err2=lis_vector_set_all((LIS_SCALAR)0.0,x2);
         if(err2) { err=err2; goto done; }
 
+        if(use_recycling)
+        {
+            err2=lis_fgcrodr_get_policy_stats(
+                solver,&before_cross,&before_keep,
+                &before_transport,&before_reject);
+            if(err2!=LIS_SUCCESS) { err=err2; goto done; }
+            policies_available=LIS_TRUE;
+        }
+        if(next_diag_shift!=NULL)
+        {
+            char *end=NULL;
+            double shift;
+            errno=0;
+            shift=strtod(next_diag_shift,&end);
+            if(errno!=0 || end==next_diag_shift ||
+               *end!='\0' || !isfinite(shift))
+            {
+                fprintf(stderr,"REPLAY_NEWTON_ERROR invalid diagonal shift\n");
+                goto done;
+            }
+            /*
+             * Controlled same-object / same-structure experiment:
+             * the caller must supply the independently generated A2
+             * for true-residual verification.  A has NOT changed
+             * structure: notify the recycle policy of changed values.
+             */
+            err2=lis_matrix_shift_diagonal(A,(LIS_SCALAR)shift);
+            if(err2) { err=err2; goto done; }
+            err2=lis_matrix_mark_values_changed(A);
+            if(err2) { err=err2; goto done; }
+            solve_matrix=A;
+            printf("REPLAY_NEWTON_MATRIX mode=inplace_diag_shift shift=%.12g\n",
+                   shift);
+        }
+        else
+        {
+            printf("REPLAY_NEWTON_MATRIX mode=separate_object\n");
+        }
+
         printf("REPLAY_NEWTON_STEP step=2 n=%lld nnz=%lld modes=%lld method=%s recycle_k=%d\n",
                (long long)A2->n,(long long)A2->nnz,(long long)nmodes,
                method,use_recycling?recycle_k:0);
         start2=lis_wtime();
-        err2=lis_solve(A2,b2,x2,solver);
+        err2=lis_solve(solve_matrix,b2,x2,solver);
         end2=lis_wtime();
         if(lis_solver_get_iter(solver,&iter2)!=LIS_SUCCESS ||
            lis_solver_get_residualnorm(solver,&reported2)!=LIS_SUCCESS ||
@@ -497,6 +548,29 @@ int main(int argc,char **argv)
             printf("REPLAY_NEWTON_RECYCLE_STATS builds=%llu updates=%llu uses=%llu rejects=%llu\n",
                    (unsigned long long)builds2,(unsigned long long)updates2,
                    (unsigned long long)uses2,(unsigned long long)rejects2);
+            if(policies_available)
+            {
+                vrc=lis_fgcrodr_get_policy_stats(
+                    solver,&after_cross,&after_keep,
+                    &after_transport,&after_reject);
+                if(vrc!=LIS_SUCCESS ||
+                   after_cross<before_cross ||
+                   after_keep<before_keep ||
+                   after_transport<before_transport ||
+                   after_reject<before_reject)
+                {
+                    fprintf(stderr,"REPLAY_NEWTON_ERROR invalid policy counters\n");
+                    second_ok=0;
+                }
+                else
+                {
+                    printf("REPLAY_NEWTON_POLICY cross_uses_delta=%llu keeps_delta=%llu transports_delta=%llu rejects_delta=%llu\n",
+                           (unsigned long long)(after_cross-before_cross),
+                           (unsigned long long)(after_keep-before_keep),
+                           (unsigned long long)(after_transport-before_transport),
+                           (unsigned long long)(after_reject-before_reject));
+                }
+            }
             if(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE")!=NULL &&
                strcmp(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE"),"1")==0)
             {
@@ -514,6 +588,12 @@ int main(int argc,char **argv)
             fprintf(stderr,"REPLAY_NEWTON_ERROR explicit A2*x2 failed\n");
             goto done;
         }
+        /*
+         * A2 is an independent externally supplied control operator.
+         * For the in-place mutation mode, explicitly verify the solution
+         * against A2; success must not rely on a caller's shift claim.
+         */
+
         for(i=0;i<A2->n;i++)
         {
             const double bv=(double)b2->value[i];
