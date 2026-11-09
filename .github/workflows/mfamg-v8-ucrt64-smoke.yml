@@ -433,7 +433,7 @@ jobs:
           bash test/mfamg_v8_snapshot_sequence_smoke.sh
 
   linux-operator-transport:
-    name: Linux C replay A1/A2 transport (synthetic only)
+    name: Linux C replay A1/A2 KEEP/REJECT (synthetic only)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -451,7 +451,7 @@ jobs:
           make -C test mfamgreplay testmfamgv8maxiter
           # Libtool wrapper configures the dynamic-library lookup path.
           test -s test/mfamgreplay
-      - name: Require cross-operator REJECT and same-object KEEP/TRANSPORT
+      - name: Require cross-operator REJECT and same-object KEEP
         run: |
           set -euo pipefail
           bash -n test/mfamg_v8_cross_operator_smoke.sh
