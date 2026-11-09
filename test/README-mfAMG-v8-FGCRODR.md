@@ -1249,6 +1249,22 @@ trajectory through the actual nonlinear CCX/Newton state, nor
 evidence of speedup. In particular, real step ordering and changed
 contact topology must be verified before drawing conclusions.
 
+### Synthetic cross-operator policy coverage (explicit limits)
+
+The synthetic 240-row in-process replay currently covers **KEEP**
+(same owned CSR matrix object, changed values) and **REJECT**
+(different matrix object/CSR graph), including third-step checks and
+`AZ=C`/true residual safeguards. It does **not** yet provide a
+deterministic measured **TRANSPORT** case (where recycling quality
+lies between KEEP and REJECT thresholds). Earlier workflow labels
+informally used `transport` for this job; the displayed CI name
+and final smoke marker now correctly say **KEEP/REJECT** only.
+
+A genuine TRANSPORT gate remains open until a reproducible operator
+perturbation triggers `transports_delta>0` while validating a
+nonempty recycle basis and correct true residual. Do not infer branch
+coverage merely because the API implements TRANSPORT.
+
 ### Pinned v7 vs v8 default FGMRES numerical parity (public CI)
 
 A new Linux CI job `linux-v7-v8-fgmres-parity` independently
