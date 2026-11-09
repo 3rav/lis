@@ -492,10 +492,32 @@ int main(int argc,char **argv)
     if(err) goto done;
     if(use_recycling)
     {
+        /*
+         * Research-only replay compatibility bridge:
+         * historical MSYS2 harnesses select intra-solve recycling with
+         * process-wide LIS_* flags, but the accepted upstream #214 solver
+         * has ONLY per-solver -fgcrodr_* switches. Translate flags here,
+         * not inside lis_solver_fgcrodr.c or production CalculiX.
+         *
+         * Historical behavior: a switch is enabled only by exact "1".
+         * FGMRES uses its own pre-existing projected-relative switch.
+         */
+        const char *intra_env=getenv("LIS_FGCRODR_INTRA_SOLVE_RECYCLE");
+        const char *trace_env=getenv("LIS_FGCRODR_INTRA_TRACE");
+        const char *projected_env=getenv("LIS_FGMRES_PROJECTED_RELATIVE");
+        int intra=(intra_env!=NULL && strcmp(intra_env,"1")==0);
+        int trace=(intra && trace_env!=NULL && strcmp(trace_env,"1")==0);
+        int projected=(projected_env!=NULL && strcmp(projected_env,"1")==0);
+
         optlen=snprintf(solver_options,sizeof(solver_options),
-            "-fgcrodr_k %d",recycle_k);
+            "-fgcrodr_k %d -fgcrodr_intra %d "
+            "-fgcrodr_intra_trace %d -fgcrodr_projected_relative %d",
+            recycle_k,intra,trace,projected);
         if(optlen<0 || (size_t)optlen>=sizeof(solver_options))
+        {
+            fprintf(stderr,"REPLAY: FGCRO-DR options too long\n");
             goto done;
+        }
         err=lis_solver_set_option(solver_options,solver);
         if(err) goto done;
     }
