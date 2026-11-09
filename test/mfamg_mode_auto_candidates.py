@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Research-only automatic candidate vectors from A plus baseline modes.
 
-Deterministic projected gradient filtering on A^T A, without offline
-enriched-mode input. These are NOT certified eigenvectors or proven
-MFAMG contact near-nullspace corrections. No private data is uploaded.
+Two deterministic projected filters, neither using offline enriched modes:
+- small-singular: gradient filtering on A^T A (the original prototype)
+- negative-curvature: filter on (A + A^T)/2, using v^T A v as a
+  curvature diagnostic even when A is nonsymmetric.
+These are NOT certified eigenvectors or proven MFAMG contact
+near-nullspace corrections. No private data is uploaded.
 """
 import argparse
 from array import array
@@ -90,33 +93,56 @@ def generate(args):
     if n - len(basis) < args.count:
         raise ValueError("insufficient free dimensions for candidates")
     rows, cols, vals, bound = read_sparse(args.matrix, n, args.max_nnz)
-    step = args.step_scale / bound
+    # ||A||_2 <= sqrt(||A||_1 ||A||_inf); this bounds the symmetric part,
+    # whereas ||A^T A||_2 <= ||A||_1 ||A||_inf.
+    norm_bound = math.sqrt(bound)
+    step = args.step_scale / (bound if args.target == "small-singular" else norm_bound)
     rng = random.Random(args.seed)
     candidates = []
     for j in range(args.count):
         vec = normalized([rng.uniform(-1.0, 1.0) for _ in range(n)],
                          basis, args.rank_tol)
-        before = norm(multiply(rows, cols, vals, vec))
+        av = multiply(rows, cols, vals, vec)
+        before = norm(av)
+        rayleigh_before = dot(vec, av)
         for _ in range(args.steps):
             av = multiply(rows, cols, vals, vec)
-            grad = multiply(rows, cols, vals, av, transpose=True)
+            if args.target == "small-singular":
+                grad = multiply(rows, cols, vals, av, transpose=True)
+            else:
+                atv = multiply(rows, cols, vals, vec, transpose=True)
+                grad = [0.5 * (x + y) for x, y in zip(av, atv)]
             vec = normalized([x - step * g for x, g in zip(vec, grad)],
                              basis, args.rank_tol)
-        after = norm(multiply(rows, cols, vals, vec))
-        if not math.isfinite(after) or after > before * (1 + 1e-10):
-            raise ValueError("candidate %d failed A-norm reduction" % (j + 1))
+        av = multiply(rows, cols, vals, vec)
+        after = norm(av)
+        rayleigh_after = dot(vec, av)
+        if args.target == "small-singular":
+            if not math.isfinite(after) or after > before * (1 + 1e-10):
+                raise ValueError("candidate %d failed A-norm reduction" % (j + 1))
+        else:
+            # Indefinite contact A may be nonsymmetric: a negative quadratic
+            # form diagnoses curvature of its symmetric PART, not an A-eigenpair.
+            if (not math.isfinite(rayleigh_after) or
+                    rayleigh_after >= -args.rank_tol * norm_bound):
+                raise ValueError("candidate %d has no verified negative curvature" % (j + 1))
+            if rayleigh_after > rayleigh_before + 1e-10 * norm_bound:
+                raise ValueError("candidate %d failed curvature reduction" % (j + 1))
         candidates.append(vec)
         basis.append(vec)
         print("AUTO_MODE_%02d_A_NORM_BEFORE=%.12g" % (j + 1, before))
         print("AUTO_MODE_%02d_A_NORM_AFTER=%.12g" % (j + 1, after))
+        print("AUTO_MODE_%02d_RAYLEIGH_BEFORE=%.12g" % (j + 1, rayleigh_before))
+        print("AUTO_MODE_%02d_RAYLEIGH_AFTER=%.12g" % (j + 1, rayleigh_after))
     with open(args.output, "x", encoding="ascii", newline="\n") as stream:
         stream.write("%%MatrixMarket matrix array real general\n")
-        stream.write("% Experimental automatic A^T*A filtered candidate directions\n")
+        stream.write("%% Experimental automatic %s filtered candidates\n" % args.target)
         stream.write("% Not eigencertified; real contact validation required\n")
         stream.write("%d %d\n" % (n, len(base) + len(candidates)))
         for column in base + candidates:
             for value in column:
                 stream.write("%.17g\n" % value)
+    print("AUTO_MODE_TARGET=" + args.target)
     print("AUTO_MODE_OUTPUT=" + args.output)
     print("AUTO_MODE_EXTRA_COUNT=%d" % len(candidates))
     print("AUTO_MODE_NOTE=automatic_candidates_not_validated_for_contact")
@@ -127,6 +153,8 @@ def main():
     p.add_argument("matrix")
     p.add_argument("baseline")
     p.add_argument("--output", required=True)
+    p.add_argument("--target", choices=("small-singular", "negative-curvature"),
+                   default="small-singular")
     p.add_argument("--count", type=int, default=6)
     p.add_argument("--steps", type=int, default=60)
     p.add_argument("--seed", type=int, default=20261109)
