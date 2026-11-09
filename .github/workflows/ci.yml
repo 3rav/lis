@@ -170,6 +170,10 @@ jobs:
           p.write_text(source.replace(patch, "", 1))
           PY
           make -j2
+          # The LIS test binary is statically linked: changing liblis.a
+          # alone does not relink an existing test executable.
+          touch test/testfgcrodrmaxiter.c
+          make -C test testfgcrodrmaxiter
           set +e
           ./test/testfgcrodrmaxiter > /tmp/fgcrodr-negative-lsan.log 2>&1
           rc=$?
@@ -189,6 +193,8 @@ jobs:
         run: |
           git restore src/solver/lis_solver_fgcrodr.c
           make -j2
+          touch test/testfgcrodrmaxiter.c
+          make -C test testfgcrodrmaxiter
           ./test/testfgcrodrmaxiter
       - name: Upload sanitizer logs on failure
         if: failure()
