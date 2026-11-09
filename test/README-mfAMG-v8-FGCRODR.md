@@ -828,6 +828,65 @@ second true residual. The CI generator constructs exactly
 `NEXT_A=A1+I`. This path MUST demonstrate positive
 `cross_uses_delta` and valid A2 Z=C, or the regression fails.
 
+### General same-graph CSR A1→A2 value replacement (opt-in)
+
+The experimental replay now also accepts:
+
+    LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES=1
+
+together with BOTH `LIS_MFAMG_REPLAY_NEXT_A` and
+`LIS_MFAMG_REPLAY_NEXT_B`. This is a more general
+same-matrix-object test than the diagonal-shift example: it uses the
+**entire numerical value array from independently imported A2**,
+including changed off-diagonal coefficients, as the second operator
+in the *existing* A1 matrix object.
+
+This is deliberately **fail-closed**. Before modifying any value, the
+runner requires both matrices to be owned, unsplit, unscaled, assembled
+real CSR, the same dimension and exact nnz, with **identical CSR row
+pointers AND column indices in the same order**. Every numerical
+coefficient must be finite, and at least one coefficient must change.
+If ANY part of the graph or order differs, it refuses transfer rather
+than silently treating the matrices as interchangeable. No graph
+relabeling, row sorting, or nonzero insertion is attempted. After
+preflight it copies the numeric values into A1 and explicitly calls
+`lis_matrix_mark_values_changed(A1)` so that FGCRO-DR considers its
+`Z` for `KEEP / TRANSPORT / REJECT` on the new value generation.
+
+The second input A2 remains an **independent reference** for the
+`b2-A2*x2` true residual and the post-solve `AZ=C` validation.
+`REPLAY_NEWTON_MATRIX mode=inplace_replace_values changed_nnz=N`
+proves that the second call used this checked value-replacement path.
+`REPLAY_NEWTON_POLICY cross_uses_delta` proves (or disproves)
+whether old recycling was used. Neither success nor the existence
+of the same solver object is sufficient alone.
+
+Example on two *actually existing* private consecutive snapshots,
+run **locally only** in MSYS2 UCRT64 with the regular v8 solver
+environment already documented below (never upload private inputs):
+
+    cd "$HOME/mfamg_replay"
+    export LIS_MFAMG_REPLAY_NEXT_A="/PRIVATE/REAL/A_next.mtx"
+    export LIS_MFAMG_REPLAY_NEXT_B="/PRIVATE/REAL/b_next.mtx"
+    export LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES=1
+    unset LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT
+    "$HOME/lis-v8/bin6000/mfamgreplay.exe" \
+      challenge_31/A04.mtx challenge_31/b04.mtx \
+      challenge_31/modes04_12plus6negative.mtx
+
+The A_next/b_next paths above are **placeholders**, not files created
+by the project. For a graph-changing Newton/contact step, this mode
+**must fail**; use the ordinary separate-object step to obtain the
+rebuild control. Neither path validates multiple Newton iterations,
+a nonlinear convergence criterion, or changing contact topology.
+
+New public synthetic regressions verify ordinary separate-object
+rejection, diagonal KEEP, and genuine **off-diagonal-nonsymmetric**
+value replacement with a positive cross-use counter; they also reject
+same-sized but graph-incompatible matrices, unchanged operators, and
+conflicting mutation options. Linux builds the actual C code under
+AddressSanitizer; Windows UCRT64 also exercises the opt-in replacement.
+
 For any general contact A2, **do not supply a guessed diagonal
 shift**. This option only represents A2 accurately when the entire
 difference A2-A1 equals the declared diagonal shift. It is not a
