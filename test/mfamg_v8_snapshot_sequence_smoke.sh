@@ -59,13 +59,15 @@ replace = os.environ.get("LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES") == "1"
 if replace:
     if next_name != "A2":
         sys.exit(9)
-    print("REPLAY_NEWTON_MATRIX mode=inplace_replace_values changed_nnz=4")
+    changed = 5 if os.environ.get("MOCK_BAD_CHANGED") else 4
+    print("REPLAY_NEWTON_MATRIX mode=inplace_replace_values changed_nnz=%d" % changed)
     print("REPLAY_NEWTON_POLICY cross_uses_delta=1 keeps_delta=1 transports_delta=0 rejects_delta=0")
 else:
     if next_name != "A3":
         sys.exit(9)
     print("REPLAY_NEWTON_MATRIX mode=separate_object")
     print("REPLAY_NEWTON_POLICY cross_uses_delta=0 keeps_delta=0 transports_delta=0 rejects_delta=1")
+print("REPLAY_NEWTON_STEP step=2 n=24 nnz=70 modes=12 method=fgcrodr recycle_k=8")
 print("REPLAY_NEWTON_RECYCLE_CHECK rc=0 orth_error=1e-12 relation_error=2e-12")
 fail = bool(os.environ.get("MOCK_FAIL_SECOND") and next_name == "A3")
 print("REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=%d iter=%d "
@@ -158,5 +160,16 @@ with (p/"transitions.csv").open(newline="") as f:r=list(csv.DictReader(f))
 assert len(r)==1
 assert "input/EXE changed during pair:" in r[0]["error"]
 assert (p/"pair01_replay.log").is_file()
+PY
+if MOCK_BAD_CHANGED=1 call "$tmp/bad_changed" > "$tmp/bad_changed.out" 2>&1; then
+  echo "ERROR: mismatch of CSR preflight and replay changed_nnz accepted" >&2; exit 1
+fi
+python3 - "$tmp/bad_changed" <<'PY'
+import csv,sys
+from pathlib import Path
+with (Path(sys.argv[1])/"transitions.csv").open(newline="") as f:
+    rows=list(csv.DictReader(f))
+assert len(rows)==1
+assert "changed_nnz disagrees with CSR preflight" in rows[0]["error"]
 PY
 echo MFAMG_V8_SEQUENCE_LOCAL_ORCHESTRATOR_SMOKE_OK
