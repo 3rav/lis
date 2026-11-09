@@ -626,10 +626,17 @@ changed-operator/Newton-step behavior.
 
 ### Automatic candidate mode experiment, WITHOUT offline enrichment
 
-test/mfamg_mode_auto_candidates.py is a new research-only prototype.
-Given the matrix and baseline modes, it creates candidate vectors
-using seeded projected gradient filtering on the normal operator
-A^T*A. It does not read any existing six offline-enriched vectors.
+test/mfamg_mode_auto_candidates.py is a research-only prototype.
+Given the matrix and baseline modes, its default --target small-singular
+creates candidate vectors using seeded projected gradient filtering
+on the normal operator A^T*A. A second opt-in
+--target negative-curvature filter uses the symmetric part
+(A + A^T)/2, with projected gradient steps and a mandatory
+negative Rayleigh quotient check (v^T A v < 0 after deflation).
+This is a curvature diagnostic for a possibly NONSYMMETRIC A, not
+an eigenpair certificate, proof of physical negative-energy modes,
+or a guarantee of contact convergence. Both targets start from
+A and baseline modes ONLY; neither reads the six offline vectors.
 The first baseline columns are preserved exactly, and all new
 columns are explicitly filtered against the baseline and earlier
 accepted vectors. It checks finite operator products, A-norm
@@ -643,6 +650,29 @@ full-size modes at once:
       "$HOME/mfamg_replay/challenge_31/modes04.mtx" \
       --output "$HOME/mfamg_replay/v8_mode_audit/auto_candidate_2.mtx" \
       --count 2 --steps 40 --seed 20261109
+
+To compare the two filters on a *private* 31-spring snapshot,
+write to a distinct, local output file and audit the generated basis:
+
+    python3 test/mfamg_mode_auto_candidates.py \
+      "$HOME/mfamg_replay/challenge_31/A04.mtx" \
+      "$HOME/mfamg_replay/challenge_31/modes04.mtx" \
+      --target negative-curvature --count 2 --steps 40 --seed 20261109 \
+      --output "$HOME/mfamg_replay/v8_mode_audit/auto_negative_2.mtx"
+
+    python3 test/mfamg_mode_audit.py \
+      "$HOME/mfamg_replay/challenge_31/A04.mtx" \
+      "$HOME/mfamg_replay/challenge_31/modes04.mtx" \
+      "$HOME/mfamg_replay/v8_mode_audit/auto_negative_2.mtx" \
+      --csv-out "$HOME/mfamg_replay/v8_mode_audit/auto_negative_2_audit.csv"
+
+A filter that cannot verify independent negative curvature fails
+rather than emitting fake negative-curvature modes. Do not run a
+costly contact replay or change production interpolation until the
+audit and a controlled baseline-vs-generated comparison justify it.
+The public CI tests two extracted negative directions on a known
+symmetric-indefinite diagonal matrix, deterministic bytes and
+rejection of an SPD input. These simple tests do not validate CCX.
 
 The script holds sparse coordinates in memory and its pure Python
 normal-operator iterations can be expensive for millions of entries.
