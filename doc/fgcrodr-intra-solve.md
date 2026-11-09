@@ -96,3 +96,18 @@ The standalone test also uses a deliberately oversized
 still converges, maintains actual rank 1, uses recycling, and passes
 the true residual / A*Z=C checks, without reserving a million rows.
 This is a resource-safety regression, not a performance benchmark.
+
+## Changing restart with a retained recycle basis
+
+A caller may reduce the restart between two solves using the same
+persistent solver. A recycle basis with dimension greater than or
+equal to the new restart cannot be used as an Arnoldi augmentation:
+at least one Krylov direction must remain available.
+
+The FGCRO-DR entry path now drops such a stale-dimensional recycle
+basis before it runs the first Arnoldi cycle and records a recycle
+rejection. The next cycle may rebuild up to restart-1 directions.
+The standalone test checks restart=4 with a rank-2 retained basis
+followed by restart=2 with rank-1 rebuilding, true residual and
+A*Z=C checks. This does not change the default behavior for valid
+recycle dimensions.

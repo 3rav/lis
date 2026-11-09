@@ -6582,8 +6582,35 @@ lis_fgcrodr(
         return err;
 
 
-    solve_cross_action =
-        state->cross_action;
+    /*
+     * A persistent recycle basis may have been built with a larger
+     * restart in a preceding solve. If the caller reduces restart,
+     * the saved rank must not occupy all Arnoldi search directions.
+     * Discard the incompatible basis before the first cycle; a new
+     * rank <= restart-1 can then be built as usual.
+     *
+     * This guard is needed for both normal cross-solve reuse and the
+     * opt-in within-solve path: the latter only checks kcur on later
+     * restarts, after the first cycle has already used the old basis.
+     */
+    if( state->valid &&
+        state->dim >= solver->options[LIS_OPTIONS_RESTART] )
+    {
+        err = lis_fgcrodr_clear_recycle(solver);
+        if( err )
+            return err;
+
+        state->rejects++;
+        state->policy_rejects++;
+        state->last_action = LIS_FGCRODR_RECYCLE_REJECT;
+        state->cross_action = LIS_FGCRODR_RECYCLE_REJECT;
+        solve_cross_action = LIS_FGCRODR_RECYCLE_REJECT;
+    }
+    else
+    {
+        solve_cross_action =
+            state->cross_action;
+    }
 
 
     err =

@@ -271,6 +271,80 @@ done:
     return failed;
 }
 
+
+/* A rank-two saved recycle basis built with restart=4 must not be
+ * used at restart=2. Instead invalidate it before the first cycle
+ * and rebuild at most one direction with the smaller restart.
+ */
+static int check_restart_shrink(LIS_MATRIX A,LIS_VECTOR b)
+{
+    LIS_VECTOR x=NULL,ax=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_INT rc=0,dim_before=0,dim_after=0,failed=1;
+    LIS_INT action=0,status=0;
+    LIS_UNSIGNED_INT builds=0,rejects_before=0,rejects_after=0;
+    LIS_REAL orth=0.0,relation=0.0,rnorm=0.0,bnorm=0.0;
+
+    if(set_intra(1)) goto done;
+    if((rc=lis_vector_duplicate(A,&x))) goto done;
+    if((rc=lis_vector_duplicate(A,&ax))) goto done;
+    if((rc=lis_solver_create(&solver))) goto done;
+    if((rc=lis_solver_set_option(
+        "-i fgcrodr -p jacobi -restart 4 -maxiter 300 "
+        "-tol 1e-5 -fgcrodr_k 2 -print none",solver))) goto done;
+    if((rc=lis_vector_set_all(0.0,x))) goto done;
+    rc=lis_solve_sequence(A,b,x,solver);
+    if(rc!=LIS_SUCCESS || solver->retcode!=LIS_SUCCESS) goto done;
+    if((rc=lis_solver_get_fgcrodr_recycle(
+        solver,&dim_before,&action,NULL,NULL))) goto done;
+    if((rc=lis_fgcrodr_get_stats(
+        solver,&builds,NULL,NULL,&rejects_before))) goto done;
+    if(dim_before!=2 || builds==0) goto done;
+
+    /* Internal sequence test: change the effective restart but retain
+     * the solver and its valid cross-solve recycle state. */
+    solver->options[LIS_OPTIONS_RESTART]=2;
+    if((rc=lis_vector_set_all(0.0,x))) goto done;
+    rc=lis_solve_sequence(A,b,x,solver);
+    status=solver->retcode;
+    if(rc!=LIS_SUCCESS || status!=LIS_SUCCESS) goto done;
+    if((rc=lis_solver_get_fgcrodr_recycle(
+        solver,&dim_after,&action,NULL,NULL))) goto done;
+    if((rc=lis_fgcrodr_get_stats(
+        solver,&builds,NULL,NULL,&rejects_after))) goto done;
+    if(dim_after!=1 || rejects_after<=rejects_before) goto done;
+    if((rc=lis_fgcrodr_validate_recycle(
+        solver,&orth,&relation))) goto done;
+    if((rc=lis_matvec(A,x,ax))) goto done;
+    if((rc=lis_vector_xpay(b,-1.0,ax))) goto done;
+    if((rc=lis_vector_nrm2(ax,&rnorm))) goto done;
+    if((rc=lis_vector_nrm2(b,&bnorm))) goto done;
+    if(bnorm<=0.0 || !isfinite(rnorm) || rnorm/bnorm>1e-5 ||
+       !isfinite(orth) || !isfinite(relation) ||
+       orth>1e-8 || relation>1e-8) goto done;
+
+    printf("FGCRODR_INTRA_RESTART_SHRINK_OK "
+           "old_k=%d new_k=%d rejects=%llu->%llu "
+           "true_relative=%.12e relation=%.6e\n",
+           (int)dim_before,(int)dim_after,
+           (unsigned long long)rejects_before,
+           (unsigned long long)rejects_after,
+           (double)(rnorm/bnorm),(double)relation);
+    failed=0;
+done:
+    if(failed)
+        fprintf(stderr,"FGCRODR_INTRA_RESTART_SHRINK_FAIL "
+                "rc=%d status=%d before=%d after=%d "
+                "rejects=%llu->%llu\n",
+                (int)rc,(int)status,(int)dim_before,(int)dim_after,
+                (unsigned long long)rejects_before,
+                (unsigned long long)rejects_after);
+    if(solver) lis_solver_destroy(solver);
+    if(ax) lis_vector_destroy(ax);
+    if(x) lis_vector_destroy(x);
+    return failed;
+}
+
 int main(int argc, char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -302,6 +376,7 @@ int main(int argc, char **argv)
        solve_one(A,b,1,1000000)) goto done;
     if(check_changed_operator(A,b)) goto done;
     if(check_same_operator_value_update(A,b)) goto done;
+    if(check_restart_shrink(A,b)) goto done;
     failed=0;
 done:
     if(failed)
