@@ -42,6 +42,9 @@ if args[0] == "--compare-csr":
         print("REPLAY_CSR_COMPARE compatible=0")
         sys.exit(1)
     if right == "A3":
+        if os.environ.get("MOCK_GRAPH3_SAME"):
+            print("REPLAY_CSR_COMPARE compatible=1 n=24 nnz=70 changed_nnz=5")
+            sys.exit(0)
         print("REPLAY_NEWTON_ERROR replace-values CSR column graph mismatch offset=4")
         print("REPLAY_CSR_COMPARE compatible=0")
         sys.exit(1)
@@ -76,6 +79,27 @@ print("REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=%d iter=%d "
 if os.environ.get("MOCK_MUTATE") and next_name == "A2":
     with Path(second).open("a", encoding="ascii") as out:
         out.write("unsafe changed\n")
+third = os.environ.get("LIS_MFAMG_REPLAY_THIRD_A")
+if third:
+    assert Path(third).stem == "A3"
+    same = os.environ.get("LIS_MFAMG_REPLAY_THIRD_REPLACE_VALUES") == "1"
+    mode3 = "inplace_replace_values" if same else "separate_object"
+    changed3 = (6 if os.environ.get("MOCK_BAD_3_CHANGED") else 5)
+    print("REPLAY_SEQUENCE_MATRIX step=3 mode=%s%s" %
+          (mode3, " changed_nnz=%d" % changed3 if same else ""))
+    print("REPLAY_SEQUENCE_STEP step=3 n=24 nnz=70 modes=12 method=fgcrodr recycle_k=8")
+    cross = int(same or bool(os.environ.get("MOCK_STALE_THIRD")))
+    reject = 0 if cross else 1
+    print("REPLAY_SEQUENCE_POLICY step=3 cross_uses_delta=%d keeps_delta=%d transports_delta=0 rejects_delta=%d" %
+          (cross, cross, reject))
+    print("REPLAY_SEQUENCE_RECYCLE_CHECK step=3 rc=0 orth_error=1e-12 relation_error=2e-12")
+    fail3 = bool(os.environ.get("MOCK_FAIL_THIRD"))
+    print("REPLAY_SEQUENCE_RESULT step=3 solve_rc=0 status=%d iter=%d "
+          "reported_residual=8e-6 true_relative=%s wall_seconds=3.1" %
+          (4 if fail3 else 0, 3001 if fail3 else 12,
+           "3e-5" if fail3 else "7e-6"))
+    if fail3:
+        sys.exit(1)
 sys.exit(1 if fail else 0)
 PY
 chmod +x "$tmp/replay.py"
@@ -148,6 +172,58 @@ if python3 "$here/mfamg_v8_snapshot_sequence.py" \
   echo "ERROR: incompatible tolerance accepted" >&2; exit 1
 fi
 test ! -e "$tmp/invalid_tol"
+
+# In each triplet the same mocked process provides three sequential
+# step diagnostics (the separate baseline runner only keeps two).
+triplet() {
+  python3 "$here/mfamg_v8_triplet_windows.py" \
+    --exe "$tmp/replay.py" --modes "$tmp/modes.mtx" \
+    --snapshots "$tmp/steps.csv" --out-dir "$1" --fresh-third
+}
+triplet "$tmp/triplet" > "$tmp/triplet.out"
+grep -q '^V8_TRIPLET_ASSESSMENT=PERSISTENT_TRIPLETS_PASS' "$tmp/triplet.out"
+python3 - "$tmp/triplet" <<'PY'
+import csv,json,sys
+from pathlib import Path
+d=Path(sys.argv[1]); r=json.loads((d/"summary.json").read_text())
+assert r["assessment"]=="PERSISTENT_TRIPLETS_PASS"
+assert r["completed_windows"]==1 and r["passed_windows"]==1
+with (d/"triplets.csv").open(newline="") as f: rows=list(csv.DictReader(f))
+assert len(rows)==1
+x=rows[0]
+assert x["graph12"]=="same_csr" and x["graph23"]=="changed_graph"
+assert x["mode2"]=="inplace_replace_values"
+assert x["mode3"]=="separate_object"
+assert int(x["third_cross_uses_delta"])==0
+assert int(x["third_rejects_delta"])==1
+assert float(x["third_true_relative"]) <= 1e-5
+assert x["pass"]=="1"
+assert len(list(d.glob("*.log")))==4
+PY
+MOCK_GRAPH3_SAME=1 triplet "$tmp/triplet_keep" > "$tmp/triplet_keep.out"
+python3 - "$tmp/triplet_keep" <<'PY'
+import csv,sys
+from pathlib import Path
+with (Path(sys.argv[1])/"triplets.csv").open(newline="") as f:
+    rows=list(csv.DictReader(f))
+assert rows[0]["mode3"]=="inplace_replace_values"
+assert rows[0]["graph23"]=="same_csr"
+assert rows[0]["changed23"]=="5"
+assert rows[0]["third_cross_uses_delta"]=="1"
+assert rows[0]["pass"]=="1"
+PY
+if MOCK_FAIL_THIRD=1 triplet "$tmp/triplet_maxiter" > "$tmp/triplet_maxiter.out" 2>&1; then
+  echo "ERROR: third-step MAXITER accepted" >&2; exit 1
+fi
+if MOCK_STALE_THIRD=1 triplet "$tmp/triplet_stale" > "$tmp/triplet_stale.out" 2>&1; then
+  echo "ERROR: stale third-step cross-graph recycling accepted" >&2; exit 1
+fi
+grep -q '^V8_TRIPLET_ASSESSMENT=INCONCLUSIVE_OR_FAILED' "$tmp/triplet_stale.out"
+if MOCK_GRAPH3_SAME=1 MOCK_BAD_3_CHANGED=1 \
+  triplet "$tmp/triplet_bad_nnz" > "$tmp/triplet_bad_nnz.out" 2>&1; then
+  echo "ERROR: third-step changed CSR count mismatch accepted" >&2; exit 1
+fi
+grep -q '^V8_TRIPLET_ASSESSMENT=INCONCLUSIVE_OR_FAILED' "$tmp/triplet_bad_nnz.out"
 
 if MOCK_MUTATE=1 call "$tmp/mutated" > "$tmp/mutated.out" 2>&1; then
   echo "ERROR: modified input accepted" >&2; exit 1
