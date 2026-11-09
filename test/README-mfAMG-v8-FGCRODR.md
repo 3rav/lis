@@ -1251,21 +1251,37 @@ trajectory through the actual nonlinear CCX/Newton state, nor
 evidence of speedup. In particular, real step ordering and changed
 contact topology must be verified before drawing conclusions.
 
-### Synthetic cross-operator policy coverage (explicit limits)
+### Synthetic cross-operator KEEP / REJECT / TRANSPORT coverage
 
-The synthetic 240-row in-process replay currently covers **KEEP**
-(same owned CSR matrix object, changed values) and **REJECT**
-(different matrix object/CSR graph), including third-step checks and
-`AZ=C`/true residual safeguards. It does **not** yet provide a
-deterministic measured **TRANSPORT** case (where recycling quality
-lies between KEEP and REJECT thresholds). Earlier workflow labels
-informally used `transport` for this job; the displayed CI name
-and final smoke marker now correctly say **KEEP/REJECT** only.
+The 240-row in-process `mfamg_v8_cross_operator_smoke.sh` replay tests
+**KEEP** (identical CSR matrix object, changed values) and **REJECT**
+(different objects or graph), including three successive solves,
+AZ=C algebra and independent residual checks. Its CI label correctly
+remains KEEP/REJECT; this smoke does not itself force TRANSPORT.
 
-A genuine TRANSPORT gate remains open until a reproducible operator
-perturbation triggers `transports_delta>0` while validating a
-nonempty recycle basis and correct true residual. Do not infer branch
-coverage merely because the API implements TRANSPORT.
+The additional standalone `testmfamgv8transport.c` uses the accepted
+upstream #214 FGCRO-DR solver options directly. It starts with a
+120-row nonsymmetric diagonally dominant CSR system, builds a valid
+rank-one recycle basis, then applies a *nonuniform diagonal value*
+perturbation in the **same matrix object/CSR graph**, marks the
+value generation and solves a new RHS with the same `LIS_SOLVER`.
+For a deterministic branch test only, `-fgcrodr_keep 1` and
+`-fgcrodr_reject 0` direct a nonparallel but finite recycled
+subspace to TRANSPORT instead of KEEP/REJECT. This is intentionally
+NOT a production recommendation for the threshold policy.
+
+Linux CI [run 42703842134](https://github.com/3rav/lis/actions/runs/42703842134)
+verified `FGCRODR_TRANSPORT_POLICY_OK`: `cross_uses=0->1`,
+`transports=0->1`, `true_relative=2.967084384051e-06`,
+`orth=2.220446e-16`, `AZ=C relation=2.200247e-16`.
+The test ran under AddressSanitizer/LeakSanitizer and also checks
+changed generation, nonempty valid recycle state and no policy
+reject/keep count changes. A separate Windows UCRT64 invocation
+is also part of the full workflow; check its latest completion.
+
+This closes the **synthetic branch-coverage gap** only. It does
+not show that an authentic changing-contact Newton operator
+would pass the same policy gate or that TRANSPORT is faster.
 
 ### Pinned v7 vs v8 default FGMRES numerical parity (public CI)
 
