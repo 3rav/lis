@@ -348,3 +348,34 @@ jobs:
           python3 -m py_compile test/mfamg_replay_v8_candidate_compare.py
           bash -n test/mfamg_replay_v8_candidate_compare_smoke.sh
           bash test/mfamg_replay_v8_candidate_compare_smoke.sh
+
+  linux-operator-transport:
+    name: Linux C replay A1/A2 transport (synthetic only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build real-valued serial LIS and experimental replay
+        run: |
+          set -euxo pipefail
+          autoreconf -fiv
+          mkdir -p build-linux
+          cd build-linux
+          ../configure --enable-shared --disable-complex --disable-mpi --disable-test
+          make -j2
+          make -C test mfamgreplay
+          test -s test/.libs/mfamgreplay
+      - name: Require cross-operator REJECT and same-object KEEP/TRANSPORT
+        run: |
+          set -euo pipefail
+          bash -n test/mfamg_v8_cross_operator_smoke.sh
+          bash test/mfamg_v8_cross_operator_smoke.sh \
+            "$PWD/build-linux/test/.libs/mfamgreplay" \
+            "$PWD/build-linux/cross-operator-smoke"
+      - name: Archive public synthetic Linux replay logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-linux-cross-operator-synthetic
+          path: build-linux/cross-operator-smoke/*.log
+          if-no-files-found: ignore
