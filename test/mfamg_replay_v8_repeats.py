@@ -119,12 +119,11 @@ def assess(rows, expected_pairs):
     accepted = complete and all(row["converged"] for row in rows)
     metrics = {}
     for name, group in groups.items():
-        all_ok = bool(group) and all(r["converged"] for r in group)
-        metrics[name] = {
+         metrics[name] = {
             "runs": len(group),
             "converged": sum(r["converged"] for r in group),
-            "median_wall_seconds": statistics.median(r["wall_seconds"] for r in group) if all_ok else None,
-            "median_iterations": statistics.median(r["iter"] for r in group) if all_ok else None,
+            "median_wall_seconds": statistics.median(r["wall_seconds"] for r in group) if accepted else None,
+            "median_iterations": statistics.median(r["iter"] for r in group) if accepted else None,
             "wall_seconds_range": [min(r["wall_seconds"] for r in group),
                                    max(r["wall_seconds"] for r in group)] if group else None,
         }
@@ -148,7 +147,7 @@ def assess(rows, expected_pairs):
         "assessment": "MATCHED_CONVERGED" if accepted else "INCONCLUSIVE_NONCONVERGENCE",
         "medians": metrics,
         "omit01_vs_all18_percent_median_wall_reduction": gain,
-        "caution": "Three matched pairs are exploratory; no statistical speedup or Newton-sequence claim.",
+        "caution": "Matched pairs are exploratory; no statistical speedup or Newton-sequence claim.",
     }
 
 
