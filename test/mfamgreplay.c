@@ -452,7 +452,7 @@ int main(int argc,char **argv)
     if(next_matrix!=NULL)
     {
         LIS_INT err2,iter2=0,status2=-1;
-        LIS_MATRIX solve_matrix=A2;
+        LIS_MATRIX solve_matrix=NULL;
         LIS_UNSIGNED_INT before_cross=0,before_keep=0;
         LIS_UNSIGNED_INT before_transport=0,before_reject=0;
         LIS_UNSIGNED_INT after_cross=0,after_keep=0;
@@ -472,6 +472,8 @@ int main(int argc,char **argv)
         if(err2) { err=err2; goto done; }
         err2=lis_input_matrix(A2,next_matrix);
         if(err2) { err=err2; goto done; }
+        /* A2 was NULL at declaration; select it only once initialized. */
+        solve_matrix=A2;
         if(A2->n!=A->n || A2->np!=A->np)
         {
             fprintf(stderr,"REPLAY_NEWTON_ERROR operator dimensions/distribution changed\n");
