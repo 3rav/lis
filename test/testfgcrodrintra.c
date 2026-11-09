@@ -365,7 +365,9 @@ static int check_mpi_mode_mismatch(LIS_MATRIX A,LIS_VECTOR b)
         solver))) goto done;
     if((err=lis_vector_set_all(0.0,x))) goto done;
     err=lis_solve_sequence(A,b,x,solver);
-    if(err!=LIS_ERR_ILL_ARG ||
+    /* LIS solve-sequence API can return success for completed
+     * execution while the iterative failure is in retcode. */
+    if((err!=LIS_SUCCESS && err!=LIS_ERR_ILL_ARG) ||
        solver->retcode!=LIS_ERR_ILL_ARG)
         goto done;
     if(rank==0)
@@ -415,9 +417,11 @@ int main(int argc, char **argv)
     if(solve_one(A,b,0,1) || solve_one(A,b,1,1) ||
        solve_one(A,b,1,1000000)) goto done;
     if(check_changed_operator(A,b)) goto done;
-    if(check_same_operator_value_update(A,b)) goto done;
+    /* Run the restart tests on the unmodified reference operator.
+     * The value-generation test intentionally changes A in place. */
     if(check_restart_shrink(A,b,0) ||
        check_restart_shrink(A,b,1)) goto done;
+    if(check_same_operator_value_update(A,b)) goto done;
     if(check_mpi_mode_mismatch(A,b)) goto done;
     failed=0;
 done:
