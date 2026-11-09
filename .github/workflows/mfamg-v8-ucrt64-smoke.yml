@@ -236,3 +236,6 @@ jobs:
           python3 -m py_compile test/mfamg_replay_v8_repeats.py
           bash -n test/mfamg_replay_v8_repeats_smoke.sh
           bash test/mfamg_replay_v8_repeats_smoke.sh
+          python3 -m py_compile test/mfamg_mode_auto_candidates.py
+          bash -n test/mfamg_mode_auto_candidates_smoke.sh
+          bash test/mfamg_mode_auto_candidates_smoke.sh
