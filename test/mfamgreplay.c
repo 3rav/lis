@@ -214,7 +214,7 @@ int main(int argc,char **argv)
     double b_norm=0.0,r_norm=0.0,true_relative=0.0,t0=0.0,t1=0.0;
     int rc=1,restart=180,maxiter=1000,recycle_k=8,use_recycling=0;
     int recycle_validation_failed=0;
-    const char *next_matrix=getenv("LIS_MFAMG_REPLAY_NEXT_A");
+    char *next_matrix=getenv("LIS_MFAMG_REPLAY_NEXT_A");
     const char *next_rhs=getenv("LIS_MFAMG_REPLAY_NEXT_B");
     const char *next_diag_shift=getenv("LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT");
     const char *method="fgmres";
