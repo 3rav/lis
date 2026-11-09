@@ -477,3 +477,107 @@ jobs:
           name: mfamg-v8-linux-cross-operator-synthetic
           path: build-linux/cross-operator-smoke/*.log
           if-no-files-found: ignore
+
+  linux-v7-v8-fgmres-parity:
+    name: Pinned v7/v8 FGMRES parity (public synthetic A/b)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out pinned historical v7
+        uses: actions/checkout@v4
+        with:
+          ref: c4bc64eb55cd3ca0ff0a00db5472aafbafb7a122
+          path: source-v7
+      - name: Check out experimental v8 under test
+        uses: actions/checkout@v4
+        with:
+          path: source-v8
+      - name: Build each replay from its OWN source with matching flags
+        run: |
+          set -euo pipefail
+          for version in v7 v8; do
+            (
+              cd "source-$version"
+              autoreconf -fiv
+              mkdir -p build-parity
+              cd build-parity
+              ../configure --enable-shared --disable-complex --disable-mpi --disable-test
+              make -j2
+              make -C test mfamgreplay
+              test -s test/mfamgreplay
+            )
+          done
+      - name: Compare real compiled FGMRES status, iteration and true residual
+        run: |
+          set -euo pipefail
+          mkdir -p parity-smoke
+          cd parity-smoke
+          python3 - <<'PY'
+          from pathlib import Path
+          n=240
+          with Path("A.mtx").open("w",encoding="ascii") as f:
+              f.write("%%MatrixMarket matrix coordinate real general\n")
+              f.write(f"{n} {n} {3*n-2}\n")
+              for i in range(1,n+1):
+                  f.write(f"{i} {i} 4\n")
+                  if i>1: f.write(f"{i} {i-1} -1\n")
+                  if i<n: f.write(f"{i} {i+1} -1\n")
+          with Path("b.mtx").open("w",encoding="ascii") as f:
+              f.write("%%MatrixMarket matrix array real general\n")
+              f.write(f"{n} 1\n")
+              for i in range(n): f.write(f"{1+(i%7)*0.03:.17g}\n")
+          with Path("modes.mtx").open("w",encoding="ascii") as f:
+              f.write("%%MatrixMarket matrix array real general\n")
+              f.write(f"{n} 2\n")
+              for _ in range(n): f.write("1\n")
+              for i in range(n): f.write(f"{(i-(n-1)/2)/n:.17g}\n")
+          PY
+          export LIS_MFAMG_EXPERIMENT_FINE_AGG=1
+          export LIS_MFAMG_EXPERIMENT_DEEP_MERGE=1
+          export LIS_MFAMG_FINE_AGG_FACTOR=2
+          export LIS_MFAMG_STAR_SCHUR=0
+          export LIS_MFAMG_VCYCLE_SMOOTH_STEPS=3
+          export LIS_FGMRES_PROJECTED_RELATIVE=1
+          export LIS_MFAMG_REPLAY_RESTART=180
+          export LIS_MFAMG_REPLAY_MAXITER=3000
+          "$GITHUB_WORKSPACE/source-v7/build-parity/test/mfamgreplay" \
+            A.mtx b.mtx modes.mtx > v7.log 2>&1
+          env LIS_MFAMG_REPLAY_METHOD=fgmres \
+            "$GITHUB_WORKSPACE/source-v8/build-parity/test/mfamgreplay" \
+            A.mtx b.mtx modes.mtx > v8.log 2>&1
+          python3 - <<'PY'
+          import math
+          from pathlib import Path
+          def read(path):
+              groups={"REPLAY":[],"REPLAY_RESULT":[]}
+              for line in Path(path).read_text().splitlines():
+                  for tag in groups:
+                      if line.startswith(tag+" "):
+                          groups[tag].append(dict(item.split("=",1)
+                              for item in line.split()[1:] if "=" in item))
+              assert all(len(entries)==1 for entries in groups.values()),path
+              return groups["REPLAY"][0],groups["REPLAY_RESULT"][0]
+          oldh,old=read("v7.log")
+          newh,new=read("v8.log")
+          assert "method" not in oldh, oldh
+          assert newh["method"]=="fgmres" and newh["recycle_k"]=="0",newh
+          for key in ("n","nnz","modes","restart","maxiter","tol"):
+              assert oldh[key]==newh[key],(key,oldh[key],newh[key])
+          assert oldh["n"]=="240" and oldh["modes"]=="2",oldh
+          assert old["status"]==new["status"]=="0",(old,new)
+          assert old["solve_rc"]==new["solve_rc"]=="0",(old,new)
+          assert old["iter"]==new["iter"],(old["iter"],new["iter"])
+          for name,data in (("v7",old),("v8",new)):
+              residual=float(data["true_relative"])
+              assert math.isfinite(residual) and 0<=residual<=1e-5,(name,residual)
+          assert math.isclose(float(old["true_relative"]),float(new["true_relative"]),
+                              rel_tol=1e-8,abs_tol=1e-12),(old,new)
+          print("V7_V8_FGMRES_PARITY_OK iterations="+old["iter"])
+          PY
+      - name: Archive public synthetic parity logs if needed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-v7-fgmres-parity-synthetic
+          path: parity-smoke/*.log
+          if-no-files-found: ignore
