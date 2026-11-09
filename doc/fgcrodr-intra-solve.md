@@ -71,6 +71,10 @@ every memory or numerical problem has been excluded.
 
 - No MFAMG v7/v8 source code, CalculiX integration or private snapshot
   file is included.
+- The same-matrix value-update regression changes the diagonal,
+  explicitly marks the value generation, reuses one solver and checks
+  that the updated AZ=C relation and true residual are valid. The
+  distinct-object A1 -> A2 case exercises a separate invalidation path.
 - The manufactured A1 -> A2 sequence is **not** a CalculiX
   changing-contact Newton sequence.
 - The feature is a technical-review candidate, not a demonstrated

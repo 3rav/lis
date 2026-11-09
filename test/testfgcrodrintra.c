@@ -186,6 +186,89 @@ done:
     return failed;
 }
 
+
+/* Same matrix POINTER and sparsity, but changed numerical values.
+ * A new value_generation must invalidate/rebuild the old AZ=C relation.
+ * This tests a different path from the distinct-object A1 -> A2 check.
+ */
+static int check_same_operator_value_update(LIS_MATRIX A, LIS_VECTOR b)
+{
+    LIS_VECTOR x=NULL,ax=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_MATRIX stored=NULL;
+    LIS_INT err=0,valid=0,failed=1;
+    LIS_UNSIGNED_INT sg_before=0,vg_before=0,sg_after=0,vg_after=0;
+    LIS_UNSIGNED_INT saved_sg=0,saved_vg=0;
+    LIS_REAL orth=0.0,relation=0.0,rnorm=0.0,bnorm=0.0;
+
+    if(set_intra(1)) goto done;
+    if((err=lis_vector_duplicate(A,&x))) goto done;
+    if((err=lis_vector_duplicate(A,&ax))) goto done;
+    if((err=lis_solver_create(&solver))) goto done;
+    if((err=lis_solver_set_option(
+        "-i fgcrodr -p jacobi -restart 2 -maxiter 300 "
+        "-tol 1e-5 -fgcrodr_k 1 -print none",solver))) goto done;
+
+    if((err=lis_vector_set_all(0.0,x))) goto done;
+    err=lis_solve_sequence(A,b,x,solver);
+    if(err!=LIS_SUCCESS || solver->retcode!=LIS_SUCCESS) goto done;
+    if((err=lis_fgcrodr_get_lifecycle_state(
+        solver,&valid,&stored,&saved_sg,&saved_vg))) goto done;
+    if(!valid || stored!=A) goto done;
+    if((err=lis_matrix_get_generation(A,&sg_before,&vg_before)))
+        goto done;
+    if(saved_sg!=sg_before || saved_vg!=vg_before) goto done;
+
+    /* shift_diagonal changes numerical storage; the caller must notify
+     * the generation tracker so cross-solve recycling is revalidated. */
+    if((err=lis_matrix_shift_diagonal(A,(LIS_SCALAR)-0.25)))
+        goto done;
+    if((err=lis_matrix_mark_values_changed(A)))
+        goto done;
+    if((err=lis_matrix_get_generation(A,&sg_after,&vg_after)))
+        goto done;
+    if(sg_after!=sg_before || vg_after<=vg_before)
+        goto done;
+
+    if((err=lis_vector_set_all(0.0,x))) goto done;
+    err=lis_solve_sequence(A,b,x,solver);
+    if(err!=LIS_SUCCESS || solver->retcode!=LIS_SUCCESS) goto done;
+    if((err=lis_fgcrodr_get_lifecycle_state(
+        solver,&valid,&stored,&saved_sg,&saved_vg))) goto done;
+    if(!valid || stored!=A ||
+       saved_sg!=sg_after || saved_vg!=vg_after)
+        goto done;
+    if((err=lis_fgcrodr_validate_recycle(
+        solver,&orth,&relation))) goto done;
+    if((err=lis_matvec(A,x,ax))) goto done;
+    if((err=lis_vector_xpay(b,-1.0,ax))) goto done;
+    if((err=lis_vector_nrm2(ax,&rnorm))) goto done;
+    if((err=lis_vector_nrm2(b,&bnorm))) goto done;
+    if(bnorm==0.0 || !isfinite(rnorm) || rnorm/bnorm>1e-5 ||
+       !isfinite(orth) || !isfinite(relation) ||
+       orth>1e-8 || relation>1e-8)
+        goto done;
+    printf("FGCRODR_INTRA_VALUE_GENERATION_OK "
+           "generation=%llu->%llu relative=%.12e relation=%.6e\n",
+           (unsigned long long)vg_before,
+           (unsigned long long)vg_after,
+           (double)(rnorm/bnorm),(double)relation);
+    failed=0;
+done:
+    if(failed)
+        fprintf(stderr,"FGCRODR_INTRA_VALUE_GENERATION_FAIL "
+                "api=%d status=%d valid=%d generation=%llu->%llu "
+                "saved=%llu relation=%.6e\n",
+                (int)err,solver?(int)solver->retcode:-1,(int)valid,
+                (unsigned long long)vg_before,
+                (unsigned long long)vg_after,
+                (unsigned long long)saved_vg,(double)relation);
+    if(solver) lis_solver_destroy(solver);
+    if(ax) lis_vector_destroy(ax);
+    if(x) lis_vector_destroy(x);
+    return failed;
+}
+
 int main(int argc, char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -215,6 +298,7 @@ int main(int argc, char **argv)
     if((rc=lis_matvec(A,u,b))) goto done;
     if(solve_one(A,b,0) || solve_one(A,b,1)) goto done;
     if(check_changed_operator(A,b)) goto done;
+    if(check_same_operator_value_update(A,b)) goto done;
     failed=0;
 done:
     if(failed)
