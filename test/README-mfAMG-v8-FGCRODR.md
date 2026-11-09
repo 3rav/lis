@@ -714,6 +714,50 @@ may interpret Bash `$HOME` differently (`C:/Users/...` rather than
 directory; use `mkdir` for the build directory without deleting it,
 and keep each benchmark output path unique.
 
+### One-command private 31-spring fresh upstream #214 benchmark
+
+The recommended **next private evidence** after source reconciliation
+is a paired fixed-operator comparison of FGMRES vs FGCRO-DR on
+exactly A04/b04 and all-18 offline Ritz modes. Do **not** reuse the
+old `build-v8-abba-20261109` EXE from the pre-upstream solver;
+all earlier 17/18 wall-time numbers were measured with that older core.
+
+`test/mfamg_v8_31_upstream214_one_shot.sh` is a guarded UCRT64
+procedure. It never checks out, resets, cleans, merges, or overwrites
+the user's existing checkout (including untracked `bin6000/`).
+It fetches only the remote-tracking experimental Draft branch,
+checks that the solver file's Git blob is exactly the accepted
+upstream `develop` #214 blob, archives the public source to a new
+private source directory, uses fresh private build/results directories,
+compiles its own EXE, and runs 3 alternating FGMRES/FGCRODR pairs
+with convergence required. It prints only aggregate results;
+matrices, modes and per-run logs stay on Windows.
+
+Run this command **locally** in MSYS2 UCRT64 (no other data needed):
+
+    (
+      set -euo pipefail
+      cd "$HOME/lis-v8"
+      BRANCH=experiment/mfamg-fgcrodr-replay-v8-20261108
+      git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+      git show "refs/remotes/origin/$BRANCH:test/mfamg_v8_31_upstream214_one_shot.sh" | bash
+    )
+
+The script fails closed if any of the target source/build/output
+paths already exists: `src-v8-upstream214-20261109`,
+`build-v8-upstream214-20261109`,
+`v8_fgmres_vs_fgcrodr_31_upstream214_20261109` (all below
+`$HOME/mfamg_replay`). It does not overwrite them or delete files.
+To review its source without running, replace `| bash` with
+`> /some/new/path` (only if that output path does not already exist).
+
+For result triage, report just `V8_31_SOLVER_BENCHMARK_EXIT`,
+`V8_SOLVER_PAIR_ASSESSMENT` and the aggregate `assessment.json`.
+Private inputs/logs and the manifest with their paths/hashes remain local.
+Both solver modes are in the **same NEW v8 executable**, so this is
+the narrow algorithm comparison, not a separate historical-v7
+binary comparison nor an actual Newton/contact trajectory.
+
 ### Paired FGMRES control vs FGCRO-DR (same A/b/modes)
 
 To isolate the algorithmic opt-in, the new
