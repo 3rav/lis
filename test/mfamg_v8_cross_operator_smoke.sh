@@ -258,4 +258,4 @@ if LIS_MFAMG_REPLAY_NEXT_A=A_mixed.mtx \
   exit 1
 fi
 grep -q 'replace-values requires NEXT_A and NEXT_B' conflicting.log
-echo MFAMG_V8_CROSS_OPERATOR_REJECT_AND_TRANSPORT_OK
+echo MFAMG_V8_CROSS_OPERATOR_KEEP_AND_REJECT_OK
