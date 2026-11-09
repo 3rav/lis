@@ -211,8 +211,8 @@ static int replay_int_option(const char *name,int fallback,
  * contact data. It accepts only owned, assembled, serial real CSR arrays.
  * The second imported matrix remains an INDEPENDENT A2 for the residual.
  */
-static int replay_replace_csr_values(LIS_MATRIX target,LIS_MATRIX source,
-                                     LIS_INT *changed_out)
+static int replay_check_or_replace_csr_values(LIS_MATRIX target,LIS_MATRIX source,
+                                              LIS_INT *changed_out,int apply)
 {
     LIS_INT i,changed=0;
 
@@ -275,8 +275,12 @@ static int replay_replace_csr_values(LIS_MATRIX target,LIS_MATRIX source,
         fprintf(stderr,"REPLAY_NEWTON_ERROR replace-values requires a genuinely changed operator\n");
         return 1;
     }
-    for(i=0;i<target->nnz;i++)
-        target->value[i]=source->value[i];
+    /* Dry-run option deliberately never modifies the destination. */
+    if(apply)
+    {
+        for(i=0;i<target->nnz;i++)
+            target->value[i]=source->value[i];
+    }
     *changed_out=changed;
     return 0;
 }
@@ -304,6 +308,60 @@ int main(int argc,char **argv)
     LIS_REAL recycle_quality=0.0,recycle_quality_min=0.0;
     int optlen;
     char solver_options[256];
+
+    /*
+     * Exact dry-run preflight, no modes/RHS/solver needed. Compare the
+     * actual LIS-imported CSR graph and finite values using precisely
+     * the same gate as the opt-in in-place value replacement. Do not
+     * pass --compare-csr through the LIS option parser.
+     */
+    if(argc>1 && strcmp(argv[1],"--compare-csr")==0)
+    {
+        int lis_argc=1;
+        char *lis_args_storage[2]={argv[0],NULL};
+        char **lis_args=lis_args_storage;
+        LIS_INT changed=0;
+
+        if(argc!=4)
+        {
+            fprintf(stderr,"Usage: %s --compare-csr A1.mtx A2.mtx\\n",argv[0]);
+            return 2;
+        }
+        if(lis_initialize(&lis_argc,&lis_args)!=LIS_SUCCESS) return 1;
+#if defined(_COMPLEX)
+        fprintf(stderr,"REPLAY_CSR_COMPARE_ERROR real-valued LIS required\\n");
+        goto done;
+#endif
+#ifdef USE_MPI
+        {
+            int ranks=1;
+            MPI_Comm_size(LIS_COMM_WORLD,&ranks);
+            if(ranks!=1)
+            {
+                fprintf(stderr,"REPLAY_CSR_COMPARE_ERROR serial LIS only\\n");
+                goto done;
+            }
+        }
+#endif
+        err=lis_matrix_create(LIS_COMM_WORLD,&A);
+        if(err) goto done;
+        err=lis_input_matrix(A,argv[2]);
+        if(err) goto done;
+        err=lis_matrix_create(LIS_COMM_WORLD,&A2);
+        if(err) goto done;
+        err=lis_input_matrix(A2,argv[3]);
+        if(err) goto done;
+        if(replay_check_or_replace_csr_values(A,A2,&changed,0)!=0)
+        {
+            fprintf(stderr,"REPLAY_CSR_COMPARE compatible=0\\n");
+            goto done;
+        }
+        printf("REPLAY_CSR_COMPARE compatible=1 n=%lld nnz=%lld changed_nnz=%lld\\n",
+               (long long)A->n,(long long)A->nnz,(long long)changed);
+        rc=0;
+        err=0;
+        goto done;
+    }
 
     if(next_replace_values!=NULL &&
        (strcmp(next_replace_values,"1")!=0 ||
@@ -588,7 +646,7 @@ int main(int argc,char **argv)
         if(next_replace_values!=NULL)
         {
             LIS_INT changed=0;
-            if(replay_replace_csr_values(A,A2,&changed)!=0)
+            if(replay_check_or_replace_csr_values(A,A2,&changed,1)!=0)
                 goto done;
             err2=lis_matrix_mark_values_changed(A);
             if(err2) { err=err2; goto done; }
