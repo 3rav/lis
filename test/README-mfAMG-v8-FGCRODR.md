@@ -798,6 +798,69 @@ local input/EXE hashes and catches in-run mutation. This prevents
 accidentally treating the old **omit06 negative-only** 17-mode data
 as the promising **omit01** 17-mode experiment.
 
+### A1-to-A2 in-process operator-change smoke (same solver)
+
+The opt-in replay executable now supports a **second operator in the
+same process and the same LIS_SOLVER object**, for synthetic and
+eventually real consecutive snapshots. This is distinct from the
+fresh-process 12/14/18 comparison above. Supply BOTH:
+
+- `LIS_MFAMG_REPLAY_NEXT_A`: second Matrix Market matrix A2;
+- `LIS_MFAMG_REPLAY_NEXT_B`: corresponding second RHS b2.
+
+The second solve starts with x2=0. It keeps the original MFAMG mode
+vectors and solver object, but replaces the matrix and RHS. Both
+operators must have identical row counts/distributions. The original
+first solve still prints `REPLAY_RESULT`; after the second solve,
+the program prints `REPLAY_NEWTON_STEP`, recycling statistics and
+AZ=C validation, and `REPLAY_NEWTON_RESULT` with an independently
+recomputed true relative residual. Failure of either solve, algebraic
+validation, explicit A*x or residual tolerance causes a nonzero exit.
+It never uploads matrices and never changes production CalculiX.
+
+A public mandatory UCRT64 regression creates a synthetic A2 by
+modifying the diagonal of A1, then runs:
+
+- A1/b1 and A2/b2 using the **same** LIS solver (k=1, intra-solve on);
+- A2/b2 as an independent fresh-solver reference;
+- both explicit true-residual checks and second-space AZ=C validation;
+- rejection of a missing half of the A2/b2 argument pair.
+
+The original v8 regression still verifies k=0 / FGMRES parity and
+single-operator behavior. This is a **two-linear-system operator-change
+smoke**, not an actual sequence of Newton contact iterations, nor
+evidence of robust transport across arbitrary operator changes.
+
+When (and only when) two PRIVATE consecutive contact snapshots are
+available locally, the user may run the experimental replay as follows
+using a newly built `mfamgreplay.exe` from this branch:
+
+    cd "$HOME/mfamg_replay"
+    export LIS_MFAMG_EXPERIMENT_FINE_AGG=1
+    export LIS_MFAMG_EXPERIMENT_DEEP_MERGE=1
+    export LIS_MFAMG_FINE_AGG_FACTOR=4
+    export LIS_MFAMG_STAR_SCHUR=0
+    export LIS_MFAMG_VCYCLE_SMOOTH_STEPS=3
+    export LIS_FGMRES_PROJECTED_RELATIVE=1
+    export LIS_MFAMG_REPLAY_METHOD=fgcrodr
+    export LIS_MFAMG_REPLAY_RECYCLE_DIM=8
+    export LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1
+    export LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1
+    export LIS_MFAMG_REPLAY_RESTART=180
+    export LIS_MFAMG_REPLAY_MAXITER=3000
+    # Substitute actual existing local step-2 paths; DO NOT invent data:
+    export LIS_MFAMG_REPLAY_NEXT_A="$HOME/PRIVATE_STEP2_A.mtx"
+    export LIS_MFAMG_REPLAY_NEXT_B="$HOME/PRIVATE_STEP2_b.mtx"
+    "$HOME/lis-v8/bin6000/mfamgreplay.exe" \
+      challenge_31/A04.mtx challenge_31/b04.mtx \
+      challenge_31/modes04_12plus6negative.mtx
+
+The command is only an EXAMPLE and requires two actual consecutive
+snapshots; do not run it with nonexistent placeholders. A meaningful
+real Newton validation also requires numerical comparison with an
+independent solution at step 2 and several successive operator
+updates, which the current two-step smoke does not cover.
+
 ### Outstanding release gates
 
 1. Reconcile the solver implementation with upstream #213/#214;
