@@ -639,8 +639,10 @@ or a guarantee of contact convergence. Both targets start from
 A and baseline modes ONLY; neither reads the six offline vectors.
 The first baseline columns are preserved exactly, and all new
 columns are explicitly filtered against the baseline and earlier
-accepted vectors. It checks finite operator products, A-norm
-reduction, rank, input dimensions and exclusive output creation.
+accepted vectors. It checks finite operator products, reduction
+of the selected objective (A-norm for small-singular; Rayleigh
+quotient for negative-curvature), rank, input dimensions and
+exclusive output creation.
 
 Start with a **small diagnostic experiment**, not six expensive
 full-size modes at once:
@@ -675,7 +677,7 @@ symmetric-indefinite diagonal matrix, deterministic bytes and
 rejection of an SPD input. These simple tests do not validate CCX.
 
 The script holds sparse coordinates in memory and its pure Python
-normal-operator iterations can be expensive for millions of entries.
+sparse operator iterations can be expensive for millions of entries.
 The resulting directions are **not** certified near-nullspace modes,
 not FGCRO-DR harmonic Ritz eigenvectors, and are not integrated into
 MFAMG's production interpolation. A lower A-norm alone does not
