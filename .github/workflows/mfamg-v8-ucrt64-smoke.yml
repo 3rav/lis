@@ -361,7 +361,9 @@ jobs:
           autoreconf -fiv
           mkdir -p build-linux
           cd build-linux
-          ../configure --enable-shared --disable-complex --disable-mpi --disable-test
+          ../configure --enable-shared --disable-complex --disable-mpi --disable-test \
+            CFLAGS="-O1 -g -fsanitize=address -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address"
           make -j2
           make -C test mfamgreplay
           # Libtool wrapper configures the dynamic-library lookup path.
@@ -370,6 +372,7 @@ jobs:
         run: |
           set -euo pipefail
           bash -n test/mfamg_v8_cross_operator_smoke.sh
+          export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1:print_stacktrace=1"
           bash test/mfamg_v8_cross_operator_smoke.sh \
             "$PWD/build-linux/test/mfamgreplay" \
             "$PWD/build-linux/cross-operator-smoke"
