@@ -75,6 +75,30 @@ done
   done
 } > modes.mtx
 
+# Read-only preflight must compare exactly the same imported CSR arrays
+# that the later value-replacement path uses. No solve, no state mutation.
+"$exe" --compare-csr A4.mtx A_mixed.mtx > graph_ok.log 2>&1
+grep -q '^REPLAY_CSR_COMPARE compatible=1 n=240 nnz=718 changed_nnz=718$' graph_ok.log
+! grep -q '^REPLAY_RESULT' graph_ok.log
+"$exe" --compare-csr A4.mtx A5.mtx > graph_diagonal.log 2>&1
+grep -q '^REPLAY_CSR_COMPARE compatible=1 n=240 nnz=718 changed_nnz=240$' graph_diagonal.log
+if "$exe" --compare-csr A4.mtx A_bad_graph.mtx > graph_bad.log 2>&1; then
+  echo 'ERROR: CSR preflight accepted incompatible column graph' >&2
+  exit 1
+fi
+grep -q '^REPLAY_CSR_COMPARE compatible=0$' graph_bad.log
+grep -q 'replace-values CSR column graph mismatch' graph_bad.log
+if "$exe" --compare-csr A4.mtx A4.mtx > graph_unchanged.log 2>&1; then
+  echo 'ERROR: CSR preflight accepted unchanged operator as changed' >&2
+  exit 1
+fi
+grep -q '^REPLAY_CSR_COMPARE compatible=0$' graph_unchanged.log
+grep -q 'replace-values requires a genuinely changed operator' graph_unchanged.log
+if "$exe" --compare-csr A4.mtx nonexistent.mtx > graph_missing.log 2>&1; then
+  echo 'ERROR: CSR preflight accepted missing A2' >&2
+  exit 1
+fi
+
 export LIS_MFAMG_EXPERIMENT_FINE_AGG=1
 export LIS_MFAMG_FINE_AGG_FACTOR=2
 export LIS_MFAMG_EXPERIMENT_DEEP_MERGE=1
