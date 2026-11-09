@@ -82,3 +82,17 @@ every memory or numerical problem has been excluded.
   robustness review and further integration testing remain necessary.
 - Full contact replay and offline mode research stay in
   [draft PR #47](https://github.com/3rav/lis/pull/47).
+
+## B-workspace allocation bound
+
+When intra-solve recycling is enabled, workspace B reserves capacity
+for the largest projected recycle rank. The requested rank can exceed
+restart-1, but no cycle can retain more than restart-1 directions.
+The allocator therefore caps prospective rows to restart-1, while
+still preserving enough space for an already active cross-solve rank.
+
+The standalone test also uses a deliberately oversized
+`-fgcrodr_k 1000000` with restart=2. It checks that the solver
+still converges, maintains actual rank 1, uses recycling, and passes
+the true residual / A*Z=C checks, without reserving a million rows.
+This is a resource-safety regression, not a performance benchmark.

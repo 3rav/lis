@@ -42,21 +42,23 @@ static int set_intra(int enabled)
     return 0;
 }
 
-static int solve_one(LIS_MATRIX A, LIS_VECTOR b, int intra)
+static int solve_one(LIS_MATRIX A, LIS_VECTOR b, int intra, int requested_k)
 {
     LIS_VECTOR x=NULL, ax=NULL;
     LIS_SOLVER solver=NULL;
     LIS_INT rc,dim=0,action=0,iter=0,status=0;
     LIS_UNSIGNED_INT builds=0,updates=0,uses=0,rejects=0;
     LIS_REAL orth=0.0,relation=0.0,bnorm=0.0,rnorm=0.0;
+    char opts[256];
     int failed=1;
     if(set_intra(intra)) goto done;
     if((rc=lis_vector_duplicate(A,&x))) goto done;
     if((rc=lis_vector_duplicate(A,&ax))) goto done;
     if((rc=lis_solver_create(&solver))) goto done;
-    if((rc=lis_solver_set_option(
+    snprintf(opts,sizeof(opts),
         "-i fgcrodr -p jacobi -restart 2 -maxiter 300 "
-        "-tol 1e-5 -fgcrodr_k 1 -print none",solver))) goto done;
+        "-tol 1e-5 -fgcrodr_k %d -print none",requested_k);
+    if((rc=lis_solver_set_option(opts,solver))) goto done;
     if((rc=lis_vector_set_all(0.0,x))) goto done;
     rc=lis_solve(A,b,x,solver);
     status=solver->retcode;
@@ -296,7 +298,8 @@ int main(int argc, char **argv)
     for(i=0;i<u->n;i++)
         u->value[i]=(LIS_SCALAR)((((u->is+i)*37)%23)-11.0);
     if((rc=lis_matvec(A,u,b))) goto done;
-    if(solve_one(A,b,0) || solve_one(A,b,1)) goto done;
+    if(solve_one(A,b,0,1) || solve_one(A,b,1,1) ||
+       solve_one(A,b,1,1000000)) goto done;
     if(check_changed_operator(A,b)) goto done;
     if(check_same_operator_value_update(A,b)) goto done;
     failed=0;

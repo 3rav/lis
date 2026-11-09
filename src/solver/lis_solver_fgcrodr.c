@@ -5346,10 +5346,18 @@ lis_fgcrodr_flexible_core(
 
     if( use_recycle || intra_recycle )
     {
-        /* After the first cycle, kcur can increase from zero to
-         * target_dim, so reserve the maximum stride for all cycles. */
-        size_t capacity=(size_t)(intra_recycle ? state->target_dim : kcur)
-                        *(size_t)m;
+        /* A harmonic recycle space can never exceed restart-1.
+         * Do not allocate target_dim*m elements when the user asks
+         * for far more modes than the small restart can retain.
+         * Keep room for any already valid cross-solve space when
+         * restart was changed since the previous solve. */
+        LIS_INT rows=intra_recycle ? state->target_dim : kcur;
+        size_t capacity;
+        if(intra_recycle && rows>m-1)
+            rows=m-1;
+        if(rows<kcur)
+            rows=kcur;
+        capacity=(size_t)rows*(size_t)m;
         bcoef=(LIS_SCALAR *)lis_malloc(
             capacity*sizeof(LIS_SCALAR),
             "lis_fgcrodr_flexible_core::bcoef");
