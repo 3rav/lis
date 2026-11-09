@@ -80,6 +80,8 @@ run_case() {
 }
 run_case fgmres LIS_MFAMG_REPLAY_METHOD=fgmres LIS_FGCRODR_INTRA_SOLVE_RECYCLE=0
 run_case k0 LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=0 LIS_FGCRODR_INTRA_SOLVE_RECYCLE=0
+# k=0 must remain a safe no-op even when intra-solve is requested.
+run_case k0_optin LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=0 LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1 LIS_FGCRODR_INTRA_TRACE=1
 run_case k1 LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=1 LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1 LIS_FGCRODR_INTRA_TRACE=1 LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1
 run_case k2 LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=2 LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1 LIS_FGCRODR_INTRA_TRACE=1 LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1
 # k=0 must be numerically identical to FGMRES.
@@ -89,6 +91,10 @@ signature() {
 }
 test "$(signature indef_fgmres.log)" = "$(signature indef_k0.log)" || {
   echo "ERROR: k=0 differs from FGMRES baseline" >&2
+  exit 1
+}
+test "$(signature indef_fgmres.log)" = "$(signature indef_k0_optin.log)" || {
+  echo "ERROR: opt-in k=0 differs from FGMRES baseline" >&2
   exit 1
 }
 awk '/^REPLAY_RESULT / {for(i=1;i<=NF;i++) if($i ~ /^iter=/) {
