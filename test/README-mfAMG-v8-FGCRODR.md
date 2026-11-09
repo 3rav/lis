@@ -726,6 +726,78 @@ operator. Validate rank and run the same fixed replay comparison
 before any claim. Synthetic smoke checks mode novelty and output
 non-overwrite; it does NOT constitute contact evidence.
 
+### Local controlled replay of automatic candidates (12/14/18)
+
+A fixed-operator comparison runner is now available:
+`test/mfamg_replay_v8_candidate_compare.py`. It accepts:
+
+- **baseline12** = original 12 modes (unmodified).
+- **generated14** = those 12 plus 2 **automatic** candidate directions.
+- **offline18** = original 12 plus the 6 offline directions,
+  ideally the previously verified full 18-mode rotated Ritz control.
+
+Start with the first two automatically generated directions using
+`--target negative-curvature` (if that fails to identify two negative
+directions, retain the diagnostic failure; do not silently substitute
+the offline vectors). The alternative `--target small-singular` can
+be evaluated as a separate experimental series.
+
+All files stay local in MSYS2 UCRT64. **Choose NEW paths for outputs**;
+the commands refuse overwriting existing results:
+
+    cd "$HOME/lis-v8"
+    git pull --ff-only
+    python3 test/mfamg_mode_auto_candidates.py \
+      "$HOME/mfamg_replay/challenge_31/A04.mtx" \
+      "$HOME/mfamg_replay/challenge_31/modes04.mtx" \
+      --target negative-curvature --count 2 --steps 40 --seed 20261109 \
+      --output "$HOME/mfamg_replay/v8_mode_audit/auto_negative_2_NEW.mtx"
+
+    python3 test/mfamg_replay_v8_candidate_compare.py \
+      --exe "$HOME/lis-v8/bin6000/mfamgreplay.exe" \
+      --matrix "$HOME/mfamg_replay/challenge_31/A04.mtx" \
+      --rhs "$HOME/mfamg_replay/challenge_31/b04.mtx" \
+      --baseline "$HOME/mfamg_replay/challenge_31/modes04.mtx" \
+      --generated "$HOME/mfamg_replay/v8_mode_audit/auto_negative_2_NEW.mtx" \
+      --offline-control "$HOME/mfamg_replay/v8_mode_audit/ritz/modes_all_ritz.mtx" \
+      --out-dir "$HOME/mfamg_replay/v8_mode_audit/candidate_compare_NEW" \
+      --repetitions 1 --require-offline-control-converged
+
+The preflight strictly verifies column counts, exact unchanged
+baseline columns, and linear independence of new columns. All
+variants use the same environment, FGCRO-DR k=8, MFAMG factor=4,
+restart=180, maxiter=3000 and true-relative tolerance 1e-5.
+It records local SHA-256 fingerprints of **every input and EXE**,
+detects file mutation during replay, and journals logs/CSV after each
+completed run. Results: `manifest.json`, `candidate_runs.csv`,
+`assessment.json` and per-run logs, all private.
+
+The first pass executes 12 → 14 → 18 modes. With
+`--repetitions 2`, the second pass reverses to 18 → 14 → 12;
+these are full **fresh-process** solves on one fixed A, **not a Newton
+sequence**. MAXITER statuses are recorded and not treated as success.
+`CONTROL_CONVERGED` means ONLY the offline18 control reached tolerance
+in every pass, **not** that automatic candidates worked: inspect
+`metrics.generated14.all_converged` and its measured residual.
+The tool reports comparative wall medians only if both generated14
+and offline18 converge in all repetitions. One or two passes are
+exploratory and are not statistically validated speedup evidence.
+
+An independent public synthetic CI smoke requires the correct
+12/14/18 rank/baseline invariants, nonconverged baseline and
+generated branches, missing replay result handling, a converged
+offline control, output non-overwrite and manifest generation.
+No private snapshots are read in CI.
+
+The separate 17-vs-18 omit01 runner now **verifies the actual
+basis relationship** before execution: 17-mode columns must equal
+all-18 rotated Ritz columns with the *first extra* direction
+(column 13 overall) removed. Optional `--baseline-modes` verifies
+the original 12 columns too. Its `manifest.json` stores the
+local input/EXE hashes and catches in-run mutation. This prevents
+accidentally treating the old **omit06 negative-only** 17-mode data
+as the promising **omit01** 17-mode experiment.
+
 ### Outstanding release gates
 
 1. Reconcile the solver implementation with upstream #213/#214;
