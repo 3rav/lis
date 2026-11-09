@@ -34,6 +34,18 @@ jobs:
             file
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-gcc-fortran
+      - name: Exercise Windows archive workaround for tracked COPYING symlink
+        run: |
+          set -euo pipefail
+          dest=source-archive-msys-smoke
+          test ! -e "$dest"
+          mkdir "$dest"
+          git archive HEAD | tar --exclude=COPYING -xf - -C "$dest"
+          test -s "$dest/LICENSE"
+          test ! -e "$dest/COPYING"
+          cp "$dest/LICENSE" "$dest/COPYING"
+          cmp -s "$dest/LICENSE" "$dest/COPYING"
+          echo WINDOWS_ARCHIVE_LICENSE_COPY_OK
       - name: Autotools configure and build
         run: |
           set -euxo pipefail
