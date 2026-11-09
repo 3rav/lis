@@ -287,8 +287,9 @@ static int replay_check_or_replace_csr_values(LIS_MATRIX target,LIS_MATRIX sourc
 
 int main(int argc,char **argv)
 {
-    LIS_MATRIX A=NULL,A2=NULL;
-    LIS_VECTOR b=NULL,x=NULL,ax=NULL,b2=NULL,x2=NULL,ax2=NULL,*modes=NULL;
+    LIS_MATRIX A=NULL,A2=NULL,A3=NULL;
+    LIS_VECTOR b=NULL,x=NULL,ax=NULL,b2=NULL,x2=NULL,ax2=NULL;
+    LIS_VECTOR b3=NULL,x3=NULL,ax3=NULL,*modes=NULL;
     LIS_SOLVER solver=NULL;
     LIS_INT err=0,nmodes=0,i,iter=0,status=-1;
     LIS_REAL reported=0.0;
@@ -302,6 +303,9 @@ int main(int argc,char **argv)
     const char *next_rhs=getenv("LIS_MFAMG_REPLAY_NEXT_B");
     const char *next_diag_shift=getenv("LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT");
     const char *next_replace_values=getenv("LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES");
+    char *third_matrix=getenv("LIS_MFAMG_REPLAY_THIRD_A");
+    const char *third_rhs=getenv("LIS_MFAMG_REPLAY_THIRD_B");
+    const char *third_replace_values=getenv("LIS_MFAMG_REPLAY_THIRD_REPLACE_VALUES");
     const char *method="fgmres";
     const char *method_env;
     LIS_INT recycle_dim=0,recycle_action=0;
@@ -363,6 +367,14 @@ int main(int argc,char **argv)
         goto done;
     }
 
+    if((third_matrix==NULL)!=(third_rhs==NULL) ||
+       (third_matrix!=NULL && next_matrix==NULL) ||
+       (third_replace_values!=NULL &&
+        (strcmp(third_replace_values,"1")!=0 || third_matrix==NULL)))
+    {
+        fprintf(stderr,"REPLAY_SEQUENCE_ERROR third step requires NEXT_A/B and THIRD_A/B, replace flag=1\n");
+        return 2;
+    }
     if(next_replace_values!=NULL &&
        (strcmp(next_replace_values,"1")!=0 ||
         next_matrix==NULL || next_rhs==NULL || next_diag_shift!=NULL))
@@ -380,7 +392,7 @@ int main(int argc,char **argv)
         fprintf(stderr,"REPLAY_NEWTON_ERROR specify both NEXT_A and NEXT_B\n");
         return 2;
     }
-    /* Preserve the first and second diagnostics if a later solve crashes. */
+    /* Preserve every completed step even if a later step crashes. */
     if(next_matrix!=NULL)
         setvbuf(stdout,NULL,_IONBF,0);
     if(argc!=4 && argc!=5)
@@ -783,11 +795,169 @@ int main(int argc,char **argv)
         if(first_ok && err2==LIS_SUCCESS && status2==0 &&
            true2<=1.0e-5 && second_ok)
             rc=0;
+
+        /*
+         * Optional third consecutive linear system, using the SAME solver
+         * object retained by steps 1 and 2. No new preconditioner policy:
+         * the solver handles KEEP/TRANSPORT/REJECT upon each lis_solve.
+         *
+         * For fixed CSR, mutate the matrix object actually used by step 2.
+         * For changing graph, pass a distinct A3 to lis_solve and allow
+         * the solver to reject stale recycle directions.
+         */
+        if(third_matrix!=NULL)
+        {
+            LIS_MATRIX solve_matrix3=NULL;
+            LIS_INT err3,iter3=0,status3=-1,changed3=0;
+            LIS_REAL reported3=0.0,orth3=0.0,relation3=0.0;
+            LIS_UNSIGNED_INT cross0=0,keep0=0,transport0=0,reject0=0;
+            LIS_UNSIGNED_INT cross1=0,keep1=0,transport1=0,reject1=0;
+            LIS_UNSIGNED_INT builds3=0,updates3=0,uses3=0,rejects3=0;
+            double bnorm3=0.0,rnorm3=0.0,true3=0.0;
+            double start3,end3;
+            int previous_ok=(rc==0),last_ok=1;
+
+            rc=1; /* Any early third-step failure must fail closed. */
+            err3=lis_matrix_create(LIS_COMM_WORLD,&A3);
+            if(err3) { err=err3; goto done; }
+            err3=lis_input_matrix(A3,third_matrix);
+            if(err3) { err=err3; goto done; }
+            if(A3->n!=A->n || A3->np!=A->np)
+            {
+                fprintf(stderr,"REPLAY_SEQUENCE_ERROR third operator dimensions changed\n");
+                goto done;
+            }
+            err3=lis_vector_duplicate(A3,&b3);
+            if(err3) { err=err3; goto done; }
+            err3=lis_vector_duplicate(A3,&x3);
+            if(err3) { err=err3; goto done; }
+            err3=lis_vector_duplicate(A3,&ax3);
+            if(err3) { err=err3; goto done; }
+            if(read_snapshot_column(third_rhs,b3)!=0) goto done;
+            err3=lis_vector_set_all((LIS_SCALAR)0.0,x3);
+            if(err3) { err=err3; goto done; }
+
+            if(use_recycling)
+            {
+                err3=lis_fgcrodr_get_policy_stats(
+                    solver,&cross0,&keep0,&transport0,&reject0);
+                if(err3!=LIS_SUCCESS) { err=err3; goto done; }
+            }
+            if(third_replace_values!=NULL)
+            {
+                if(replay_check_or_replace_csr_values(
+                       solve_matrix,A3,&changed3,1)!=0)
+                {
+                    fprintf(stderr,"REPLAY_SEQUENCE_ERROR third CSR preflight rejected\n");
+                    goto done;
+                }
+                err3=lis_matrix_mark_values_changed(solve_matrix);
+                if(err3) { err=err3; goto done; }
+                solve_matrix3=solve_matrix;
+                printf("REPLAY_SEQUENCE_MATRIX step=3 mode=inplace_replace_values changed_nnz=%lld\n",
+                       (long long)changed3);
+            }
+            else
+            {
+                solve_matrix3=A3;
+                printf("REPLAY_SEQUENCE_MATRIX step=3 mode=separate_object\n");
+            }
+            printf("REPLAY_SEQUENCE_STEP step=3 n=%lld nnz=%lld modes=%lld method=%s recycle_k=%d\n",
+                   (long long)A3->n,(long long)A3->nnz,
+                   (long long)nmodes,method,use_recycling?recycle_k:0);
+            start3=lis_wtime();
+            err3=lis_solve(solve_matrix3,b3,x3,solver);
+            end3=lis_wtime();
+            if(lis_solver_get_iter(solver,&iter3)!=LIS_SUCCESS ||
+               lis_solver_get_residualnorm(solver,&reported3)!=LIS_SUCCESS ||
+               lis_solver_get_status(solver,&status3)!=LIS_SUCCESS)
+            {
+                fprintf(stderr,"REPLAY_SEQUENCE_ERROR missing third-step diagnostics\n");
+                goto done;
+            }
+            if(use_recycling)
+            {
+                LIS_INT vrc=lis_fgcrodr_get_stats(
+                    solver,&builds3,&updates3,&uses3,&rejects3);
+                if(vrc!=LIS_SUCCESS) last_ok=0;
+                printf("REPLAY_SEQUENCE_RECYCLE_STATS step=3 builds=%llu updates=%llu uses=%llu rejects=%llu\n",
+                       (unsigned long long)builds3,
+                       (unsigned long long)updates3,
+                       (unsigned long long)uses3,
+                       (unsigned long long)rejects3);
+                vrc=lis_fgcrodr_get_policy_stats(
+                    solver,&cross1,&keep1,&transport1,&reject1);
+                if(vrc!=LIS_SUCCESS || cross1<cross0 || keep1<keep0 ||
+                   transport1<transport0 || reject1<reject0)
+                {
+                    fprintf(stderr,"REPLAY_SEQUENCE_ERROR invalid third policy counters\n");
+                    last_ok=0;
+                }
+                else
+                {
+                    printf("REPLAY_SEQUENCE_POLICY step=3 cross_uses_delta=%llu keeps_delta=%llu transports_delta=%llu rejects_delta=%llu\n",
+                           (unsigned long long)(cross1-cross0),
+                           (unsigned long long)(keep1-keep0),
+                           (unsigned long long)(transport1-transport0),
+                           (unsigned long long)(reject1-reject0));
+                }
+                if(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE")!=NULL &&
+                   strcmp(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE"),"1")==0)
+                {
+                    vrc=lis_fgcrodr_validate_recycle(
+                        solver,&orth3,&relation3);
+                    printf("REPLAY_SEQUENCE_RECYCLE_CHECK step=3 rc=%lld orth_error=%.12e relation_error=%.12e\n",
+                           (long long)vrc,(double)orth3,(double)relation3);
+                    if(vrc!=LIS_SUCCESS ||
+                       !isfinite((double)orth3) ||
+                       !isfinite((double)relation3) ||
+                       orth3>1.0e-8 || relation3>1.0e-8)
+                        last_ok=0;
+                }
+            }
+            /* Independently imported A3 is the source of truth,
+             * including when solve_matrix3 is an in-place mutation. */
+            if(lis_matvec(A3,x3,ax3)!=LIS_SUCCESS)
+            {
+                fprintf(stderr,"REPLAY_SEQUENCE_ERROR explicit third A3*x failed\n");
+                goto done;
+            }
+            for(i=0;i<A3->n;i++)
+            {
+                const double bv=(double)b3->value[i];
+                const double av=(double)ax3->value[i];
+                const double diff=bv-av;
+                if(!isfinite(bv) || !isfinite(av) || !isfinite(diff))
+                {
+                    fprintf(stderr,"REPLAY_SEQUENCE_ERROR third nonfinite row=%lld\n",
+                            (long long)(i+1));
+                    goto done;
+                }
+                bnorm3=hypot(bnorm3,bv);
+                rnorm3=hypot(rnorm3,diff);
+            }
+            true3=bnorm3>0.0 ? rnorm3/bnorm3 : rnorm3;
+            if(!isfinite(true3) || !isfinite((double)reported3))
+            {
+                fprintf(stderr,"REPLAY_SEQUENCE_ERROR nonfinite third residual\n");
+                goto done;
+            }
+            printf("REPLAY_SEQUENCE_RESULT step=3 solve_rc=%lld status=%lld iter=%lld reported_residual=%.12e true_relative=%.12e wall_seconds=%.3f\n",
+                   (long long)err3,(long long)status3,(long long)iter3,
+                   (double)reported3,true3,end3-start3);
+            if(previous_ok && err3==LIS_SUCCESS && status3==0 &&
+               true3<=1.0e-5 && last_ok)
+                rc=0;
+        }
     }
     err=0;
 done:
     if(err) fprintf(stderr,"REPLAY LIS error=%lld\n",(long long)err);
     if(solver) lis_solver_destroy(solver);
+    if(ax3) lis_vector_destroy(ax3);
+    if(x3) lis_vector_destroy(x3);
+    if(b3) lis_vector_destroy(b3);
+    if(A3) lis_matrix_destroy(A3);
     if(ax2) lis_vector_destroy(ax2);
     if(x2) lis_vector_destroy(x2);
     if(b2) lis_vector_destroy(b2);
