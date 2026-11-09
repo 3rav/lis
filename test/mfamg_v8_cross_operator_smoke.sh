@@ -27,8 +27,7 @@ for diagonal in 4 5; do
     done
   } > "$path"
 done
-# Same CSR graph and nnz as A4, but independent nonsymmetric off-diagonal
-# and diagonal changes.  A2 is an external reference as well as the source.
+# Same-CSR graph as A4 but a genuinely nonsymmetric off-diagonal A2.
 {
   echo '%%MatrixMarket matrix coordinate real general'
   echo '240 240 718'
@@ -38,7 +37,7 @@ done
     if (( i < 240 )); then echo "$i $((i+1)) -1.1"; fi
   done
 } > A_mixed.mtx
-# Same dimensions and nnz, but a genuine sparse graph mismatch.
+# Identical dimensions and nnz but different column graph in row 1.
 {
   echo '%%MatrixMarket matrix coordinate real general'
   echo '240 240 718'
@@ -105,11 +104,18 @@ grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' inplace.log
 grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' inplace.log
 grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=[1-9][0-9]* ' inplace.log
 
-# Arbitrary A2 CSR VALUES (including off-diagonal changes) with exact
-# graph compatibility.  Must preserve the old Z basis and its policy.
+# Test a genuine same-graph arbitrary-value A2, including off-diagonals.
 LIS_MFAMG_REPLAY_NEXT_A=A_mixed.mtx LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES=1 \
   "$exe" A4.mtx b1.mtx modes.mtx > replacement.log 2>&1
-grep -Eq '^REPLAY_NEWTON_MATRIX mode=inplace_replace_values changed_nnz=[1-9][0-9]*
+grep -Eq '^REPLAY_NEWTON_MATRIX mode=inplace_replace_values changed_nnz=[1-9][0-9]*$' replacement.log
+grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' replacement.log
+grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' replacement.log
+grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=[1-9][0-9]* ' replacement.log
+
+unset LIS_MFAMG_REPLAY_NEXT_A LIS_MFAMG_REPLAY_NEXT_B
+"$exe" A5.mtx b2.mtx modes.mtx > fresh.log 2>&1
+"$exe" A_mixed.mtx b2.mtx modes.mtx > fresh_mixed.log 2>&1
+grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' fresh_mixed.log
 grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' fresh.log
 
 for item in "separate.log:REPLAY_NEWTON_RESULT" \
@@ -148,7 +154,7 @@ if LIS_MFAMG_REPLAY_NEXT_B=nonexistent.mtx \
   exit 1
 fi
 grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' missing_b2.log
-# Graph mismatch must fail before touching any CSR destination values.
+# Detect graph mismatch BEFORE touching any old value.
 if LIS_MFAMG_REPLAY_NEXT_A=A_bad_graph.mtx \
    LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES=1 \
    "$exe" A4.mtx b1.mtx modes.mtx > bad_graph.log 2>&1; then
@@ -158,16 +164,14 @@ fi
 grep -q 'replace-values CSR column graph mismatch' bad_graph.log
 ! grep -q '^REPLAY_NEWTON_STEP step=2' bad_graph.log
 
-# Identical input has no changed A, and must not fake cross-operator usage.
 if LIS_MFAMG_REPLAY_NEXT_A=A4.mtx \
    LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES=1 \
    "$exe" A4.mtx b1.mtx modes.mtx > identical.log 2>&1; then
-  echo "ERROR: unchanged A accepted as changed operator" >&2
+  echo "ERROR: unchanged operator accepted as changed" >&2
   exit 1
 fi
 grep -q 'replace-values requires a genuinely changed operator' identical.log
 
-# Do not permit contradictory operator mutations or unrecognized flags.
 if LIS_MFAMG_REPLAY_NEXT_A=A_mixed.mtx \
    LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1 \
    LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES=1 \
@@ -176,50 +180,4 @@ if LIS_MFAMG_REPLAY_NEXT_A=A_mixed.mtx \
   exit 1
 fi
 grep -q 'replace-values requires NEXT_A and NEXT_B' conflicting.log
-echo MFAMG_V8_CROSS_OPERATOR_REJECT_AND_TRANSPORT_OK
- replacement.log
-grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' replacement.log
-grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' replacement.log
-grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=[1-9][0-9]* ' replacement.log
-
-unset LIS_MFAMG_REPLAY_NEXT_A LIS_MFAMG_REPLAY_NEXT_B
-"$exe" A5.mtx b2.mtx modes.mtx > fresh.log 2>&1
-"$exe" A_mixed.mtx b2.mtx modes.mtx > fresh_mixed.log 2>&1
-grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' fresh_mixed.log
-grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' fresh.log
-
-for item in "separate.log:REPLAY_NEWTON_RESULT" \
-            "inplace.log:REPLAY_NEWTON_RESULT" \
-            "fresh.log:REPLAY_RESULT"; do
-  log="${item%%:*}"
-  marker="${item#*:}"
-  awk -v prefix="$marker" '
-    $1==prefix {
-      count++
-      for (i=2;i<=NF;i++) if ($i ~ /^true_relative=/) {
-        split($i,a,"=")
-        if (a[2] !~ /^[0-9.eE+-]+$/ ||
-            (a[2]+0)>1e-5 || (a[2]+0)<0) bad=1
-        found++
-      }
-    }
-    END {if (count!=1 || found!=1 || bad) exit 1}
-  ' "$log"
-done
-
-# Wrong stated shift must not pass independent A2 true residual check.
-export LIS_MFAMG_REPLAY_NEXT_A=A5.mtx
-export LIS_MFAMG_REPLAY_NEXT_B=b2.mtx
-if LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=1 \
-    "$exe" A4.mtx b1.mtx modes.mtx > wrong_shift.log 2>&1; then
-  echo "ERROR: wrong shift accepted against independent A2" >&2
-  exit 1
-fi
-grep -q '^REPLAY_NEWTON_MATRIX mode=inplace_diag_shift shift=1' wrong_shift.log
-if LIS_MFAMG_REPLAY_NEXT_B=nonexistent.mtx \
-    "$exe" A4.mtx b1.mtx modes.mtx > missing_b2.log 2>&1; then
-  echo "ERROR: missing second RHS passed" >&2
-  exit 1
-fi
-grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' missing_b2.log
 echo MFAMG_V8_CROSS_OPERATOR_REJECT_AND_TRANSPORT_OK
