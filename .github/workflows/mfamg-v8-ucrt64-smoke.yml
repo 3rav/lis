@@ -364,13 +364,14 @@ jobs:
           ../configure --enable-shared --disable-complex --disable-mpi --disable-test
           make -j2
           make -C test mfamgreplay
-          test -s test/.libs/mfamgreplay
+          # Libtool wrapper configures the dynamic-library lookup path.
+          test -s test/mfamgreplay
       - name: Require cross-operator REJECT and same-object KEEP/TRANSPORT
         run: |
           set -euo pipefail
           bash -n test/mfamg_v8_cross_operator_smoke.sh
           bash test/mfamg_v8_cross_operator_smoke.sh \
-            "$PWD/build-linux/test/.libs/mfamgreplay" \
+            "$PWD/build-linux/test/mfamgreplay" \
             "$PWD/build-linux/cross-operator-smoke"
       - name: Archive public synthetic Linux replay logs
         if: always()
