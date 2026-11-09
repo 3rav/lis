@@ -22,13 +22,13 @@ method=os.environ.get("LIS_MFAMG_REPLAY_METHOD")
 v7=Path(sys.argv[0]).name=="mock_v7.py"
 if v7:
     assert method is None
-    print("REPLAY n=24 nnz=70 modes=2 restart=180 maxiter=3000 tol=1e-5")
+    print("REPLAY n=24 nnz=70 modes=2 restart=180 maxiter=%s tol=1e-5" % os.environ.get("LIS_MFAMG_REPLAY_MAXITER"))
 else:
     assert method in ("fgmres","fgcrodr")
     announced="fgmres" if os.environ.get("MOCK_BAD_METHOD")=="1" else method
-    print("REPLAY n=24 nnz=70 modes=2 restart=180 maxiter=3000 tol=1e-5 method=%s recycle_k=%d" % (announced,8 if method=="fgcrodr" else 0))
+    print("REPLAY n=24 nnz=70 modes=2 restart=180 maxiter=%s tol=1e-5 method=%s recycle_k=%d" % (os.environ.get("LIS_MFAMG_REPLAY_MAXITER"),announced,8 if method=="fgcrodr" else 0))
 assert os.environ.get("LIS_UNWANTED_FLAG") is None
-assert os.environ.get("LIS_MFAMG_REPLAY_MAXITER")=="3000"
+assert os.environ.get("LIS_MFAMG_REPLAY_MAXITER") in ("3000","6000")
 if os.environ.get("MOCK_MUTATE")=="1":
     Path(sys.argv[2]).write_text("changed\n")
 if method=="fgcrodr":
@@ -70,6 +70,20 @@ PY
 call "$tmp/v7" --exe-v7 "$tmp/mock_v7.py" > "$tmp/v7.out"
 grep -q 'V8_SOLVER_PAIR_ASSESSMENT=MATCHED_CONVERGED' "$tmp/v7.out"
 grep -q 'historical_v7_binary' "$tmp/v7/assessment.json"
+# An identical larger MAXITER cap must reach BOTH solver variants.
+call "$tmp/extended" --maxiter 6000 > "$tmp/extended.out"
+grep -q 'V8_SOLVER_PAIR_ASSESSMENT=MATCHED_CONVERGED' "$tmp/extended.out"
+python3 - "$tmp/extended/manifest.json" "$tmp/extended/paired_runs.csv" <<'PY'
+import json,csv,sys
+from pathlib import Path
+m=json.loads(Path(sys.argv[1]).read_text())
+assert m["maxiter"]==6000
+assert m["common_LIS_environment"]["LIS_MFAMG_REPLAY_MAXITER"]=="6000"
+assert len(list(csv.DictReader(Path(sys.argv[2]).open())))==6
+PY
+if call "$tmp/badlimit" --maxiter 6001 > "$tmp/badlimit.out" 2>&1; then exit 1; fi
+grep -q 'maxiter 100..6000' "$tmp/badlimit.out"
+test ! -e "$tmp/badlimit"
 if call "$tmp/duplicate" --exe-v7 "$tmp/mock.py" > "$tmp/duplicate.out" 2>&1; then exit 1; fi
 grep -q 'all paths must refer to distinct files' "$tmp/duplicate.out"
 if call "$tmp/ok" > "$tmp/existing.out" 2>&1; then exit 1; fi
