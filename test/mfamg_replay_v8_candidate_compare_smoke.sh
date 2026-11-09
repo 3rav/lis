@@ -32,7 +32,10 @@ if os.environ.get("LIS_FORBIDDEN_AMBIENT"):
 isgen = modefile == "generated.mtx"
 isoff = modefile == "offline.mtx"
 modes = 18 if isoff else 14 if isgen else 12
-print("REPLAY n=24 nnz=24 modes=%d restart=180 maxiter=3000 tol=1e-5 method=fgcrodr recycle_k=8" % modes)
+header = "REPLAY n=24 nnz=24 modes=%d restart=180 maxiter=3000 tol=1e-5 method=fgcrodr recycle_k=8" % modes
+if os.environ.get("MOCK_BAD_TOL") == "1":
+    header = header.replace("tol=1e-5", "tol=2e-5")
+print(header)
 if os.environ.get("MOCK_MISSING") == "1" and isgen:
     sys.exit(1)
 fail = (not isgen and not isoff) or (
@@ -105,4 +108,10 @@ fi
 grep -q 'V8_CANDIDATE_ERROR=expected exactly one' "$tmp/missing.out"
 test -s "$tmp/missing/candidate_runs.csv"
 test -s "$tmp/missing/rep01_run2_generated14.log"
+if MOCK_BAD_TOL=1 call "$tmp/wrong_tol" > "$tmp/wrong_tol.out" 2>&1; then
+  echo "ERROR: mismatched candidate replay tolerance was accepted" >&2
+  exit 1
+fi
+grep -q 'V8_CANDIDATE_ERROR=unexpected replay tolerance' "$tmp/wrong_tol.out"
+test -s "$tmp/wrong_tol/candidate_runs.csv"
 echo V8_CANDIDATE_COMPARISON_SMOKE_OK
