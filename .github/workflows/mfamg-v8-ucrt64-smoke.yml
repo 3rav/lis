@@ -228,7 +228,17 @@ jobs:
           # A2 is a distinct matrix object: old recycle space MUST
           # be rejected rather than quietly reused with stale A1*Z.
           grep -q '^REPLAY_NEWTON_MATRIX mode=separate_object' newton_same_solver.log
-          grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=0 keeps_delta=0 transports_delta=0 rejects_delta=[1-9][0-9]* LIS_MFAMG_REPLAY_NEXT_B
+          grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=0 keeps_delta=0 transports_delta=0 rejects_delta=[1-9][0-9]*$' newton_same_solver.log
+          # Positive control: same matrix object, same sparsity pattern,
+          # but explicitly changed value_generation. This must exercise
+          # KEEP or TRANSPORT (real cross-operator Z reuse).
+          LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1 \
+            "$exe" A.mtx b_hard.mtx modes.mtx > newton_inplace_solver.log 2>&1
+          grep -q '^REPLAY_NEWTON_MATRIX mode=inplace_diag_shift shift=-1' newton_inplace_solver.log
+          grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' newton_inplace_solver.log
+          grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' newton_inplace_solver.log
+          grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=[1-9][0-9]* ' newton_inplace_solver.log
+          unset LIS_MFAMG_REPLAY_NEXT_A LIS_MFAMG_REPLAY_NEXT_B
           "$exe" A_newton2.mtx b_newton2.mtx modes.mtx > newton_fresh_solver.log 2>&1
           grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_fresh_solver.log
           # Avoid relying on Python in the Windows UCRT64 runner.
