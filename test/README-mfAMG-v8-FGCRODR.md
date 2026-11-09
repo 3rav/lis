@@ -828,6 +828,50 @@ second true residual. The CI generator constructs exactly
 `NEXT_A=A1+I`. This path MUST demonstrate positive
 `cross_uses_delta` and valid A2 Z=C, or the regression fails.
 
+### Exact local graph preflight before running private Newton A1/A2 replay
+
+A **read-only, no-solve** preflight is available in the experimental
+`mfamgreplay` binary. It uses the **same exact CSR compatibility
+check** as the opt-in value replacement, on matrices *after*
+`lis_input_matrix` imports them. Unlike comparisons of the raw
+Matrix Market coordinate lines, it checks the precise `ptr[]` and
+`index[]` layout that FGCRO-DR will see.
+
+    "$HOME/lis-v8/bin6000/mfamgreplay.exe" --compare-csr \
+      "$HOME/mfamg_replay/challenge_31/A04.mtx" \
+      "/PRIVATE/REAL/A_next.mtx"
+
+The second path is a **placeholder**; use a locally existing,
+authentic next Newton/contact matrix. This mode requires only
+two matrix files: no RHS, modes or solver configuration. It does
+not solve equations, copy matrix values, modify files or upload
+any content. Positive stdout is formatted:
+
+    REPLAY_CSR_COMPARE compatible=1 n=N nnz=NNZ changed_nnz=K
+
+The command returns **0 only when** both imported operators are
+owned, unscaled, unsplit, finite real CSR with exactly identical
+dimensions, number of entries, row pointers and column indices
+(including column ordering), and at least **one changed value**.
+Failure produces a diagnostic and a **nonzero** exit code; missing
+files, changed sparsity, or an unchanged A2 must not pass. This
+is a strict sufficient test, not a claim that the matrices are
+mathematically dissimilar when CSR indices differ merely in order.
+The actual replay will repeat the same guard before updating values.
+
+Run this preflight *before* choosing
+`LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES=1`; if it fails, do **not**
+force a keep/transport by pretending graphs match. Use the
+separate-object/rebuild control. Even a successful preflight is
+only structural eligibility, not proof of FGCRO-DR cross-step
+convergence or an (AZ=C) bound. Those require the subsequent
+independent A2 residual and recycle-validation checks.
+
+The Linux and Windows synthetic CI require a positive preflight;
+Linux additionally verifies a same-size mismatched column graph,
+unchanged A, and missing A2 all cause errors. All private graph
+diagnostics and inputs remain **local only**.
+
 ### General same-graph CSR A1→A2 value replacement (opt-in)
 
 The experimental replay now also accepts:
