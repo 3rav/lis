@@ -1083,6 +1083,64 @@ Public CI uses a fully mock, synthetic three-snapshot CSV and covers
 same-graph transfer, changed-graph REJECT, fresh controls, MAXITER,
 malformed preflight, forbidden input changes, and non-overwriting.
 
+### Three genuinely consecutive linear systems in the SAME solver
+
+The opt-in C replay also accepts a third operator and RHS via
+`LIS_MFAMG_REPLAY_THIRD_A` and `LIS_MFAMG_REPLAY_THIRD_B` (both
+required). It uses **one LIS_SOLVER through all THREE solves**
+A1→A2→A3, not separate processes for the second/third steps.
+If third A3 has the same exactly checked CSR graph as the matrix
+actually used on step 2, opt in to
+`LIS_MFAMG_REPLAY_THIRD_REPLACE_VALUES=1` to update that SAME
+matrix object in place (including changed off-diagonals) and mark
+its numerical value generation. With a different graph, omit this
+flag: A3 becomes a separate LIS_MATRIX, allowing FGCRO-DR's
+policy to explicitly REJECT stale Z/C. **Never override a negative
+CSR graph preflight.**
+
+The program prints `REPLAY_SEQUENCE_MATRIX step=3`,
+`REPLAY_SEQUENCE_STEP step=3`,
+`REPLAY_SEQUENCE_RECYCLE_CHECK step=3`,
+`REPLAY_SEQUENCE_POLICY step=3` and
+`REPLAY_SEQUENCE_RESULT step=3`. The third true residual
+is computed against an independently imported A3. Any failure
+of a preceding solve, the third solver, AZ=C check, finite
+residual or tolerance makes the entire invocation fail.
+Synthetic Linux ASan and Windows UCRT64 checks exercise
+both 3-step KEEP and graph-change REJECT.
+
+A second LOCAL Python runner automates this over a genuine private
+Newton snapshot CSV (same 3-column format as above):
+
+```bash
+python3 test/mfamg_v8_triplet_windows.py \
+  --exe "$HOME/lis-v8/bin6000/mfamgreplay.exe" \
+  --modes "/PRIVATE/REAL/12plus6_modes.mtx" \
+  --snapshots "/PRIVATE/REAL/newton_steps.csv" \
+  --out-dir "/PRIVATE/REAL/v8_triplets_NEW" \
+  --fresh-third
+```
+
+Each adjacent three-row window: checks CSR for BOTH graph
+transitions using the *real LIS importer*, chooses separate-object
+REJECT or in-place value replacement separately for steps 2 and 3,
+executes **one persistent three-step solver**, verifies each
+step's status and independent true residual, checks the step-2
+and step-3 recycle relation and policy, and optionally solves
+A3 afresh in a separate process for validation. Logs and SHA-256
+provenance stay local; failed windows are journaled in
+`triplets.csv` and `summary.json`. It refuses existing output
+directories, detects changed input files, and normally stops on
+first failure. Use `--continue-on-failure` for diagnostics and
+`--max-windows N` to limit costly runs (default: all windows).
+
+`PERSISTENT_TRIPLETS_PASS` means only that every measured
+THREE-step window met its numerical checks. **Each overlapping
+window still starts a NEW process**; it is not an unbroken N-step
+trajectory through the actual nonlinear CCX/Newton state, nor
+evidence of speedup. In particular, real step ordering and changed
+contact topology must be verified before drawing conclusions.
+
 ### Upstream FGCRO-DR reconciliation (review gate, not a merge)
 
 The research PR #47 deliberately predates standalone LIS solver work
