@@ -743,11 +743,19 @@ Run this command **locally** in MSYS2 UCRT64 (no other data needed):
       git show "refs/remotes/origin/$BRANCH:test/mfamg_v8_31_upstream214_one_shot.sh" | bash
     )
 
-The script fails closed if any of the target source/build/output
-paths already exists: `src-v8-upstream214-20261109`,
-`build-v8-upstream214-20261109`,
-`v8_fgmres_vs_fgcrodr_31_upstream214_20261109` (all below
-`$HOME/mfamg_replay`). It does not overwrite them or delete files.
+Windows/MSYS2 recovery (2026-11-09): the first attempt stopped
+during Git archive extraction because tracked `COPYING` is a symlink
+to `LICENSE` and the Windows tar could not create it. It did **not**
+compile or run benchmarks. The script now excludes the `COPYING`
+archive entry and creates a regular `COPYING` file from the complete
+`LICENSE` text; the UCRT64 CI explicitly regression-tests this.
+The partially extracted original directory is **not removed, modified
+or overwritten**. The retry exclusively uses three **new** paths:
+`src-v8-upstream214-20261109-winfix1`,
+`build-v8-upstream214-20261109-winfix1` and
+`v8_fgmres_vs_fgcrodr_31_upstream214_20261109-winfix1`, all beneath
+`$HOME/mfamg_replay`. The script fails closed if any of these exist;
+no `rm`, `git clean`, `reset` or existing-output overwrite is used.
 To review its source without running, replace `| bash` with
 `> /some/new/path` (only if that output path does not already exist).
 
@@ -770,8 +778,9 @@ which it labels separately and checks for the genuinely older log
 format. An EXE with v8 `method=` header is rejected when supplied
 as the alleged historical v7 baseline.
 
-Run **locally** in UCRT64, not in CI, using the already compiled v8
-executable and the previously verified private inputs:
+For manual reruns **only after the one-shot above successfully builds
+the new upstream-#214 executable**, use UCRT64 and a unique NEW
+output directory; do not use the earlier pre-upstream EXE:
 
     cd "$HOME/lis-v8"
     ROOT="$HOME/mfamg_replay"
