@@ -63,8 +63,8 @@ assert all(r["converged"]=="1" for r in rows)
 assert len(list(p.glob("*.log")))==6
 d=json.loads((p/"assessment.json").read_text())
 assert d["baseline_type"]=="same_v8_binary_fgmres"
-assert d["median_paired_v8_wall_reduction_percent"]==20
-assert d["v8_wall_reduction_percent_from_separate_medians"]==20
+assert abs(d["median_paired_v8_wall_reduction_percent"]-20) < 1e-10
+assert abs(d["v8_wall_reduction_percent_from_separate_medians"]-20) < 1e-10
 assert d["metrics"]["fgcrodr_v8"]["median_iterations"]==60
 PY
 call "$tmp/v7" --exe-v7 "$tmp/mock_v7.py" > "$tmp/v7.out"
