@@ -52,10 +52,11 @@ jobs:
             --enable-half --disable-longdouble --enable-quad \
             --disable-complex --disable-mpi --disable-test --with-gnu-ld
           make -j2
-          make -C test mfamgreplay.exe testmfamgmodes.exe
+          make -C test mfamgreplay.exe testmfamgmodes.exe testmfamgv8maxiter.exe
           file test/.libs/mfamgreplay.exe
           test -s test/.libs/mfamgreplay.exe
           ./test/testmfamgmodes.exe
+          ./test/testmfamgv8maxiter.exe
       - name: Check opt-in extended replay iteration limit (no contact data)
         run: |
           set -euo pipefail
@@ -447,7 +448,7 @@ jobs:
             CFLAGS="-O1 -g -fsanitize=address -fno-omit-frame-pointer" \
             LDFLAGS="-fsanitize=address"
           make -j2
-          make -C test mfamgreplay
+          make -C test mfamgreplay testmfamgv8maxiter
           # Libtool wrapper configures the dynamic-library lookup path.
           test -s test/mfamgreplay
       - name: Require cross-operator REJECT and same-object KEEP/TRANSPORT
@@ -458,6 +459,17 @@ jobs:
           bash test/mfamg_v8_cross_operator_smoke.sh \
             "$PWD/build-linux/test/mfamgreplay" \
             "$PWD/build-linux/cross-operator-smoke"
+      - name: Check active FGCRODR MAXITER workspace cleanup with LeakSanitizer
+        run: |
+          set -euo pipefail
+          export ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:abort_on_error=1:print_stacktrace=1"
+          export LSAN_OPTIONS="exitcode=23"
+          ./build-linux/test/testmfamgv8maxiter > build-linux/maxiter-lsan.log 2>&1 || {
+            cat build-linux/maxiter-lsan.log
+            exit 1
+          }
+          grep -q 'FGCRODR_ACTIVE_MAXITER_CLEANUP_OK' build-linux/maxiter-lsan.log
+          cat build-linux/maxiter-lsan.log
       - name: Archive public synthetic Linux replay logs
         if: always()
         uses: actions/upload-artifact@v4
