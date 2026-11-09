@@ -28,7 +28,7 @@ FIELDS = ("pair", "sequence", "variant", "n", "nnz", "modes",
           "rejects", "orth_error", "relation_error", "log_file")
 
 
-def baseline_parse(output, exit_code, tol, logfile, expected_modes, historical_v7):
+def baseline_parse(output, exit_code, tol, logfile, expected_modes, historical_v7, maxiter=3000):
     """A v7 replay does NOT print method/recycle fields; v8 FGMRES does."""
     groups = {tag: [] for tag in ("REPLAY", "REPLAY_RESULT",
                                    "REPLAY_RECYCLE_STATS", "REPLAY_RECYCLE_CHECK")}
@@ -48,7 +48,7 @@ def baseline_parse(output, exit_code, tol, logfile, expected_modes, historical_v
     n, nnz, modes = (integer(h, key) for key in ("n", "nnz", "modes"))
     declared_tol = real(h, "tol")
     if (n <= 0 or nnz <= 0 or modes != expected_modes or
-            integer(h, "restart") != 180 or integer(h, "maxiter") != 3000 or
+            integer(h, "restart") != 180 or integer(h, "maxiter") != maxiter or
             not math.isclose(declared_tol, tol, rel_tol=1e-12, abs_tol=0.0)):
         raise ValueError("unexpected FGMRES control configuration")
     rc, status, iters = (integer(rr, key) for key in ("solve_rc", "status", "iter"))
@@ -120,12 +120,13 @@ def main():
     p.add_argument("--exe-v7", type=Path, help="Optional true v7 FGMRES binary; default uses v8 FGMRES")
     p.add_argument("--expected-modes", type=int, default=18)
     p.add_argument("--pairs", type=int, default=3)
+    p.add_argument("--maxiter", type=int, default=3000, help="Common FGMRES/FGCRODR MAXITER (100..6000)")
     p.add_argument("--tol", type=float, default=1e-5)
     p.add_argument("--require-both-converged", action="store_true")
     a = p.parse_args()
-    if not (1 <= a.pairs <= 30 and 1 <= a.expected_modes <= 256 and
+    if not (1 <= a.pairs <= 30 and 100 <= a.maxiter <= 6000 and 1 <= a.expected_modes <= 256 and
             math.isfinite(a.tol) and 0 < a.tol < 1):
-        p.error("pairs must be 1..30, expected modes 1..256, tol finite in (0,1)")
+        p.error("pairs 1..30, maxiter 100..6000, expected modes 1..256, tol finite in (0,1)")
     try:
         paths = dict(exe_v8=a.exe_v8, matrix=a.matrix, rhs=a.rhs, modes=a.modes)
         if a.exe_v7 is not None:
@@ -151,12 +152,13 @@ def main():
                               "LIS_FGCRODR_INTRA_SOLVE_RECYCLE",
                               "LIS_FGCRODR_INTRA_TRACE",
                               "LIS_MFAMG_REPLAY_VALIDATE_RECYCLE")}
+        fixed["LIS_MFAMG_REPLAY_MAXITER"] = str(a.maxiter)
         cfg = {k: v for k, v in os.environ.items() if not k.startswith("LIS_")}
         manifest = dict(
             schema="mfamg-fgmres-vs-fgcrodr-paired-v1",
             inputs_sha256_and_size=hashes,
             baseline_type="historical_v7_binary" if a.exe_v7 else "same_v8_binary_fgmres",
-            pairs=a.pairs, expected_modes=a.expected_modes, mode_rows=n,
+            pairs=a.pairs, expected_modes=a.expected_modes, maxiter=a.maxiter, mode_rows=n,
             tolerance=a.tol, common_LIS_environment=fixed,
             experiment="single_fixed_A_b; independent fresh processes; no Newton",
             note="Private matrix/modes/logs remain local; do not upload",
@@ -194,10 +196,11 @@ def main():
                     assert_inputs_unchanged(paths, hashes)
                     if variant == "fgcrodr_v8":
                         row = parse(result.stdout, result.returncode, a.tol, logfile,
-                                    a.expected_modes)
+                                    a.expected_modes, maxiter=a.maxiter)
                     else:
                         row = baseline_parse(result.stdout, result.returncode, a.tol,
-                                             logfile, a.expected_modes, a.exe_v7 is not None)
+                                             logfile, a.expected_modes, a.exe_v7 is not None,
+                                             maxiter=a.maxiter)
                     if row["n"] != n or (rows and (row["n"], row["nnz"]) !=
                                          (rows[0]["n"], rows[0]["nnz"])):
                         raise ValueError("inconsistent imported matrix dimensions/nnz")
