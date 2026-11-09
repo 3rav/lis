@@ -594,7 +594,7 @@ pairs using the same environment, changing only the mode file:
       --matrix "$HOME/mfamg_replay/challenge_31/A04.mtx" \
       --rhs "$HOME/mfamg_replay/challenge_31/b04.mtx" \
       --modes-17 "$HOME/mfamg_replay/v8_mode_audit/loo/modes_omit_ritz_01.mtx" \
-      --modes-18 "$HOME/mfamg_replay/v8_mode_audit/modes_all_ritz.mtx" \
+      --modes-18 "$HOME/mfamg_replay/v8_mode_audit/ritz/modes_all_ritz.mtx" \
       --out-dir "$HOME/mfamg_replay/v8_mode_audit/repeats_17v18_NEW" \
       --pairs 3 --require-converged
 
