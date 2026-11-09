@@ -602,9 +602,27 @@ The order is 17/18, 18/17, 17/18. Outputs stay local,
 in a newly created output directory: per-run logs, matched_runs.csv
 and assessment.json. The parser rejects malformed/missing results,
 nonfinite values and contradictions between exit code/status.
-It reports matching timing medians **only if every run converged**
-with acceptable true residual and algebraic recycle validation.
-No claim of statistical significance follows from three pairs.
+It also verifies the replay header (17 or 18 modes, FGCRO-DR k=8,
+restart=180, maxiter=3000), stable matrix dimensions/NNZ across runs,
+and **actual recycle activity** (builds, updates and uses >= 1).
+Passing an AZ=C check with an empty/unused recycle basis is not enough.
+Only a positive wall time, status=0, true residual <= tolerance and
+passing recycle algebra count as a converged benchmark observation.
+
+The CSV is written incrementally after each completed solve. If a later
+replay crashes, has malformed output or is interrupted, earlier local
+rows and all completed per-run logs remain in the dedicated output
+directory. Do not resume by overwriting it; create a new directory
+for a new comparable measurement series.
+
+In addition to separate 17/18 median wall times, assessment.json
+contains the per-pair 17-vs-18 relative wall reductions and their
+median; these paired statistics are defined **only when all paired
+runs pass**. An INCONCLUSIVE result never counts as a timing
+win. The paired estimator reduces some order bias but is not
+a confidence interval or evidence of a statistically significant
+speedup with three pairs. None of these enhancements establishes
+changed-operator/Newton-step behavior.
 
 ### Automatic candidate mode experiment, WITHOUT offline enrichment
 
