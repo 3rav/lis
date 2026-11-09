@@ -1249,6 +1249,34 @@ trajectory through the actual nonlinear CCX/Newton state, nor
 evidence of speedup. In particular, real step ordering and changed
 contact topology must be verified before drawing conclusions.
 
+### v8 MAXITER/LSan and zero-recycle regression safeguards
+
+A separate `test/testmfamgv8maxiter.c` target (based on the
+standalone regression in upstream anishida/lis#213, but named separately
+to avoid duplicating its future upstream test target) forces two solves
+in the same LIS solver: first a converged solve that builds a nonempty
+recycling basis, then a deliberate ordinary MAXITER exit with that
+basis active. It verifies active use, nonzero remaining residual and
+recycle algebra. The Linux synthetic C job runs this executable under
+**ASan + LeakSanitizer with `detect_leaks=1`**, so a leaked `bcoef`
+workspace fails CI. The Windows UCRT64 job also runs the same C
+functional regression, without claiming Windows LeakSanitizer support.
+
+A separate zero-recycle sentinel tests
+`LIS_MFAMG_REPLAY_METHOD=fgcrodr`,
+`LIS_MFAMG_REPLAY_RECYCLE_DIM=0`,
+`LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1` on a synthetic indefinite
+operator against normal FGMRES/k=0. The intra-solve code now treats
+k=0 as a no-op rather than allocating zero bytes for its B
+coefficient workspace (which is allocator-dependent). The complete
+`REPLAY_RESULT` numerical signature, other than wall time, must
+match FGMRES. This is a small experimental fail-safe, **not**
+reconciliation with upstream #214's per-solver option interface.
+
+These synthetic checks do not establish a contact speedup or substitute
+for true consecutive Newton data. PR remains Draft until the separate
+real-data and upstream review gates are addressed.
+
 ### Upstream FGCRO-DR reconciliation (review gate, not a merge)
 
 The research PR #47 deliberately predates standalone LIS solver work
