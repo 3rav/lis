@@ -113,14 +113,15 @@ static int check_changed_operator(LIS_MATRIX A1, LIS_VECTOR b)
     LIS_MATRIX A2=NULL,stored=NULL;
     LIS_VECTOR x=NULL,ax=NULL;
     LIS_SOLVER solver=NULL;
-    LIS_INT err=0,i,valid=0,failed=1;
+    LIS_INT err=0,i,is=0,ie=0,valid=0,failed=1;
     LIS_UNSIGNED_INT sg=0,vg=0;
     LIS_REAL orth=0.0,relation=0.0,rnorm=0.0,bnorm=0.0;
 
     if(set_intra(1)) goto done;
     if((err=lis_matrix_create(LIS_COMM_WORLD,&A2))) goto done;
     if((err=lis_matrix_set_size(A2,0,N))) goto done;
-    for(i=0;i<N;i++)
+    if((err=lis_matrix_get_range(A2,&is,&ie))) goto done;
+    for(i=is;i<ie;i++)
     {
         if((err=lis_matrix_set_value(LIS_INS_VALUE,i,i,4.25,A2)))
             goto done;
@@ -189,11 +190,12 @@ int main(int argc, char **argv)
 {
     LIS_MATRIX A=NULL;
     LIS_VECTOR u=NULL,b=NULL;
-    LIS_INT rc=0,i,failed=1;
+    LIS_INT rc=0,i,is=0,ie=0,failed=1;
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS) return 1;
     if((rc=lis_matrix_create(LIS_COMM_WORLD,&A))) goto done;
     if((rc=lis_matrix_set_size(A,0,N))) goto done;
-    for(i=0;i<N;i++)
+    if((rc=lis_matrix_get_range(A,&is,&ie))) goto done;
+    for(i=is;i<ie;i++)
     {
         if((rc=lis_matrix_set_value(LIS_INS_VALUE,i,i,4.0,A)))
             goto done;
@@ -208,8 +210,8 @@ int main(int argc, char **argv)
     if((rc=lis_matrix_assemble(A))) goto done;
     if((rc=lis_vector_duplicate(A,&u))) goto done;
     if((rc=lis_vector_duplicate(A,&b))) goto done;
-    for(i=0;i<N;i++)
-        u->value[i]=(LIS_SCALAR)(((i*37)%23)-11.0);
+    for(i=0;i<u->n;i++)
+        u->value[i]=(LIS_SCALAR)((((u->is+i)*37)%23)-11.0);
     if((rc=lis_matvec(A,u,b))) goto done;
     if(solve_one(A,b,0) || solve_one(A,b,1)) goto done;
     if(check_changed_operator(A,b)) goto done;

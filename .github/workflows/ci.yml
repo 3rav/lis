@@ -166,6 +166,7 @@ jobs:
         run: |
           mpiexec -n 2 ./test/testmatrixoperatormpi
           mpiexec -n 2 ./test/testvectornrm2mpi
+          mpiexec -n 2 ./test/testfgcrodrintra
 
       - name: Upload failed test logs
         if: failure()
