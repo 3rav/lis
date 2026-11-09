@@ -55,6 +55,13 @@ grep -q 'output directory already exists' "$tmp/dup.out"
 if MOCK_MAXITER=1 call "$tmp/maxiter" > "$tmp/max.out" 2>&1; then exit 1; fi
 grep -q 'V8_REPEAT_ASSESSMENT=INCONCLUSIVE_NONCONVERGENCE' "$tmp/max.out"
 test -s "$tmp/maxiter/matched_runs.csv"
+python3 - "$tmp/maxiter/assessment.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert data["medians"]["all18"]["median_wall_seconds"] is None
+assert data["medians"]["omit01_17"]["median_wall_seconds"] is None
+assert data["paired_median_wall_reduction_percent"] is None
+PY
 if MOCK_MISSING=1 call "$tmp/missing" > "$tmp/missing.out" 2>&1; then exit 1; fi
 grep -q 'V8_REPEAT_ERROR=expected exactly one' "$tmp/missing.out"
 if MOCK_NO_REUSE=1 call "$tmp/inactive" > "$tmp/inactive.out" 2>&1; then exit 1; fi
