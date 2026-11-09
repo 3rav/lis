@@ -33,7 +33,7 @@ ENV = {
     "LIS_MFAMG_REPLAY_RESTART": "180",
     "LIS_MFAMG_REPLAY_MAXITER": "3000",
 }
-FIELDS = ("pair", "sequence", "variant", "process_exit", "solve_rc", "status",
+FIELDS = ("pair", "sequence", "variant", "n", "nnz", "modes", "process_exit", "solve_rc", "status",
           "iter", "true_relative", "wall_seconds", "builds", "updates",
           "uses", "rejects", "orth_error", "relation_error",
           "converged", "log_file")
@@ -67,15 +67,21 @@ def real(data, key):
     return value
 
 
-def parse(text, exit_code, tol, log):
-    groups = {name: [] for name in ("REPLAY_RESULT", "REPLAY_RECYCLE_STATS",
+def parse(text, exit_code, tol, log, expected_modes):
+    groups = {name: [] for name in ("REPLAY", "REPLAY_RESULT", "REPLAY_RECYCLE_STATS",
                                     "REPLAY_RECYCLE_CHECK")}
     for line in text.splitlines():
         for name in groups:
             if line.startswith(name + " "):
                 groups[name].append(kv(line))
     if any(len(group) != 1 for group in groups.values()):
-        raise ValueError("expected exactly one REPLAY_RESULT, REPLAY_RECYCLE_STATS and REPLAY_RECYCLE_CHECK")
+        raise ValueError("expected exactly one REPLAY header, REPLAY_RESULT, REPLAY_RECYCLE_STATS and REPLAY_RECYCLE_CHECK")
+    hdr = groups["REPLAY"][0]
+    n, nnz, modes = (integer(hdr, k) for k in ("n", "nnz", "modes"))
+    if (n <= 0 or nnz <= 0 or modes != expected_modes or
+            hdr.get("method") != "fgcrodr" or integer(hdr, "recycle_k") != 8 or
+            integer(hdr, "restart") != 180 or integer(hdr, "maxiter") != 3000):
+        raise ValueError("unexpected replay configuration (matrix/modes/solver)")
     rr = groups["REPLAY_RESULT"][0]
     st = groups["REPLAY_RECYCLE_STATS"][0]
     va = groups["REPLAY_RECYCLE_CHECK"][0]
@@ -84,21 +90,32 @@ def parse(text, exit_code, tol, log):
     orth, relation = real(va, "orth_error"), real(va, "relation_error")
     if exit_code not in (0, 1) or (exit_code == 0 and status != 0):
         raise ValueError("inconsistent/unexpected process exit or status")
-    converged = (exit_code == 0 and status == 0 and rc == 0 and iterations >= 0
-                 and 0 <= residual <= tol and wall >= 0 and integer(va, "rc") == 0
-                 and 0 <= orth <= 1e-8 and 0 <= relation <= 1e-8)
-    return dict(process_exit=exit_code, solve_rc=rc, status=status, iter=iterations,
+    builds, updates, uses, rejects = (
+        integer(st, k) for k in ("builds", "updates", "uses", "rejects"))
+    if min(builds, updates, uses, rejects) < 0:
+        raise ValueError("negative recycling counter")
+    # A zero-dimensional/unused space can trivially satisfy algebra checks:
+    # it must never be counted as positive evidence of intra-solve recycling.
+    converged = (exit_code == 0 and status == 0 and rc == 0 and iterations > 0
+                 and 0 <= residual <= tol and wall > 0 and integer(va, "rc") == 0
+                 and 0 <= orth <= 1e-8 and 0 <= relation <= 1e-8
+                 and builds >= 1 and updates >= 1 and uses >= 1)
+    return dict(n=n, nnz=nnz, modes=modes,
+                process_exit=exit_code, solve_rc=rc, status=status, iter=iterations,
                 true_relative=residual, wall_seconds=wall,
-                builds=integer(st, "builds"), updates=integer(st, "updates"),
-                uses=integer(st, "uses"), rejects=integer(st, "rejects"),
+                builds=builds, updates=updates, uses=uses, rejects=rejects,
                 orth_error=orth, relation_error=relation,
                 converged=int(converged), log_file=log)
 
 
-def assess(rows):
+def assess(rows, expected_pairs):
     groups = {name: [r for r in rows if r["variant"] == name]
               for name in ("omit01_17", "all18")}
-    complete = bool(rows) and len(groups["omit01_17"]) == len(groups["all18"])
+    complete = (len(rows) == 2 * expected_pairs
+                and all(sum(r["pair"] == p and r["sequence"] in (1, 2)
+                            and r["variant"] == v for r in rows) == 1
+                        for p in range(1, expected_pairs + 1)
+                        for v in ("omit01_17", "all18")))
     accepted = complete and all(row["converged"] for row in rows)
     metrics = {}
     for name, group in groups.items():
@@ -115,7 +132,19 @@ def assess(rows):
     if accepted and metrics["all18"]["median_wall_seconds"] > 0:
         gain = 100.0 * (1.0 - metrics["omit01_17"]["median_wall_seconds"] /
                         metrics["all18"]["median_wall_seconds"])
+    paired_reductions = None
+    if accepted:
+        paired_reductions = []
+        for p in range(1, expected_pairs + 1):
+            t17 = next(r["wall_seconds"] for r in rows
+                       if r["pair"] == p and r["variant"] == "omit01_17")
+            t18 = next(r["wall_seconds"] for r in rows
+                       if r["pair"] == p and r["variant"] == "all18")
+            paired_reductions.append(100.0 * (1.0 - t17 / t18))
     return {
+        "paired_wall_reduction_percent_by_pair": paired_reductions,
+        "paired_median_wall_reduction_percent": (
+            statistics.median(paired_reductions) if paired_reductions is not None else None),
         "assessment": "MATCHED_CONVERGED" if accepted else "INCONCLUSIVE_NONCONVERGENCE",
         "medians": metrics,
         "omit01_vs_all18_percent_median_wall_reduction": gain,
@@ -147,29 +176,36 @@ def main():
         env.update(ENV)
         env.pop("LIS_MFAMG_MODES_EXPORT_PREFIX", None)
         rows = []
-        for pair in range(1, a.pairs + 1):
-            order = ("omit01_17", "all18") if pair % 2 else ("all18", "omit01_17")
-            for sequence, variant in enumerate(order, 1):
-                modes = a.modes_17 if variant == "omit01_17" else a.modes_18
-                logfile = "pair%02d_run%d_%s.log" % (pair, sequence, variant)
-                result = subprocess.run(
-                    [str(a.exe.resolve()), str(a.matrix.resolve()),
-                     str(a.rhs.resolve()), str(modes.resolve())],
-                    cwd=str(a.matrix.resolve().parent), env=env,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, errors="replace", check=False)
-                (a.out_dir / logfile).write_text(result.stdout, encoding="utf-8")
-                row = parse(result.stdout, result.returncode, a.tol, logfile)
-                row.update(pair=pair, sequence=sequence, variant=variant)
-                rows.append(row)
-                print("V8_REPEAT pair=%d case=%s status=%d iter=%d wall=%.3f converged=%d" %
-                      (pair, variant, row["status"], row["iter"],
-                       row["wall_seconds"], row["converged"]), flush=True)
+        # Journal completed runs immediately: a late failing replay must not
+        # discard evidence from earlier expensive, private local solves.
         with (a.out_dir / "matched_runs.csv").open("x", newline="", encoding="utf-8") as stream:
             writer = csv.DictWriter(stream, fieldnames=FIELDS)
             writer.writeheader()
-            writer.writerows(rows)
-        report = assess(rows)
+            stream.flush()
+            for pair in range(1, a.pairs + 1):
+                order = ("omit01_17", "all18") if pair % 2 else ("all18", "omit01_17")
+                for sequence, variant in enumerate(order, 1):
+                    modes = a.modes_17 if variant == "omit01_17" else a.modes_18
+                    logfile = "pair%02d_run%d_%s.log" % (pair, sequence, variant)
+                    result = subprocess.run(
+                        [str(a.exe.resolve()), str(a.matrix.resolve()),
+                         str(a.rhs.resolve()), str(modes.resolve())],
+                        cwd=str(a.matrix.resolve().parent), env=env,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True, errors="replace", check=False)
+                    (a.out_dir / logfile).write_text(result.stdout, encoding="utf-8")
+                    row = parse(result.stdout, result.returncode, a.tol, logfile,
+                                17 if variant == "omit01_17" else 18)
+                    if rows and (row["n"], row["nnz"]) != (rows[0]["n"], rows[0]["nnz"]):
+                        raise ValueError("matrix shape/nnz changed between paired runs")
+                    row.update(pair=pair, sequence=sequence, variant=variant)
+                    rows.append(row)
+                    writer.writerow(row)
+                    stream.flush()
+                    print("V8_REPEAT pair=%d case=%s status=%d iter=%d wall=%.3f converged=%d" %
+                          (pair, variant, row["status"], row["iter"],
+                           row["wall_seconds"], row["converged"]), flush=True)
+        report = assess(rows, a.pairs)
         report["pairs"] = a.pairs
         report["fixed_solver_environment"] = ENV
         (a.out_dir / "assessment.json").write_text(
