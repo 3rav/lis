@@ -475,6 +475,46 @@ and blocked pending online enrichment, repeated time measurements,
 and a changed-operator Newton sequence experiment.
 
 
+## Additional historical repeat of Ritz negative-only vs all-18 (private, earlier log)
+
+The user subsequently supplied terminal logs for another fixed 31-spring
+A04/b04 replay, using the already present Ritz-selected mode files. The
+attempted `mfamg_mode_ritz_selection.py` invocation printed
+`RITZ_SELECTION_ERROR=output files exist; choose a new empty output directory`.
+This is the intended non-overwrite safeguard: **those files were NOT
+regenerated** during the pasted session. Their contents/binary hashes
+were not independently re-verified from the terminal transcript.
+
+| Basis | Earlier wall_s | Additional wall_s | Status | Iter | True relative residual |
+| --- | ---: | ---: | --- | ---: | ---: |
+| 17 modes = baseline + five NEGATIVE Ritz; **omit direction 06** (+101.89) | 235.031 | 217.365 | 4 MAXITER (both) | 3001 | 4.193222729068e-5 |
+| 18 modes = all six rotated Ritz | 227.719 | 219.470 | 0 converged (both) | 2805 | 9.950907090924e-6 |
+
+The additional negative-only run had recycle builds=1, updates=16,
+uses=1, rejects=0; orth_error=9.769962616701e-15,
+relation_error=2.061032868769e-9. The additional 18-mode run had
+builds=1, updates=15, uses=1, rejects=0;
+orth_error=1.587618925214e-14,
+relation_error=7.848487326205e-9. Both passed algebra validation.
+The additional run returned process exit=1 for the 17-mode MAXITER
+case and exit=0 for the converged 18-mode case, consistent with
+solver status.
+
+Across these two reported historical runs, wall time changed by
+17.666 s (~7.5%) for the unconverged 17-mode case and 8.249 s
+(~3.6%) for the converged 18-mode case, while the recorded iteration
+counts and true residuals matched to the shown precision. The
+nonconverged run must never be ranked as a faster valid solution.
+The measured timing variation motivates matched, alternated-order
+benchmarking rather than any performance claim.
+
+**DO NOT CONFLATE** this 17-mode negative-only/omit-06 space with the
+separate 17-mode **omit-01** space, which converged at iteration 2833
+in a different single replay. The additional historical logs here
+do **not** satisfy the new omit01-vs-all18 matched three-pair gate:
+different 17-mode basis, no pair-order alternation, missing exact
+binary/mode provenance. No production or Newton-sequence evidence.
+
 ## Offline six-direction leave-one-out selection: five remaining cases
 
 The six independent extra Ritz directions on the 31-spring snapshot
