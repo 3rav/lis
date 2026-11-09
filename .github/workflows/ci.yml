@@ -151,7 +151,7 @@ jobs:
           ./configure --enable-test --disable-fortran --disable-f90 \
             --disable-saamg --disable-mpi --disable-omp \
             CC=gcc \
-            CFLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined" \
+            CFLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all" \
             LDFLAGS="-fsanitize=address,undefined"
       - name: Build the FGCRO-DR library and targeted regressions
         run: |

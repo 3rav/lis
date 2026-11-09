@@ -1,8 +1,6 @@
 # FGCRO-DR: experimental within-solve harmonic Ritz recycling
 
-**Status:** opt-in, technical review in progress ([PR #50](https://github.com/3rav/lis/pull/50)).
-The feature is independent of MFAMG and does not require offline
-near-nullspace vectors.
+This is an opt-in LIS FGCRO-DR feature, independent of MFAMG and offline near-nullspace vectors.
 
 ## Behavior
 
@@ -23,19 +21,28 @@ Use normal LIS options, e.g.:
 
     -i fgcrodr -p jacobi -fgcrodr_k 1 -restart 4 -maxiter 300 -tol 1e-5
 
-Process-wide environment variables (the feature switches are disabled
-by default):
+Per-solver LIS options are explicitly configured with `lis_solver_set_option`
+(e.g. `-fgcrodr_intra 1 -fgcrodr_projected_relative 1`).
+They are disabled by default; no process-global environment flags
+control these paths.
 
-| Variable | Value | Effect |
+| Solver option | Enabled value | Effect |
 | --- | --- | --- |
-| LIS_FGCRODR_INTRA_SOLVE_RECYCLE | 1 | Enable recycling on later Arnoldi restarts in one solve |
-| LIS_FGCRODR_INTRA_TRACE | 1 | Emit per-restart diagnostics when the above flag is also enabled |
-| LIS_FGMRES_PROJECTED_RELATIVE | 1 | Use relative projected-residual semantics; true residual still certifies success |
+| `-fgcrodr_intra` | 1 | Activate valid recycling on subsequent Arnoldi restarts |
+| `-fgcrodr_intra_trace` | 1 | Print restart diagnostics, including projected residual norm before and after |
+| `-fgcrodr_projected_relative` | 1 | Use relative projected-residual semantics; true residual remains authoritative |
 
-The standalone test enables projected-relative normalization **both**
-with intra-solve recycling ON and OFF. Therefore it does **not** prove
-anything about the isolated benefit of the normalization switch.
-Compare workloads only with equivalent normalization settings.
+All three accept only 0 or 1. They are stored in the individual solver's
+private FGCRO-DR state. Under MPI, the algorithm checks that all ranks
+agree on the mode switches before entering the Krylov core; mismatches
+return a deterministic error rather than risking divergent collectives.
+The settings must be configured coherently on all participating ranks.
+
+The standalone test sets projected-relative normalization **both**
+with intra-solve recycling ON and OFF, so it does **not** isolate that
+normalization switch's impact. Convergence requires the true residual.
+When tracing is enabled, the implementation checks that an orthogonal
+projection does not materially increase the residual norm.
 
 Recycled rank must remain smaller than restart size. Without the new
 intra-solve switch, historical cross-solve FGCRO-DR remains the default.
@@ -77,7 +84,7 @@ every memory or numerical problem has been excluded.
   distinct-object A1 -> A2 case exercises a separate invalidation path.
 - The manufactured A1 -> A2 sequence is **not** a CalculiX
   changing-contact Newton sequence.
-- The feature is a technical-review candidate, not a demonstrated
+- The feature is not a demonstrated
   general performance improvement; real application benchmarking,
   robustness review and further integration testing remain necessary.
 - Full contact replay and offline mode research stay in
@@ -111,3 +118,5 @@ The standalone test checks restart=4 with a rank-2 retained basis
 followed by restart=2 with rank-1 rebuilding, true residual and
 A*Z=C checks. This does not change the default behavior for valid
 recycle dimensions.
+
+The MPI regression intentionally applies conflicting per-rank intra-solve switches and verifies that the solve refuses to enter the numerical core rather than deadlocking.

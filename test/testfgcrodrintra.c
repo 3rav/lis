@@ -12,6 +12,9 @@
 #include "lis.h"
 #include "lis_solver.h"
 #include "lislib.h"
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
 
 #ifdef _COMPLEX
 int main(int argc, char **argv)
@@ -23,23 +26,14 @@ int main(int argc, char **argv)
 #else
 #define N 120
 
-static int set_intra(int enabled)
+/* Solver-specific options: do not modify global process environment. */
+static int set_intra(LIS_SOLVER solver, int enabled)
 {
-#ifdef _WIN32
-    if(_putenv(enabled
-        ? "LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1"
-        : "LIS_FGCRODR_INTRA_SOLVE_RECYCLE=0")!=0)
-        return 1;
-    if(_putenv("LIS_FGMRES_PROJECTED_RELATIVE=1")!=0)
-        return 1;
-#else
-    if(setenv("LIS_FGCRODR_INTRA_SOLVE_RECYCLE",
-              enabled ? "1" : "0",1)!=0)
-        return 1;
-    if(setenv("LIS_FGMRES_PROJECTED_RELATIVE","1",1)!=0)
-        return 1;
-#endif
-    return 0;
+    return lis_solver_set_option(
+        enabled
+        ? "-fgcrodr_intra 1 -fgcrodr_projected_relative 1 -fgcrodr_intra_trace 1"
+        : "-fgcrodr_intra 0 -fgcrodr_projected_relative 1",
+        solver)!=LIS_SUCCESS;
 }
 
 static int solve_one(LIS_MATRIX A, LIS_VECTOR b, int intra, int requested_k)
@@ -51,10 +45,10 @@ static int solve_one(LIS_MATRIX A, LIS_VECTOR b, int intra, int requested_k)
     LIS_REAL orth=0.0,relation=0.0,bnorm=0.0,rnorm=0.0;
     char opts[256];
     int failed=1;
-    if(set_intra(intra)) goto done;
     if((rc=lis_vector_duplicate(A,&x))) goto done;
     if((rc=lis_vector_duplicate(A,&ax))) goto done;
     if((rc=lis_solver_create(&solver))) goto done;
+    if(set_intra(solver,intra)) goto done;
     snprintf(opts,sizeof(opts),
         "-i fgcrodr -p jacobi -restart 2 -maxiter 300 "
         "-tol 1e-5 -fgcrodr_k %d -print none",requested_k);
@@ -119,7 +113,6 @@ static int check_changed_operator(LIS_MATRIX A1, LIS_VECTOR b)
     LIS_UNSIGNED_INT sg=0,vg=0;
     LIS_REAL orth=0.0,relation=0.0,rnorm=0.0,bnorm=0.0;
 
-    if(set_intra(1)) goto done;
     if((err=lis_matrix_create(LIS_COMM_WORLD,&A2))) goto done;
     if((err=lis_matrix_set_size(A2,0,N))) goto done;
     if((err=lis_matrix_get_range(A2,&is,&ie))) goto done;
@@ -139,6 +132,7 @@ static int check_changed_operator(LIS_MATRIX A1, LIS_VECTOR b)
     if((err=lis_vector_duplicate(A1,&x))) goto done;
     if((err=lis_vector_duplicate(A1,&ax))) goto done;
     if((err=lis_solver_create(&solver))) goto done;
+    if(set_intra(solver,1)) goto done;
     if((err=lis_solver_set_option(
         "-i fgcrodr -p jacobi -restart 2 -maxiter 300 "
         "-tol 1e-5 -fgcrodr_k 1 -print none",solver))) goto done;
@@ -203,10 +197,10 @@ static int check_same_operator_value_update(LIS_MATRIX A, LIS_VECTOR b)
     LIS_UNSIGNED_INT saved_sg=0,saved_vg=0;
     LIS_REAL orth=0.0,relation=0.0,rnorm=0.0,bnorm=0.0;
 
-    if(set_intra(1)) goto done;
     if((err=lis_vector_duplicate(A,&x))) goto done;
     if((err=lis_vector_duplicate(A,&ax))) goto done;
     if((err=lis_solver_create(&solver))) goto done;
+    if(set_intra(solver,1)) goto done;
     if((err=lis_solver_set_option(
         "-i fgcrodr -p jacobi -restart 2 -maxiter 300 "
         "-tol 1e-5 -fgcrodr_k 1 -print none",solver))) goto done;
@@ -285,10 +279,10 @@ static int check_restart_shrink(LIS_MATRIX A,LIS_VECTOR b,int intra)
     LIS_UNSIGNED_INT builds=0,rejects_before=0,rejects_after=0;
     LIS_REAL orth=0.0,relation=0.0,rnorm=0.0,bnorm=0.0;
 
-    if(set_intra(intra)) goto done;
     if((rc=lis_vector_duplicate(A,&x))) goto done;
     if((rc=lis_vector_duplicate(A,&ax))) goto done;
     if((rc=lis_solver_create(&solver))) goto done;
+    if(set_intra(solver,intra)) goto done;
     if((rc=lis_solver_set_option(
         "-i fgcrodr -p jacobi -restart 4 -maxiter 300 "
         "-tol 1e-5 -fgcrodr_k 2 -print none",solver))) goto done;
@@ -346,6 +340,51 @@ done:
     return failed;
 }
 
+
+/* A per-rank mode mismatch must fail deterministically before Krylov
+ * collectives; otherwise inconsistent paths can hang on MPI.
+ */
+static int check_mpi_mode_mismatch(LIS_MATRIX A,LIS_VECTOR b)
+{
+#ifdef USE_MPI
+    int rank=0,nprocs=1;
+    LIS_VECTOR x=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_INT err=0,failed=1;
+    MPI_Comm_rank(A->comm,&rank);
+    MPI_Comm_size(A->comm,&nprocs);
+    if(nprocs<2) return 0;
+    if((err=lis_vector_duplicate(A,&x))) goto done;
+    if((err=lis_solver_create(&solver))) goto done;
+    if((err=lis_solver_set_option(
+        "-i fgcrodr -p jacobi -restart 2 -maxiter 10 "
+        "-tol 1e-5 -fgcrodr_k 1 -fgcrodr_projected_relative 1 "
+        "-print none",solver))) goto done;
+    if((err=lis_solver_set_option(
+        rank==0 ? "-fgcrodr_intra 1" : "-fgcrodr_intra 0",
+        solver))) goto done;
+    if((err=lis_vector_set_all(0.0,x))) goto done;
+    err=lis_solve_sequence(A,b,x,solver);
+    if(err!=LIS_ERR_ILL_ARG ||
+       solver->retcode!=LIS_ERR_ILL_ARG)
+        goto done;
+    if(rank==0)
+        puts("FGCRODR_MPI_MODE_MISMATCH_REJECTED_OK");
+    failed=0;
+done:
+    if(failed)
+        fprintf(stderr,"FGCRODR_MPI_MODE_MISMATCH_FAIL "
+                "rank=%d err=%d retcode=%d\n",
+                rank,(int)err,solver?(int)solver->retcode:-1);
+    if(solver) lis_solver_destroy(solver);
+    if(x) lis_vector_destroy(x);
+    return failed;
+#else
+    (void)A; (void)b;
+    return 0;
+#endif
+}
+
 int main(int argc, char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -379,6 +418,7 @@ int main(int argc, char **argv)
     if(check_same_operator_value_update(A,b)) goto done;
     if(check_restart_shrink(A,b,0) ||
        check_restart_shrink(A,b,1)) goto done;
+    if(check_mpi_mode_mismatch(A,b)) goto done;
     failed=0;
 done:
     if(failed)
