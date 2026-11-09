@@ -237,8 +237,7 @@ def main():
             "note": "Local only; never upload private files or raw contact logs",
         }
         (a.out_dir / "manifest.json").write_text(
-            json.dumps(manifest, sort_keys=True, indent=2) + "
-", encoding="utf-8")
+            json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         # Do not inherit unrelated experimental LIS_* toggles from the
         # caller's shell; they can silently alter the compared solver.
         env = {key: value for key, value in os.environ.items()
