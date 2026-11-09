@@ -10,6 +10,9 @@ done
 cat > "$tmp/replay.py" <<'PY'
 #!/usr/bin/env python3
 import os, sys
+if "LIS_STALE_EXPERIMENT_FLAG" in os.environ:
+    print("ERROR: inherited ambient LIS option was not sanitized")
+    sys.exit(2)
 is17 = "omit_ritz_01" in sys.argv[3]
 modes = (18 if os.environ.get("MOCK_BAD_MODES") == "1" else 17) if is17 else 18
 print("REPLAY n=4 nnz=8 modes=%d restart=180 maxiter=3000 tol=1e-5 method=fgcrodr recycle_k=8" % modes)
@@ -31,7 +34,7 @@ call() {
     --modes-17 "$tmp/modes_omit_ritz_01.mtx" --modes-18 "$tmp/modes_all_ritz.mtx" \
     --pairs 3 --out-dir "$1" --require-converged
 }
-call "$tmp/ok" > "$tmp/ok.out"
+LIS_STALE_EXPERIMENT_FLAG=1 call "$tmp/ok" > "$tmp/ok.out"
 grep -q 'V8_REPEAT_ASSESSMENT=MATCHED_CONVERGED' "$tmp/ok.out"
 python3 - "$tmp/ok" <<'PY'
 import csv, json, pathlib, sys
