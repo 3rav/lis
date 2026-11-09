@@ -109,7 +109,7 @@ def real(data, key):
     return value
 
 
-def parse(text, exit_code, tol, log, expected_modes):
+def parse(text, exit_code, tol, log, expected_modes, maxiter=3000):
     groups = {name: [] for name in ("REPLAY", "REPLAY_RESULT", "REPLAY_RECYCLE_STATS",
                                     "REPLAY_RECYCLE_CHECK")}
     for line in text.splitlines():
@@ -128,7 +128,7 @@ def parse(text, exit_code, tol, log, expected_modes):
     n, nnz, modes = (integer(hdr, k) for k in ("n", "nnz", "modes"))
     if (n <= 0 or nnz <= 0 or modes != expected_modes or
             hdr.get("method") != "fgcrodr" or integer(hdr, "recycle_k") != 8 or
-            integer(hdr, "restart") != 180 or integer(hdr, "maxiter") != 3000):
+            integer(hdr, "restart") != 180 or integer(hdr, "maxiter") != maxiter):
         raise ValueError("unexpected replay configuration (matrix/modes/solver)")
     rr = groups["REPLAY_RESULT"][0]
     st = groups["REPLAY_RECYCLE_STATS"][0]
