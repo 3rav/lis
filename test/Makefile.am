@@ -32,6 +32,9 @@ test_PROGRAMS = testesubspaceretry etest1 etest2 etest3 etest4 etest5 etest5b et
 # Standalone v8 MAXITER/LSan regression (independent of upstream #213 target).
 test_PROGRAMS += testmfamgv8maxiter
 testmfamgv8maxiter_SOURCES = testmfamgv8maxiter.c
+# Accepted upstream #214 per-solver integration regression (distinct target).
+test_PROGRAMS += testmfamgv8intra
+testmfamgv8intra_SOURCES = testmfamgv8intra.c
 
 # Keep optional session tests separate from the long test_PROGRAMS list.
 test_PROGRAMS += testmatrixautosession testvectorreal64 benchautojacobirefresh testabi testgesolvepair testrcoalloc
