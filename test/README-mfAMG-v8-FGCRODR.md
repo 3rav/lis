@@ -616,11 +616,14 @@ NO MERGE: PR remains Draft; production LIS and CalculiX untouched.
 
 ## v8 bridge toward merge readiness (2026-11-09)
 
-PR #47 remains Draft. A clean standalone FGCRO-DR feature is under
-upstream review in anishida/lis#214 and its independent MAXITER fix
-in anishida/lis#213. The experimental v8 branch predates the new
-per-solver option/profile logic, so do NOT simply merge duplicate
-solver implementation diffs. Reconcile once the upstream code is ready.
+PR #47 remains Draft. The independent standalone FGCRO-DR feature
+in anishida/lis#214 and its prerequisite MAXITER leak fix in
+anishida/lis#213 were **both merged into upstream master** on
+2026-11-09 (merge commits 3d3b31ec and 030aa748). The experimental
+v8 branch predates the merged per-solver option/profile logic,
+so do NOT cherry-pick overlapping numerical solver diffs.
+The remaining gate is **reconciliation with already merged upstream
+code**, not waiting for upstream PR review.
 
 ### Matched replay: independent 17-vs-18 mode benchmark
 
@@ -1316,7 +1319,7 @@ real-data and upstream review gates are addressed.
 ### Upstream FGCRO-DR reconciliation (review gate, not a merge)
 
 The research PR #47 deliberately predates standalone LIS solver work
-proposed in fork PRs #49/#50 and official upstream PRs #213/#214.
+proposed in fork PRs #49/#50 and **now merged** upstream PRs #213/#214.
 Upstream **#213** covers the missing `bcoef` deallocation on the
 ordinary FGCRO-DR MAXITER path (and an independent LSan regression).
 **#214** builds on that leak fix and adds opt-in harmonic Ritz
@@ -1333,12 +1336,14 @@ numerical changes and may silently alter the default behavior.
 The reviewed integration choice is to keep #47 Draft, preserve
 its private/synthetic research harness, and reconcile the solver
 source with the upstream feature interface when those upstream
-changes have an agreed merge/rebase path. The upstream proposals
-are distinct from CalculiX production integration.
+changes have a verified merge/rebase path against upstream master.
+The accepted upstream solver feature is distinct from CalculiX
+production integration. Upstream acceptance does not imply that #47's
+duplicate experimental solver edits can be merged as-is.
 
 Green synthetic CI means replay tests passed for this branch.
-It does **not** verify source parity with pending upstream changes
-or substitute for real 31/116-spring and Newton-sequence data.
+It does **not** verify source parity with the now-merged upstream
+solver or substitute for real 31/116-spring and Newton-sequence data.
 
 ### Outstanding release gates
 
