@@ -103,6 +103,88 @@ done:
     return failed;
 }
 
+
+/* A synthetic changed-operator sequence.  Reusing the solver across
+ * distinct matrix objects must not project the new residual against
+ * a stale A1*Z=C relation for A2.
+ */
+static int check_changed_operator(LIS_MATRIX A1, LIS_VECTOR b)
+{
+    LIS_MATRIX A2=NULL,stored=NULL;
+    LIS_VECTOR x=NULL,ax=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_INT err=0,i,valid=0,failed=1;
+    LIS_UNSIGNED_INT sg=0,vg=0;
+    LIS_REAL orth=0.0,relation=0.0,rnorm=0.0,bnorm=0.0;
+
+    if(set_intra(1)) goto done;
+    if((err=lis_matrix_create(LIS_COMM_WORLD,&A2))) goto done;
+    if((err=lis_matrix_set_size(A2,0,N))) goto done;
+    for(i=0;i<N;i++)
+    {
+        if((err=lis_matrix_set_value(LIS_INS_VALUE,i,i,4.25,A2)))
+            goto done;
+        if(i>0 &&
+           (err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,-1.0,A2)))
+            goto done;
+        if(i<N-1 &&
+           (err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,-0.5,A2)))
+            goto done;
+    }
+    if((err=lis_matrix_set_type(A2,LIS_MATRIX_CSR))) goto done;
+    if((err=lis_matrix_assemble(A2))) goto done;
+    if((err=lis_vector_duplicate(A1,&x))) goto done;
+    if((err=lis_vector_duplicate(A1,&ax))) goto done;
+    if((err=lis_solver_create(&solver))) goto done;
+    if((err=lis_solver_set_option(
+        "-i fgcrodr -p jacobi -restart 2 -maxiter 300 "
+        "-tol 1e-5 -fgcrodr_k 1 -print none",solver))) goto done;
+
+    if((err=lis_vector_set_all(0.0,x))) goto done;
+    err=lis_solve_sequence(A1,b,x,solver);
+    if(err!=LIS_SUCCESS || solver->retcode!=LIS_SUCCESS) goto done;
+    if((err=lis_fgcrodr_get_lifecycle_state(
+        solver,&valid,&stored,&sg,&vg))) goto done;
+    if(!valid || stored!=A1) goto done;
+
+    /* New assembled matrix object, same layout, modified diagonal. */
+    if((err=lis_vector_set_all(0.0,x))) goto done;
+    err=lis_solve_sequence(A2,b,x,solver);
+    if(err!=LIS_SUCCESS || solver->retcode!=LIS_SUCCESS) goto done;
+    if((err=lis_fgcrodr_get_lifecycle_state(
+        solver,&valid,&stored,&sg,&vg))) goto done;
+    if(!valid || stored!=A2 ||
+       sg!=A2->structure_generation ||
+       vg!=A2->value_generation)
+        goto done;
+    if((err=lis_fgcrodr_validate_recycle(
+        solver,&orth,&relation))) goto done;
+    if((err=lis_matvec(A2,x,ax))) goto done;
+    if((err=lis_vector_xpay(b,-1.0,ax))) goto done;
+    if((err=lis_vector_nrm2(ax,&rnorm))) goto done;
+    if((err=lis_vector_nrm2(b,&bnorm))) goto done;
+    if(bnorm==0.0 || !isfinite(rnorm) || rnorm/bnorm>1e-5 ||
+       !isfinite(orth) || !isfinite(relation) ||
+       orth>1e-8 || relation>1e-8)
+        goto done;
+    printf("FGCRODR_INTRA_CHANGED_OPERATOR_OK "
+           "A1_to_A2_status=%d residual=%.12e relation=%.6e\n",
+           (int)solver->retcode,(double)(rnorm/bnorm),(double)relation);
+    failed=0;
+done:
+    if(failed)
+        fprintf(stderr,"FGCRODR_INTRA_CHANGED_OPERATOR_FAIL "
+                "api=%d status=%d valid=%d stored_matches_A2=%d "
+                "relation=%.6e\n",
+                (int)err,solver?(int)solver->retcode:-1,
+                (int)valid,(int)(stored==A2),(double)relation);
+    if(solver) lis_solver_destroy(solver);
+    if(ax) lis_vector_destroy(ax);
+    if(x) lis_vector_destroy(x);
+    if(A2) lis_matrix_destroy(A2);
+    return failed;
+}
+
 int main(int argc, char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -130,6 +212,7 @@ int main(int argc, char **argv)
         u->value[i]=(LIS_SCALAR)(((i*37)%23)-11.0);
     if((rc=lis_matvec(A,u,b))) goto done;
     if(solve_one(A,b,0) || solve_one(A,b,1)) goto done;
+    if(check_changed_operator(A,b)) goto done;
     failed=0;
 done:
     if(failed)
