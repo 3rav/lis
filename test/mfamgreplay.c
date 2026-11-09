@@ -324,12 +324,12 @@ int main(int argc,char **argv)
 
         if(argc!=4)
         {
-            fprintf(stderr,"Usage: %s --compare-csr A1.mtx A2.mtx\\n",argv[0]);
+            fprintf(stderr,"Usage: %s --compare-csr A1.mtx A2.mtx\n",argv[0]);
             return 2;
         }
         if(lis_initialize(&lis_argc,&lis_args)!=LIS_SUCCESS) return 1;
 #if defined(_COMPLEX)
-        fprintf(stderr,"REPLAY_CSR_COMPARE_ERROR real-valued LIS required\\n");
+        fprintf(stderr,"REPLAY_CSR_COMPARE_ERROR real-valued LIS required\n");
         goto done;
 #endif
 #ifdef USE_MPI
@@ -338,7 +338,7 @@ int main(int argc,char **argv)
             MPI_Comm_size(LIS_COMM_WORLD,&ranks);
             if(ranks!=1)
             {
-                fprintf(stderr,"REPLAY_CSR_COMPARE_ERROR serial LIS only\\n");
+                fprintf(stderr,"REPLAY_CSR_COMPARE_ERROR serial LIS only\n");
                 goto done;
             }
         }
@@ -353,10 +353,10 @@ int main(int argc,char **argv)
         if(err) goto done;
         if(replay_check_or_replace_csr_values(A,A2,&changed,0)!=0)
         {
-            fprintf(stderr,"REPLAY_CSR_COMPARE compatible=0\\n");
+            fprintf(stderr,"REPLAY_CSR_COMPARE compatible=0\n");
             goto done;
         }
-        printf("REPLAY_CSR_COMPARE compatible=1 n=%lld nnz=%lld changed_nnz=%lld\\n",
+        printf("REPLAY_CSR_COMPARE compatible=1 n=%lld nnz=%lld changed_nnz=%lld\n",
                (long long)A->n,(long long)A->nnz,(long long)changed);
         rc=0;
         err=0;
