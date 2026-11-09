@@ -276,7 +276,7 @@ done:
  * used at restart=2. Instead invalidate it before the first cycle
  * and rebuild at most one direction with the smaller restart.
  */
-static int check_restart_shrink(LIS_MATRIX A,LIS_VECTOR b)
+static int check_restart_shrink(LIS_MATRIX A,LIS_VECTOR b,int intra)
 {
     LIS_VECTOR x=NULL,ax=NULL;
     LIS_SOLVER solver=NULL;
@@ -285,7 +285,7 @@ static int check_restart_shrink(LIS_MATRIX A,LIS_VECTOR b)
     LIS_UNSIGNED_INT builds=0,rejects_before=0,rejects_after=0;
     LIS_REAL orth=0.0,relation=0.0,rnorm=0.0,bnorm=0.0;
 
-    if(set_intra(1)) goto done;
+    if(set_intra(intra)) goto done;
     if((rc=lis_vector_duplicate(A,&x))) goto done;
     if((rc=lis_vector_duplicate(A,&ax))) goto done;
     if((rc=lis_solver_create(&solver))) goto done;
@@ -323,19 +323,20 @@ static int check_restart_shrink(LIS_MATRIX A,LIS_VECTOR b)
        !isfinite(orth) || !isfinite(relation) ||
        orth>1e-8 || relation>1e-8) goto done;
 
-    printf("FGCRODR_INTRA_RESTART_SHRINK_OK "
+    printf("FGCRODR_RESTART_SHRINK_%s_OK "
            "old_k=%d new_k=%d rejects=%llu->%llu "
            "true_relative=%.12e relation=%.6e\n",
-           (int)dim_before,(int)dim_after,
+           intra?"INTRA":"CROSS",(int)dim_before,(int)dim_after,
            (unsigned long long)rejects_before,
            (unsigned long long)rejects_after,
            (double)(rnorm/bnorm),(double)relation);
     failed=0;
 done:
     if(failed)
-        fprintf(stderr,"FGCRODR_INTRA_RESTART_SHRINK_FAIL "
+        fprintf(stderr,"FGCRODR_RESTART_SHRINK_%s_FAIL "
                 "rc=%d status=%d before=%d after=%d "
                 "rejects=%llu->%llu\n",
+                intra?"INTRA":"CROSS",
                 (int)rc,(int)status,(int)dim_before,(int)dim_after,
                 (unsigned long long)rejects_before,
                 (unsigned long long)rejects_after);
@@ -376,7 +377,8 @@ int main(int argc, char **argv)
        solve_one(A,b,1,1000000)) goto done;
     if(check_changed_operator(A,b)) goto done;
     if(check_same_operator_value_update(A,b)) goto done;
-    if(check_restart_shrink(A,b)) goto done;
+    if(check_restart_shrink(A,b,0) ||
+       check_restart_shrink(A,b,1)) goto done;
     failed=0;
 done:
     if(failed)
