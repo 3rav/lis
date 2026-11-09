@@ -573,3 +573,79 @@ mode discovery are still mandatory before integration.
 The recycle relation errors remain below 1e-8 but approach
 that threshold; monitor for numerical instability.
 NO MERGE: PR remains Draft; production LIS and CalculiX untouched.
+
+## v8 bridge toward merge readiness (2026-11-09)
+
+PR #47 remains Draft. A clean standalone FGCRO-DR feature is under
+upstream review in anishida/lis#214 and its independent MAXITER fix
+in anishida/lis#213. The experimental v8 branch predates the new
+per-solver option/profile logic, so do NOT simply merge duplicate
+solver implementation diffs. Reconcile once the upstream code is ready.
+
+### Matched replay: independent 17-vs-18 mode benchmark
+
+The single historical 17-mode omit01 run (207.627 s) versus rotated
+18-mode control (227.719 s) was exploratory, **not** repeatable evidence.
+The public test/mfamg_replay_v8_repeats.py now runs matched AB/BA
+pairs using the same environment, changing only the mode file:
+
+    python3 test/mfamg_replay_v8_repeats.py \
+      --exe "$HOME/lis-v8/bin6000/mfamgreplay.exe" \
+      --matrix "$HOME/mfamg_replay/challenge_31/A04.mtx" \
+      --rhs "$HOME/mfamg_replay/challenge_31/b04.mtx" \
+      --modes-17 "$HOME/mfamg_replay/v8_mode_audit/loo/modes_omit_ritz_01.mtx" \
+      --modes-18 "$HOME/mfamg_replay/v8_mode_audit/modes_all_ritz.mtx" \
+      --out-dir "$HOME/mfamg_replay/v8_mode_audit/repeats_17v18_NEW" \
+      --pairs 3 --require-converged
+
+The order is 17/18, 18/17, 17/18. Outputs stay local,
+in a newly created output directory: per-run logs, matched_runs.csv
+and assessment.json. The parser rejects malformed/missing results,
+nonfinite values and contradictions between exit code/status.
+It reports matching timing medians **only if every run converged**
+with acceptable true residual and algebraic recycle validation.
+No claim of statistical significance follows from three pairs.
+
+### Automatic candidate mode experiment, WITHOUT offline enrichment
+
+test/mfamg_mode_auto_candidates.py is a new research-only prototype.
+Given the matrix and baseline modes, it creates candidate vectors
+using seeded projected gradient filtering on the normal operator
+A^T*A. It does not read any existing six offline-enriched vectors.
+The first baseline columns are preserved exactly, and all new
+columns are explicitly filtered against the baseline and earlier
+accepted vectors. It checks finite operator products, A-norm
+reduction, rank, input dimensions and exclusive output creation.
+
+Start with a **small diagnostic experiment**, not six expensive
+full-size modes at once:
+
+    python3 test/mfamg_mode_auto_candidates.py \
+      "$HOME/mfamg_replay/challenge_31/A04.mtx" \
+      "$HOME/mfamg_replay/challenge_31/modes04.mtx" \
+      --output "$HOME/mfamg_replay/v8_mode_audit/auto_candidate_2.mtx" \
+      --count 2 --steps 40 --seed 20261109
+
+The script holds sparse coordinates in memory and its pure Python
+normal-operator iterations can be expensive for millions of entries.
+The resulting directions are **not** certified near-nullspace modes,
+not FGCRO-DR harmonic Ritz eigenvectors, and are not integrated into
+MFAMG's production interpolation. A lower A-norm alone does not
+prove convergence improvement on a nonsymmetric/indefinite contact
+operator. Validate rank and run the same fixed replay comparison
+before any claim. Synthetic smoke checks mode novelty and output
+non-overwrite; it does NOT constitute contact evidence.
+
+### Outstanding release gates
+
+1. Reconcile the solver implementation with upstream #213/#214;
+   retain default behavior and all new regression safeguards.
+2. Repeat private 31-spring and 116-spring benchmarks with true
+   residuals, paired timing medians and any MAXITER failures recorded.
+3. Compare automatically generated candidates against baseline
+   (12 modes) and offline-enriched control (18 modes); reject
+   candidates if algebraic validation or convergence fails.
+4. Test a real consecutive Newton/contact operator sequence and
+   recycling invalidation or transport under changing A, if available.
+5. Keep public CI independent of private snapshots, perform final
+   integration/review, then consider Ready for review. NO MERGE yet.
