@@ -11,9 +11,10 @@ ROOT="$HOME/mfamg_replay"
 BRANCH="experiment/mfamg-fgcrodr-replay-v8-20261108"
 REF="refs/remotes/origin/$BRANCH"
 EXPECTED_BLOB="815a73ada1d18d970ec9b6d24306d23ff631fb35"
-SRC="$ROOT/src-v8-upstream214-20261109"
-BUILD="$ROOT/build-v8-upstream214-20261109"
-OUT="$ROOT/v8_fgmres_vs_fgcrodr_31_upstream214_20261109"
+# Retry paths must be NEW: preserve the partially extracted previous SRC.
+SRC="$ROOT/src-v8-upstream214-20261109-winfix1"
+BUILD="$ROOT/build-v8-upstream214-20261109-winfix1"
+OUT="$ROOT/v8_fgmres_vs_fgcrodr_31_upstream214_20261109-winfix1"
 MATRIX="$ROOT/challenge_31/A04.mtx"
 RHS="$ROOT/challenge_31/b04.mtx"
 MODES="$ROOT/v8_mode_audit/ritz/modes_all_ritz.mtx"
@@ -61,7 +62,18 @@ echo "UPSTREAM_SOLVER_BLOB_OK=$BLOB"
 # No mkdir -m: Windows ACL-backed MSYS2 locations may refuse chmod.
 umask 077
 mkdir "$SRC"
-git archive "$REF" | tar -xf - -C "$SRC"
+# Windows/MSYS2 cannot reliably materialize COPYING -> LICENSE as a
+# symlink from git archive (the target may not exist at extraction time).
+# Exclude the ONLY tracked symlink and materialize a regular license copy.
+# This preserves the actual license text and avoids any chmod/symlink call.
+git archive "$REF" | tar --exclude=COPYING -xf - -C "$SRC"
+if [[ ! -s "$SRC/LICENSE" || -e "$SRC/COPYING" || -L "$SRC/COPYING" ]]; then
+  echo "STOP: LICENSE brak lub COPYING niespodziewanie istnieje w źródłach"
+  exit 2
+fi
+cp "$SRC/LICENSE" "$SRC/COPYING"
+cmp -s "$SRC/LICENSE" "$SRC/COPYING"
+echo "WINDOWS_ARCHIVE_LICENSE_COPY_OK"
 mkdir "$BUILD"
 (
   cd "$SRC"
