@@ -664,6 +664,54 @@ a confidence interval or evidence of a statistically significant
 speedup with three pairs. None of these enhancements establishes
 changed-operator/Newton-step behavior.
 
+### Observed private 31-spring paired replay (2026-11-09, UCRT64)
+
+**Measured, not predicted:** on the same 60,265-row A04/b04 contact
+snapshot, the verified 17-mode *omit Ritz direction 01* basis and
+the rotated all-18 Ritz basis each converged in all three paired trials
+(MATCHED_CONVERGED, process exit 0). The three matched pairs used
+17/18, 18/17, 17/18 order, freshly compiled v8 HEAD `bd798df`,
+fixed FGCRO-DR k=8/restart=180/MAXITER=3000/tol=1e-5, with actual
+intra-solve recycling and algebra/residual checks enforced by
+`mfamg_replay_v8_repeats.py`.
+
+| Paired trial | 17 omit01 (s) | 18 all Ritz (s) | 17 vs 18 wall reduction |
+| --- | ---: | ---: | ---: |
+| 1 | 249.347 | 221.322 | -12.663% |
+| 2 | 196.469 | 196.182 | -0.146% |
+| 3 | 241.138 | 200.488 | -20.276% |
+
+- **All six runs converged**; iterations 2839 (17) versus
+  2792 (18), constant across repeats of each basis.
+- Median wall time: **241.138 s (17) versus 200.488 s (18)**.
+  The difference of medians is **-20.276% wall reduction** for 17
+  (i.e. 17 is 20.276% slower relative to the all-18 median).
+- The median of the *three within-pair percentage reductions* is
+  **-12.663%**. This paired statistic is not the same estimator as
+  the difference of marginal medians; do not substitute one for another.
+- All three pairs favored 18. The earlier isolated 17-vs-18 result
+  (207.627 s vs 227.719 s) **must not be cited as a reliable speedup**.
+- This is a small, exploratory six-run sample on **one** private
+  contact snapshot, not a proof of universal superiority, statistical
+  significance, or Newton-step recycling. The offline 18-mode set is
+  the preferred benchmark comparator for this snapshot until further
+  case studies.
+
+The benchmark's manifest, six detailed logs, `matched_runs.csv` and
+`assessment.json` remain on the local Windows machine; **no private
+A/b/mode files or raw contact logs were uploaded to the repository**.
+These aggregate measurements are the only published results.
+
+UCRT64 reproducibility caveat: the native Windows `python3.exe`
+may interpret Bash `$HOME` differently (`C:/Users/...` rather than
+`C:/msys64/home/...`). Pass absolute paths to Python via
+`"$(cygpath -m "$PATH_TO_INPUT")"`, including `--exe`, `--matrix`,
+`--rhs`, both mode paths, and `--out-dir`. Do not rely on
+`pathlib.Path.home()` to find MSYS2 private data. On MSYS2/Windows,
+`mkdir -m 700` can also fail at chmod even after creating the
+directory; use `mkdir` for the build directory without deleting it,
+and keep each benchmark output path unique.
+
 ### Automatic candidate mode experiment, WITHOUT offline enrichment
 
 test/mfamg_mode_auto_candidates.py is a research-only prototype.
