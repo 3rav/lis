@@ -233,3 +233,6 @@ jobs:
           bash -n test/mfamg_mode_ritz_leave_one_out_smoke.sh
           bash -n test/mfamg_replay_ritz_leave_one_out.sh
           bash test/mfamg_mode_ritz_leave_one_out_smoke.sh
+          python3 -m py_compile test/mfamg_replay_v8_repeats.py
+          bash -n test/mfamg_replay_v8_repeats_smoke.sh
+          bash test/mfamg_replay_v8_repeats_smoke.sh

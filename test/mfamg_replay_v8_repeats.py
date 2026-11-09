@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Matched private-contact 17/18 offline Ritz replay: AB/BA order.
+
+Outputs local logs and statistics; never uploads matrix or mode data.
+This is a reproducibility tool, NOT online mode discovery.
+"""
+import argparse
+import csv
+import json
+import math
+import os
+from pathlib import Path
+import statistics
+import subprocess
+import sys
+
+ENV = {
+    "LIS_MFAMG_EXPERIMENT_FINE_AGG": "1",
+    "LIS_MFAMG_EXPERIMENT_DEEP_MERGE": "1",
+    "LIS_MFAMG_FINE_AGG_FACTOR": "4",
+    "LIS_MFAMG_STAR_SCHUR": "0",
+    "LIS_MFAMG_VCYCLE_SMOOTH_STEPS": "3",
+    "LIS_MFAMG_VCYCLE_DIAG": "0",
+    "LIS_MFAMG_VCYCLE_TRACE": "0",
+    "LIS_MFAMG_DIAG": "1",
+    "LIS_FGMRES_TRACE": "1",
+    "LIS_FGMRES_PROJECTED_RELATIVE": "1",
+    "LIS_MFAMG_REPLAY_METHOD": "fgcrodr",
+    "LIS_MFAMG_REPLAY_RECYCLE_DIM": "8",
+    "LIS_FGCRODR_INTRA_SOLVE_RECYCLE": "1",
+    "LIS_FGCRODR_INTRA_TRACE": "1",
+    "LIS_MFAMG_REPLAY_VALIDATE_RECYCLE": "1",
+    "LIS_MFAMG_REPLAY_RESTART": "180",
+    "LIS_MFAMG_REPLAY_MAXITER": "3000",
+}
+FIELDS = ("pair", "sequence", "variant", "process_exit", "solve_rc", "status",
+          "iter", "true_relative", "wall_seconds", "builds", "updates",
+          "uses", "rejects", "orth_error", "relation_error",
+          "converged", "log_file")
+
+
+def kv(line):
+    result = {}
+    for word in line.split()[1:]:
+        if "=" in word:
+            key, val = word.split("=", 1)
+            if key in result:
+                raise ValueError("duplicate field " + key)
+            result[key] = val
+    return result
+
+
+def integer(data, key):
+    value = data.get(key, "")
+    if not value or not value.strip("+-").isdigit():
+        raise ValueError("invalid/missing integer field " + key)
+    return int(value)
+
+
+def real(data, key):
+    try:
+        value = float(data[key])
+    except (KeyError, ValueError, OverflowError) as exc:
+        raise ValueError("invalid/missing floating field " + key) from exc
+    if not math.isfinite(value):
+        raise ValueError("nonfinite field " + key)
+    return value
+
+
+def parse(text, exit_code, tol, log):
+    groups = {name: [] for name in ("REPLAY_RESULT", "REPLAY_RECYCLE_STATS",
+                                    "REPLAY_RECYCLE_CHECK")}
+    for line in text.splitlines():
+        for name in groups:
+            if line.startswith(name + " "):
+                groups[name].append(kv(line))
+    if any(len(group) != 1 for group in groups.values()):
+        raise ValueError("expected exactly one REPLAY_RESULT, REPLAY_RECYCLE_STATS and REPLAY_RECYCLE_CHECK")
+    rr = groups["REPLAY_RESULT"][0]
+    st = groups["REPLAY_RECYCLE_STATS"][0]
+    va = groups["REPLAY_RECYCLE_CHECK"][0]
+    status, rc, iterations = (integer(rr, k) for k in ("status", "solve_rc", "iter"))
+    residual, wall = real(rr, "true_relative"), real(rr, "wall_seconds")
+    orth, relation = real(va, "orth_error"), real(va, "relation_error")
+    if exit_code not in (0, 1) or (exit_code == 0 and status != 0):
+        raise ValueError("inconsistent/unexpected process exit or status")
+    converged = (exit_code == 0 and status == 0 and rc == 0 and iterations >= 0
+                 and 0 <= residual <= tol and wall >= 0 and integer(va, "rc") == 0
+                 and 0 <= orth <= 1e-8 and 0 <= relation <= 1e-8)
+    return dict(process_exit=exit_code, solve_rc=rc, status=status, iter=iterations,
+                true_relative=residual, wall_seconds=wall,
+                builds=integer(st, "builds"), updates=integer(st, "updates"),
+                uses=integer(st, "uses"), rejects=integer(st, "rejects"),
+                orth_error=orth, relation_error=relation,
+                converged=int(converged), log_file=log)
+
+
+def assess(rows):
+    groups = {name: [r for r in rows if r["variant"] == name]
+              for name in ("omit01_17", "all18")}
+    complete = bool(rows) and len(groups["omit01_17"]) == len(groups["all18"])
+    accepted = complete and all(row["converged"] for row in rows)
+    metrics = {}
+    for name, group in groups.items():
+        all_ok = bool(group) and all(r["converged"] for r in group)
+        metrics[name] = {
+            "runs": len(group),
+            "converged": sum(r["converged"] for r in group),
+            "median_wall_seconds": statistics.median(r["wall_seconds"] for r in group) if all_ok else None,
+            "median_iterations": statistics.median(r["iter"] for r in group) if all_ok else None,
+            "wall_seconds_range": [min(r["wall_seconds"] for r in group),
+                                   max(r["wall_seconds"] for r in group)] if group else None,
+        }
+    gain = None
+    if accepted and metrics["all18"]["median_wall_seconds"] > 0:
+        gain = 100.0 * (1.0 - metrics["omit01_17"]["median_wall_seconds"] /
+                        metrics["all18"]["median_wall_seconds"])
+    return {
+        "assessment": "MATCHED_CONVERGED" if accepted else "INCONCLUSIVE_NONCONVERGENCE",
+        "medians": metrics,
+        "omit01_vs_all18_percent_median_wall_reduction": gain,
+        "caution": "Three matched pairs are exploratory; no statistical speedup or Newton-sequence claim.",
+    }
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    for option in ("exe", "matrix", "rhs", "modes-17", "modes-18", "out-dir"):
+        p.add_argument("--" + option, type=Path, required=True)
+    p.add_argument("--pairs", type=int, default=3)
+    p.add_argument("--tol", type=float, default=1e-5)
+    p.add_argument("--require-converged", action="store_true")
+    a = p.parse_args()
+    if not (1 <= a.pairs <= 50 and math.isfinite(a.tol) and 0 < a.tol < 1):
+        p.error("pairs must be 1..50, tol must be finite in (0,1)")
+    try:
+        for path in (a.exe, a.matrix, a.rhs, a.modes_17, a.modes_18):
+            if not path.is_file() or not path.stat().st_size:
+                raise ValueError("missing/empty input: " + str(path))
+        if a.modes_17.resolve() == a.modes_18.resolve():
+            raise ValueError("17-mode and 18-mode paths must differ")
+        if a.out_dir.exists():
+            raise ValueError("output directory already exists: " + str(a.out_dir))
+        a.out_dir.mkdir(parents=True)
+        os.chmod(a.out_dir, 0o700)
+        env = os.environ.copy()
+        env.update(ENV)
+        env.pop("LIS_MFAMG_MODES_EXPORT_PREFIX", None)
+        rows = []
+        for pair in range(1, a.pairs + 1):
+            order = ("omit01_17", "all18") if pair % 2 else ("all18", "omit01_17")
+            for sequence, variant in enumerate(order, 1):
+                modes = a.modes_17 if variant == "omit01_17" else a.modes_18
+                logfile = "pair%02d_run%d_%s.log" % (pair, sequence, variant)
+                result = subprocess.run(
+                    [str(a.exe.resolve()), str(a.matrix.resolve()),
+                     str(a.rhs.resolve()), str(modes.resolve())],
+                    cwd=str(a.matrix.resolve().parent), env=env,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, errors="replace", check=False)
+                (a.out_dir / logfile).write_text(result.stdout, encoding="utf-8")
+                row = parse(result.stdout, result.returncode, a.tol, logfile)
+                row.update(pair=pair, sequence=sequence, variant=variant)
+                rows.append(row)
+                print("V8_REPEAT pair=%d case=%s status=%d iter=%d wall=%.3f converged=%d" %
+                      (pair, variant, row["status"], row["iter"],
+                       row["wall_seconds"], row["converged"]), flush=True)
+        with (a.out_dir / "matched_runs.csv").open("x", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+        report = assess(rows)
+        report["pairs"] = a.pairs
+        report["fixed_solver_environment"] = ENV
+        (a.out_dir / "assessment.json").write_text(
+            json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        print("V8_REPEAT_ASSESSMENT=" + report["assessment"])
+        print("V8_REPEAT_SUMMARY=" + str(a.out_dir / "assessment.json"))
+        return 1 if a.require_converged and report["assessment"] != "MATCHED_CONVERGED" else 0
+    except (OSError, ValueError) as exc:
+        print("V8_REPEAT_ERROR=" + str(exc), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
