@@ -798,6 +798,43 @@ local input/EXE hashes and catches in-run mutation. This prevents
 accidentally treating the old **omit06 negative-only** 17-mode data
 as the promising **omit01** 17-mode experiment.
 
+### Cross-operator recycling: matrix identity vs true value-generation reuse
+
+**Important clarification:** two calls to `lis_solve` on the same
+`LIS_SOLVER` with two separately allocated matrices A1 and A2 do
+**not** establish cross-operator recycling. FGCRO-DR intentionally
+**REJECTS** the old `Z,C` vectors when the matrix identity or
+structure-generation changes. The preconditioner/recycle can then
+rebuild during the A2 solve. A successful A2 solve and valid A2 Z=C
+relation do not prove the A1 vectors were transported.
+
+The replay now prints `REPLAY_NEWTON_POLICY` with the **delta**
+of lifetime counters for the second solve:
+`cross_uses_delta`, `keeps_delta`,
+`transports_delta`, `rejects_delta`. When A2 is a separate
+matrix object, the CI explicitly requires
+`cross_uses_delta=0` and positive `rejects_delta`.
+
+A separate *synthetic diagnostic*, intended only for a fixed-sparsity
+diagonal perturbation, accepts
+`LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1`: after solving A1, it
+modifies **the existing matrix object A1 in place** by applying
+`lis_matrix_shift_diagonal(A1,-1)` and then explicitly marks
+`lis_matrix_mark_values_changed(A1)`. A1 is thereby changed to
+A1+I without changing its identity or graph. The second solve uses
+that same matrix object, with the new RHS, and the separate
+`NEXT_A` file is retained as an independent reference for the
+second true residual. The CI generator constructs exactly
+`NEXT_A=A1+I`. This path MUST demonstrate positive
+`cross_uses_delta` and valid A2 Z=C, or the regression fails.
+
+For any general contact A2, **do not supply a guessed diagonal
+shift**. This option only represents A2 accurately when the entire
+difference A2-A1 equals the declared diagonal shift. It is not a
+general matrix replacement, nor does a two-step synthetic result
+prove contact-Newton robustness. The general separate-object path
+continues to be a rejection-and-rebuild control.
+
 ### A1-to-A2 in-process operator-change smoke (same solver)
 
 The opt-in replay executable now supports a **second operator in the
@@ -810,7 +847,10 @@ fresh-process 12/14/18 comparison above. Supply BOTH:
 
 The second solve starts with x2=0. It keeps the original MFAMG mode
 vectors and solver object, but replaces the matrix and RHS. Both
-operators must have identical row counts/distributions. The original
+operators must have identical row counts/distributions. Unless
+explicitly running the documented diagonal-shift diagnostic, A2
+is a different matrix object and the recycle policy rejects A1's
+previously stored directions. The original
 first solve still prints `REPLAY_RESULT`; after the second solve,
 the program prints `REPLAY_NEWTON_STEP`, recycling statistics and
 AZ=C validation, and `REPLAY_NEWTON_RESULT` with an independently
@@ -821,7 +861,10 @@ It never uploads matrices and never changes production CalculiX.
 A public mandatory UCRT64 regression creates a synthetic A2 by
 modifying the diagonal of A1, then runs:
 
-- A1/b1 and A2/b2 using the **same** LIS solver (k=1, intra-solve on);
+- A1/b1 and A2/b2 using the **same** LIS solver (k=1, intra-solve on),
+  but with a **separate A2 object**, verifying rejection of old Z;
+- A1/b1 followed by an **in-place A1+I** change with the same
+  solver and the same A object, checking positive cross-use counters;
 - A2/b2 as an independent fresh-solver reference;
 - both explicit true-residual checks and second-space AZ=C validation;
 - rejection of a missing half of the A2/b2 argument pair.
