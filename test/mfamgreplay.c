@@ -201,6 +201,86 @@ static int replay_int_option(const char *name,int fallback,
     return 0;
 }
 
+
+/*
+ * Same-structure, different-values replay ONLY; never alter a sparsity
+ * graph or blindly assume two CCX contact assemblies have the same graph.
+ *
+ * Preflight every row pointer, every column index and every value before
+ * changing the destination.  This function does not allocate or expose
+ * contact data. It accepts only owned, assembled, serial real CSR arrays.
+ * The second imported matrix remains an INDEPENDENT A2 for the residual.
+ */
+static int replay_replace_csr_values(LIS_MATRIX target,LIS_MATRIX source,
+                                     LIS_INT *changed_out)
+{
+    LIS_INT i,changed=0;
+
+    *changed_out=0;
+    if(target==NULL || source==NULL ||
+       target->matrix_type!=LIS_MATRIX_CSR ||
+       source->matrix_type!=LIS_MATRIX_CSR ||
+       target->is_splited || source->is_splited ||
+       target->is_scaled || source->is_scaled ||
+       target->csr_external || source->csr_external ||
+       target->n<=0 || source->n!=target->n ||
+       target->np!=source->np || target->gn!=source->gn ||
+       target->nnz<=0 || source->nnz!=target->nnz ||
+       target->ptr==NULL || source->ptr==NULL ||
+       target->index==NULL || source->index==NULL ||
+       target->value==NULL || source->value==NULL)
+    {
+        fprintf(stderr,"REPLAY_NEWTON_ERROR replace-values requires identical owned unsplit real CSR shape\n");
+        return 1;
+    }
+    if(target->ptr[0]!=0 || source->ptr[0]!=0 ||
+       target->ptr[target->n]!=target->nnz ||
+       source->ptr[source->n]!=source->nnz)
+    {
+        fprintf(stderr,"REPLAY_NEWTON_ERROR replace-values invalid CSR row pointers\n");
+        return 1;
+    }
+    for(i=0;i<target->n;i++)
+    {
+        if(target->ptr[i]!=source->ptr[i] ||
+           target->ptr[i+1]!=source->ptr[i+1] ||
+           target->ptr[i]<0 || target->ptr[i+1]<target->ptr[i] ||
+           target->ptr[i+1]>target->nnz)
+        {
+            fprintf(stderr,"REPLAY_NEWTON_ERROR replace-values CSR row graph mismatch row=%lld\n",
+                    (long long)(i+1));
+            return 1;
+        }
+    }
+    for(i=0;i<target->nnz;i++)
+    {
+        if(target->index[i]!=source->index[i] ||
+           target->index[i]<0 || target->index[i]>=target->gn)
+        {
+            fprintf(stderr,"REPLAY_NEWTON_ERROR replace-values CSR column graph mismatch offset=%lld\n",
+                    (long long)i);
+            return 1;
+        }
+        if(!isfinite((double)target->value[i]) ||
+           !isfinite((double)source->value[i]))
+        {
+            fprintf(stderr,"REPLAY_NEWTON_ERROR replace-values nonfinite CSR value offset=%lld\n",
+                    (long long)i);
+            return 1;
+        }
+        if(target->value[i]!=source->value[i]) changed++;
+    }
+    if(changed==0)
+    {
+        fprintf(stderr,"REPLAY_NEWTON_ERROR replace-values requires a genuinely changed operator\n");
+        return 1;
+    }
+    for(i=0;i<target->nnz;i++)
+        target->value[i]=source->value[i];
+    *changed_out=changed;
+    return 0;
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL,A2=NULL;
@@ -217,6 +297,7 @@ int main(int argc,char **argv)
     char *next_matrix=getenv("LIS_MFAMG_REPLAY_NEXT_A");
     const char *next_rhs=getenv("LIS_MFAMG_REPLAY_NEXT_B");
     const char *next_diag_shift=getenv("LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT");
+    const char *next_replace_values=getenv("LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES");
     const char *method="fgmres";
     const char *method_env;
     LIS_INT recycle_dim=0,recycle_action=0;
@@ -224,6 +305,13 @@ int main(int argc,char **argv)
     int optlen;
     char solver_options[256];
 
+    if(next_replace_values!=NULL &&
+       (strcmp(next_replace_values,"1")!=0 ||
+        next_matrix==NULL || next_rhs==NULL || next_diag_shift!=NULL))
+    {
+        fprintf(stderr,"REPLAY_NEWTON_ERROR replace-values requires NEXT_A and NEXT_B, no diagonal shift, flag=1\n");
+        return 2;
+    }
     if(next_diag_shift!=NULL && (next_matrix==NULL || next_rhs==NULL))
     {
         fprintf(stderr,"REPLAY_NEWTON_ERROR diagonal shift requires NEXT_A and NEXT_B\n");
@@ -497,7 +585,18 @@ int main(int argc,char **argv)
             if(err2!=LIS_SUCCESS) { err=err2; goto done; }
             policies_available=LIS_TRUE;
         }
-        if(next_diag_shift!=NULL)
+        if(next_replace_values!=NULL)
+        {
+            LIS_INT changed=0;
+            if(replay_replace_csr_values(A,A2,&changed)!=0)
+                goto done;
+            err2=lis_matrix_mark_values_changed(A);
+            if(err2) { err=err2; goto done; }
+            solve_matrix=A;
+            printf("REPLAY_NEWTON_MATRIX mode=inplace_replace_values changed_nnz=%lld\n",
+                   (long long)changed);
+        }
+        else if(next_diag_shift!=NULL)
         {
             char *end=NULL;
             double shift;
