@@ -766,6 +766,57 @@ Both solver modes are in the **same NEW v8 executable**, so this is
 the narrow algorithm comparison, not a separate historical-v7
 binary comparison nor an actual Newton/contact trajectory.
 
+### Real A04/b04 31-spring FGMRES vs FGCRO-DR upstream #214 result (2026-11-09)
+
+The one-shot UCRT64 `-winfix1` benchmark successfully compiled the
+byte-pinned upstream #214 FGCRO-DR core and ran three matched AB/BA
+pairs on the same private A04/b04 snapshot, **full 18 Ritz modes**,
+restart=180, maxiter=3000, k=8 for FGCRODR, and tol=1e-5.
+
+| Pair | FGMRES iterations / status / wall (s) | FGCRO-DR iterations / status / wall (s) |
+| --- | --- | --- |
+| 1 | 3001 / 4 MAXITER / 129.952 | 2792 / 0 converged / 233.491 |
+| 2 | 3001 / 4 MAXITER / 148.620 | 2792 / 0 converged / 239.993 |
+| 3 | 3001 / 4 MAXITER / 148.381 | 2792 / 0 converged / 239.901 |
+
+**FGMRES 0/3 converged; FGCRO-DR 3/3 converged.** Median true
+relative residuals: 4.289042843312e-5 (FGMRES) and
+9.989979821954e-6 (FGCRO-DR). As designed, the matched runner
+returned `INCONCLUSIVE_NONCONVERGENCE` and no numerical speedup
+estimate (all speedup fields are null). The shorter FGMRES wall times
+are due to the early MAXITER stop, **not faster successful solving**.
+The result is valuable convergence evidence on **one fixed-A**
+private snapshot only; it establishes neither a speedup nor any
+Newton/contact-trajectory or production CalculiX claim.
+
+A controlled next step is **the same solver pair with a common larger
+iteration limit**, rather than tuning only the FGMRES budget.
+The runner `mfamg_v8_solver_pair_compare.py` now supports
+`--maxiter 6000` for both variants and strictly checks that the
+executable's REPLAY headers actually report that value. The 6000 cap
+is within the existing `mfamgreplay` supported 100..6000 range.
+Run the guarded local one-pair probe with the *already compiled*
+`-winfix1` EXE (no new full build):
+
+    (
+      set -euo pipefail
+      cd "$HOME/lis-v8"
+      BRANCH=experiment/mfamg-fgcrodr-replay-v8-20261108
+      git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+      git show "refs/remotes/origin/$BRANCH:test/mfamg_v8_31_maxiter6000_probe.sh" | bash
+    )
+
+This new probe creates only new
+`$HOME/mfamg_replay/v8_pair_6000_python_20261109` and
+`$HOME/mfamg_replay/v8_pair_6000_probe_31_20261109` locations;
+it refuses to overwrite any existing path and retains the previous
+3000-iteration benchmark as-is. It fetches **only the three public
+Python parser/driver source files**, not contact inputs; every matrix,
+mode, JSON manifest and full log remains local. One pair is just a
+convergence feasibility probe, **not a reliable timing speedup claim**.
+If both converge at maxiter=6000, conduct a separately named repeated
+AB/BA study using the same budget. Do not publish private logs.
+
 ### Paired FGMRES control vs FGCRO-DR (same A/b/modes)
 
 To isolate the algorithmic opt-in, the new
