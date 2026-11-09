@@ -32,7 +32,10 @@ if "LIS_STALE_EXPERIMENT_FLAG" in os.environ:
     sys.exit(2)
 is17 = "omit_ritz_01" in sys.argv[3]
 modes = (18 if os.environ.get("MOCK_BAD_MODES") == "1" else 17) if is17 else 18
-print("REPLAY n=24 nnz=8 modes=%d restart=180 maxiter=3000 tol=1e-5 method=fgcrodr recycle_k=8" % modes)
+header = "REPLAY n=24 nnz=8 modes=%d restart=180 maxiter=3000 tol=1e-5 method=fgcrodr recycle_k=8" % modes
+if os.environ.get("MOCK_BAD_TOL") == "1":
+    header = header.replace("tol=1e-5", "tol=2e-5")
+print(header)
 if os.environ.get("MOCK_MUTATE") == "1" and is17:
     with open(sys.argv[3], "a", encoding="ascii") as f:
         f.write("% changed mid-run\n")
@@ -118,4 +121,10 @@ fi
 grep -q 'input/EXE changed during benchmark' "$tmp/mutated.out"
 test -s "$tmp/mutated/manifest.json"
 test -s "$tmp/mutated/pair01_run1_omit01_17.log"
+if MOCK_BAD_TOL=1 call "$tmp/wrong_tolerance" > "$tmp/wrong_tolerance.out" 2>&1; then
+  echo "ERROR: mismatched replay tolerance was accepted" >&2
+  exit 1
+fi
+grep -q 'V8_REPEAT_ERROR=unexpected replay tolerance' "$tmp/wrong_tolerance.out"
+test -s "$tmp/wrong_tolerance/matched_runs.csv"
 echo V8_MATCHED_REPEATS_SMOKE_OK
