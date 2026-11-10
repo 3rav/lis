@@ -100,8 +100,11 @@ def main():
         out = args.out_dir.resolve()
         if out.exists():
             raise ValueError("output directory already exists; choose a NEW local directory")
+        # POSIX 0700 is not a reliable permissions model on Windows/MSYS2.
+        # Respect Windows ACLs instead of forcing chmod on the local result dir.
         out.mkdir(parents=True, mode=0o700)
-        os.chmod(out, 0o700)
+        if os.name != "nt":
+            os.chmod(out, 0o700)
         max_windows = len(steps) - 2
         if args.max_windows:
             max_windows = min(max_windows, args.max_windows)
