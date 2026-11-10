@@ -1096,7 +1096,11 @@ attempt was inconclusive; small-singular is a separate experiment.)
 
 The script puts the generated 14-mode file, archived public Python
 scripts and comparator logs in new, separate private paths; it
-refuses to overwrite anything. The comparison is one fresh solve
+refuses to overwrite anything. Across BOTH stages, it also verifies
+unchanged local bytes of A04, b04, baseline12, offline18 and the
+selected EXE, before comparison AND after the paired replay. Any
+intervening mutation marks the result INCONCLUSIVE. The local Git
+`hash-object` check does **not** add or upload those private files. The comparison is one fresh solve
 each at 12/14/18 modes, all with FGCRO-DR, k=8, factor=4,
 restart=180, maxiter=3000 and independently measured true residual.
 The offline 18-mode control is given ONLY to the comparator, not
