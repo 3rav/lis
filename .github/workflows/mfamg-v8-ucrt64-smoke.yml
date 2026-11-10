@@ -476,6 +476,9 @@ jobs:
           python3 -m py_compile test/mfamg_v8_ccx_capture_probe.py
           bash -n test/mfamg_v8_ccx_capture_probe_smoke.sh
           bash test/mfamg_v8_ccx_capture_probe_smoke.sh
+          python3 -m py_compile test/mfamg_v8_ccx_isolated_stage.py
+          bash -n test/mfamg_v8_ccx_isolated_stage_smoke.sh
+          bash test/mfamg_v8_ccx_isolated_stage_smoke.sh
           bash -n test/mfamg_v8_newton_triplet_one_shot.sh
           bash -n test/mfamg_v8_snapshot_sequence_smoke.sh
           bash test/mfamg_v8_snapshot_sequence_smoke.sh

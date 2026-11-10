@@ -40,6 +40,59 @@ Matrix Market serialization must be reviewed against that LOCAL version
 the stiffness assembly is not automatically the final operator and RHS
 consumed by the solver. Never instrument or rebuild the production tree.
 
+## Local isolated source-only staging (no build / no export)
+
+The local 31-spring installation checks yielded two candidate source
+directories with 779 matching immediate source/build files and available
+GCC, GFortran and Make. These results justify an **isolated staging copy**,
+but do not prove that either directory was used to build the installed EXE.
+
+`test/mfamg_v8_ccx_isolated_stage.py` copies allowed C/Fortran source
+files, headers, include files and root Makefiles from the selected
+candidate to a fresh PRIVATE directory. It checks both selected and peer
+source files are byte-identical, hashes inputs before and after copying,
+never overwrites an existing output, and does not copy the model,
+installed EXE or MKL libraries.
+
+Run in the original MSYS2 UCRT64 terminal using the SAME candidate
+enumeration used for the preceding local probe:
+
+```bash
+(
+set -euo pipefail
+CCX_DIR="$(cygpath -u 'C:\Program Files (x86)\bConverged\CalculiX')"
+CCX_EXE="$CCX_DIR/ccx/ccx.exe"
+CCX_MKL="$CCX_DIR/MKL_PARDISO"
+DOCS="$(cygpath -u 'C:\Users\rafal\Documents')"
+mapfile -t SOURCES < <(
+  find "$CCX_DIR" "$HOME" "$DOCS" -maxdepth 8 -type f \
+    -name 'nonlingeo.c' -print 2>/dev/null | sort -u
+)
+if (( ${#SOURCES[@]} != 3 )); then
+  echo CCX_STAGE=BLOCKED_SOURCE_COUNT_CHANGED
+  exit 2
+fi
+cd "$HOME/lis-v8"
+BRANCH=experiment/mfamg-fgcrodr-replay-v8-20261108
+git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+git show "refs/remotes/origin/$BRANCH:test/mfamg_v8_ccx_isolated_stage.py" |
+  python3 - \
+    --source-dir "$(cygpath -m "${SOURCES[1]%/nonlingeo.c}")" \
+    --peer-dir "$(cygpath -m "${SOURCES[2]%/nonlingeo.c}")" \
+    --install-dir "$(cygpath -m "$CCX_DIR")" \
+    --installed-exe "$(cygpath -m "$CCX_EXE")" \
+    --mkl-dir "$(cygpath -m "$CCX_MKL")" \
+    --out-dir "$(cygpath -m "$HOME/mfamg_replay/ccx_newton_research_stage_20261110")"
+)
+```
+
+Print and share only `CCX_STAGE_*` aggregate lines.
+This stage **does write** a new local private source-only snapshot; it
+does not modify anything in the bConverged installation. Do not run
+`make` on it until the Makefiles' toolchain and MKL/PARDISO settings
+have been reviewed, and never use its mere existence as evidence of
+runtime solver identity or a genuine Newton trajectory.
+
 ## Source of truth: the ORIGINAL nonlinear solve
 
 When an authentic sequence is available (or when a future research-only
