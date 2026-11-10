@@ -853,6 +853,57 @@ if available; keep exact status/true residual/iter and recycling
 algebra checks. The private inputs, manifests, per-run logs and
 output folders remain local. PR #47 remains Draft / NO MERGE.
 
+### Separate 116-spring real-contact convergence/regression gate (prepared)
+
+The **116-spring** contact snapshot must not reuse the 31-spring
+numerical configuration. The historical 116 control used
+`control_116/A02.mtx`, `control_116/b02.mtx`,
+`control_116/modes02.mtx` (12 columns), `MFAMG_FINE_AGG_FACTOR=2`,
+`restart=180`, `MAXITER=1000`, `tol=1e-5`; the previously reported
+FGMRES baseline converged in **592 iterations**. This historical
+number is a reference to check, not a new upstream-#214 measurement.
+
+The paired runner now accepts explicit `--fine-agg-factor 2`
+(default remains 4 for the separate 31-spring experiments) and
+`--maxiter 1000` (default remains 3000). Both are applied to FGMRES
+and FGCRO-DR, logged in the local input hash manifest and enforced
+through the replay header's iteration-limit check.
+
+`test/mfamg_v8_116_upstream214_one_shot.sh` performs three alternating
+FGMRES/FGCRODR pairs using the **same previously built `-winfix1`
+upstream-#214 executable**. It checks source Git blob identity, checks
+the three local private input files, fetches only three public Python
+test scripts into a **new private** scripts folder, and refuses
+preexisting output folders. It never modifies the existing checkout,
+recompiles the solver, deletes files, or uploads private data.
+
+Run only in MSYS2 UCRT64:
+
+```bash
+(
+set -euo pipefail
+cd "$HOME/lis-v8"
+BRANCH=experiment/mfamg-fgcrodr-replay-v8-20261108
+git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+git show "refs/remotes/origin/$BRANCH:test/mfamg_v8_116_upstream214_one_shot.sh" | bash
+)
+```
+
+The new local-only directories are
+`$HOME/mfamg_replay/v8_116_python_upstream214_20261110` and
+`$HOME/mfamg_replay/v8_116_fgmres_vs_fgcrodr_upstream214_20261110`.
+`V8_116_BENCHMARK_EXIT` and aggregate `assessment.json` can be
+shared without private matrices or run logs. A result is classified
+`MATCHED_CONVERGED` **only if both methods converge in all pairs**
+and FGCRO-DR's reuse and `AZ=C` checks pass. A solver MAXITER,
+nonconvergence or invalid recycling yields an inconclusive
+assessment with no speedup statistic; it is still useful evidence.
+Compare FGMRES iteration counts with the historical 592 baseline,
+but do not assume exact parity before the real test.
+
+This gate concerns one fixed 116-spring A/b snapshot, not a
+Newton sequence or production CalculiX. Keep the PR Draft.
+
 ### Paired FGMRES control vs FGCRO-DR (same A/b/modes)
 
 To isolate the algorithmic opt-in, the new
@@ -872,7 +923,7 @@ output directory; do not use the earlier pre-upstream EXE:
     cd "$HOME/lis-v8"
     ROOT="$HOME/mfamg_replay"
     python3 test/mfamg_v8_solver_pair_compare.py \
-      --exe-v8 "$(cygpath -m "$ROOT/build-v8-abba-20261109/test/.libs/mfamgreplay.exe")" \
+      --exe-v8 "$(cygpath -m "$ROOT/build-v8-upstream214-20261109-winfix1/test/.libs/mfamgreplay.exe")" \
       --matrix "$(cygpath -m "$ROOT/challenge_31/A04.mtx")" \
       --rhs "$(cygpath -m "$ROOT/challenge_31/b04.mtx")" \
       --modes "$(cygpath -m "$ROOT/v8_mode_audit/ritz/modes_all_ritz.mtx")" \
