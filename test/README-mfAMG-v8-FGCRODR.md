@@ -1427,6 +1427,78 @@ Public CI uses a fully mock, synthetic three-snapshot CSV and covers
 same-graph transfer, changed-graph REJECT, fresh controls, MAXITER,
 malformed preflight, forbidden input changes, and non-overwriting.
 
+### Guarded LOCAL Newton three-step preflight (never invent chronology)
+
+**A filename sequence is not a Newton trajectory.** No authentic
+three-consecutive-step user-provenance CSV has yet been supplied for
+this real-data gate. Do not silently treat `A01`, `A02`, `A03` or
+matrix file timestamps as proof of consecutive Newton iterations.
+The true prerequisite is a **privately curated** `step,matrix,rhs` CSV
+whose author independently confirms all rows came from one nonlinear
+contact solve in the correct adjacent Newton order. It must have at
+least three declared rows; paths may be relative to the CSV. A
+physically appropriate baseline mode array must be chosen separately.
+
+The new `test/mfamg_v8_newton_preflight.py` is **strictly read-only**:
+it checks the CSV's required columns/unique rows, existence of all
+inputs, Matrix Market matrix/RHS/mode dimensions, actual LIS importer
+`--compare-csr` outcomes and immutable input/EXE hashes before and
+after the CSR checks. It refuses an all-unchanged operator sequence
+and mismatching or malformed preflight headers. It prints only
+aggregate graph classifications, and explicitly labels CSV order
+`CSV_ORDER_DECLARED_NOT_INDEPENDENTLY_PROVEN`.
+
+The UCRT64 wrapper `test/mfamg_v8_newton_triplet_one_shot.sh`
+uses the already built upstream #214 `-winfix1` EXE, pinned exact
+solver blob and separately archived public Python scripts. It is
+**preflight-only by default**; if there is no curated CSV among
+`$HOME/mfamg_replay/newton_steps.csv`,
+`$HOME/mfamg_replay/newton/newton_steps.csv`, or
+`$HOME/mfamg_replay/challenge_31/newton_steps.csv`, it prints
+`V8_NEWTON_GATE=NEEDS_EXPLICIT_CURATED_STEPS_CSV` and does nothing.
+Nothing is generated from numbered A/b filenames.
+
+To inspect the local gate without performing an expensive solve, run
+in MSYS2 UCRT64:
+
+```bash
+(
+  set -euo pipefail
+  cd "$HOME/lis-v8"
+  BRANCH=experiment/mfamg-fgcrodr-replay-v8-20261108
+  git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+  git show "refs/remotes/origin/$BRANCH:test/mfamg_v8_newton_triplet_one_shot.sh" | bash
+)
+```
+
+To actually run the first three-step persistent solver window,
+the operator's chronology must FIRST be independently confirmed,
+and its exact private CSV/modes explicitly selected. For example,
+within that same one-shot invocation, set
+`MFAMG_V8_NEWTON_STEPS_CSV` to the correct local ordered CSV,
+`MFAMG_V8_NEWTON_MODES` to the matching baseline 12-mode file,
+`MFAMG_V8_NEWTON_FINE_AGG_FACTOR=4` (or 2 for a separately verified
+116-spring series), `MFAMG_V8_NEWTON_EXECUTE=1` and
+`MFAMG_V8_NEWTON_CONSECUTIVE_CONFIRMED=1`. Without the explicit
+confirmation flag, even a successful structural preflight does
+**not** execute the Newton replay. Both the read-only preflight
+and the actual replay fail closed on malformed or changed inputs.
+
+The runner executes **one LIS_SOLVER for three consecutive declared
+systems** and optionally a separate fresh third solve. New result
+directories are private and never overwritten; the preflight and
+triplet use different NEW local Python source directories so the
+first inspection cannot cause a future execution overwrite.
+Python on Windows receives `cygpath -m` paths; Windows ACLs are
+respected instead of assuming POSIX chmod. This is still only an
+offline simulation of the declared Newton windows, not in-CalculiX
+continuous state, an automatic optimization or production evidence.
+
+CI smoke uses only synthetic mock matrices to verify a legitimate
+same-CSR/change-graph triplet, rejected duplicate/missing rows,
+all-unchanged or malformed preflight and mutated inputs. Until the
+real user's chronological CSV exists, the Newton gate stays open.
+
 ### Three genuinely consecutive linear systems in the SAME solver
 
 The opt-in C replay also accepts a third operator and RHS via
