@@ -1094,9 +1094,14 @@ refuses to overwrite anything. The comparison is one fresh solve
 each at 12/14/18 modes, all with FGCRO-DR, k=8, factor=4,
 restart=180, maxiter=3000 and independently measured true residual.
 The offline 18-mode control is given ONLY to the comparator, not
-the generator. `CONTROL_CONVERGED` is not enough to claim automatic
-14-mode success: check `metrics.generated14.converged` and
-`metrics.generated14.all_converged` before drawing conclusions.
+the generator. The one-shot requires **both** offline18 and generated14
+convergence (`--require-offline-control-converged` and
+`--require-generated-converged`). A result labeled
+`CONTROL_CONVERGED` by the general comparator is **not** sufficient
+to establish automatic 14-mode success: it can still accompany
+`V8_CANDIDATE_GENERATED_CONVERGED=0` and exit 1. Inspect
+`metrics.generated14.all_converged` and true residuals; even success
+would prove only a single fixed-A, not a production speedup.
 
 If the generator cannot establish independence and A-norm decrease,
 the script exits nonzero and **does not invent modes** or start
