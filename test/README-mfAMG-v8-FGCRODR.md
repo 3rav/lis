@@ -1496,6 +1496,12 @@ malformed preflight, forbidden input changes, and non-overwriting.
 
 ### Guarded LOCAL Newton three-step preflight (never invent chronology)
 
+**Producer-side provenance protocol:** see
+[test/README-mfAMG-v8-Newton-provenance.md](README-mfAMG-v8-Newton-provenance.md)
+for what must be recorded during an original nonlinear run before any
+three A/b pairs may be called physically consecutive. The existing
+preflight checks structural consistency, not authenticity of chronology.
+
 **A filename sequence is not a Newton trajectory.** No authentic
 three-consecutive-step user-provenance CSV has yet been supplied for
 this real-data gate. Do not silently treat `A01`, `A02`, `A03` or
