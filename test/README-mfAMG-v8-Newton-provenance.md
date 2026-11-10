@@ -24,6 +24,16 @@ CCX_INP="/local/private/model.inp"
 )
 ```
 
+For a static analysis, CalculiX's `statics.f` reads `SOLVER=`
+from the `*STATIC` card, **not from `*STEP`**. The probe now reports
+`CCX_CAPTURE_INP_STATIC_SOLVER` as a whitelisted category
+(`PARDISO`, `SPOOLES`, etc.), `UNSPECIFIED_TOP_LEVEL`,
+`MIXED_OR_PARTIAL_TOP_LEVEL`, or `NO_TOP_LEVEL_STATIC`.
+This is only a top-level input hint: `*INCLUDE` and runtime solver state
+remain unresolved; the field must never be used as proof of which
+binary/runtime solver actually ran. The legacy
+`CCX_CAPTURE_INP_SOLVER_KEYWORD` flag is not the solver setting.
+
 The probe prints **only** aggregate `CCX_CAPTURE_*` values. It checks that
 `src/nonlingeo.c` (or `nonlingeo.c`) exists, contains the expected
 assembly/Newton-loop signatures, and reports coarse source solver signatures

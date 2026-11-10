@@ -44,8 +44,10 @@ def inspect(root, model):
     flags = {
         "step": False, "static": False, "dynamic": False,
         "contact": False, "spring": False, "include": False,
-        "solver_keyword": False,
+        "solver_keyword": False,  # legacy flag; not the *STATIC solver setting
     }
+    static_count = 0
+    explicit_static_solvers = []
     with model.open("r", encoding="utf-8", errors="replace") as stream:
         for line in stream:
             stripped = line.lstrip()
@@ -56,6 +58,19 @@ def inspect(root, model):
                 flags["step"] = True
             elif directive == "*STATIC":
                 flags["static"] = True
+                static_count += 1
+                for parameter in stripped.split(",")[1:]:
+                    key, sep, value = parameter.partition("=")
+                    if sep and key.strip().upper() == "SOLVER":
+                        # Only fixed public solver categories are emitted.
+                        solver = value.strip().upper()
+                        explicit_static_solvers.append(
+                            solver if solver in (
+                                "PARDISO", "SPOOLES", "PASTIX",
+                                "ITERATIVESCALING", "ITERATIVECHOLESKY",
+                                "SGI", "TAUCS"
+                            ) else "OTHER"
+                        )
             elif directive == "*DYNAMIC":
                 flags["dynamic"] = True
             elif directive.startswith("*CONTACT") or directive == "*SURFACE INTERACTION":
@@ -66,9 +81,18 @@ def inspect(root, model):
                 flags["include"] = True
             elif directive == "*SOLVER":
                 flags["solver_keyword"] = True
+    if not static_count:
+        static_solver = "NO_TOP_LEVEL_STATIC"
+    elif not explicit_static_solvers:
+        static_solver = "UNSPECIFIED_TOP_LEVEL"
+    elif (len(explicit_static_solvers) != static_count or
+          len(set(explicit_static_solvers)) != 1):
+        static_solver = "MIXED_OR_PARTIAL_TOP_LEVEL"
+    else:
+        static_solver = explicit_static_solvers[0]
     if (digest(source), digest(model)) != before:
         raise ValueError("source/model changed during probe")
-    return signatures, flags
+    return signatures, flags, static_solver
 
 
 def main():
@@ -77,7 +101,7 @@ def main():
     parser.add_argument("--input-file", required=True)
     args = parser.parse_args()
     try:
-        signatures, flags = inspect(args.source_root, args.input_file)
+        signatures, flags, static_solver = inspect(args.source_root, args.input_file)
     except (ValueError, OSError, UnicodeError, OverflowError) as exc:
         print("CCX_CAPTURE_PROBE=BLOCKED", file=sys.stderr)
         print("CCX_CAPTURE_PROBE_REASON=" + type(exc).__name__, file=sys.stderr)
@@ -91,7 +115,9 @@ def main():
                  "include", "solver_keyword"):
         print("CCX_CAPTURE_INP_%s=%d" %
               (name.upper(), int(flags[name])))
+    print("CCX_CAPTURE_INP_STATIC_SOLVER=" + static_solver)
     print("CCX_CAPTURE_INP_SCOPE=TOP_LEVEL_ONLY")
+    print("CCX_CAPTURE_INP_STATIC_SOLVER_IS_RUNTIME_PROOF=0")
     print("CCX_CAPTURE_SOLVER_HOOK=NEEDS_BRANCH_SPECIFIC_REVIEW")
     print("CCX_CAPTURE_EXPORT_ENABLED=0")
     print("CCX_CAPTURE_LOCAL_INPUTS_UNCHANGED=1")
