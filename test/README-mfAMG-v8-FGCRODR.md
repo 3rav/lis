@@ -904,6 +904,49 @@ but do not assume exact parity before the real test.
 This gate concerns one fixed 116-spring A/b snapshot, not a
 Newton sequence or production CalculiX. Keep the PR Draft.
 
+### Real 116-spring A02/b02 matched result: convergence preserved; extra work loses (2026-11-10)
+
+The user executed `test/mfamg_v8_116_upstream214_one_shot.sh`
+with the same already-built accepted upstream develop #214 UCRT64 EXE
+on private `control_116/A02.mtx`, `b02.mtx`, and `modes02.mtx`
+(12 modes). Identical settings for both algorithms: MFAMG
+`factor=2`, `restart=180`, `maxiter=1000`, `tol=1e-5`;
+FGCRO-DR intra-solve uses `k=8` and the runner validates its
+recycling algebra. All three paired AB/BA controls converged.
+
+| Pair | FGMRES iter/status/wall (s) | FGCRO-DR iter/status/wall (s) |
+| --- | --- | --- |
+| 1 | 592 / 0 / 15.148 | 455 / 0 / 22.488 |
+| 2 | 592 / 0 / 15.203 | 455 / 0 / 22.522 |
+| 3 | 592 / 0 / 15.229 | 455 / 0 / 27.261 |
+
+`V8_116_BENCHMARK_EXIT=0` and `MATCHED_CONVERGED`, 6/6 solves.
+Median relative residuals were `9.99874391912e-06` (FGMRES) and
+`9.980683447558e-06` (FGCRO-DR). The historical **592-iteration**
+116-spring FGMRES control was reproduced exactly. The FGCRO-DR solver
+uses 137 fewer iterations (23.1%), but wall time is LONGER in every
+pair. Median FGMRES wall=15.203 s; FGCRO-DR wall=22.522 s.
+The ratio of separate medians gives FGCRO-DR a **48.14% wall-time
+overhead** relative to FGMRES; median within-pair overhead=48.46%.
+The 27.261 s FGCRO-DR trial increases the time spread; three pairs
+are exploratory and do not establish general performance statistics.
+
+**Joint interpretation with 31 springs:** on difficult fixed A04/b04
+(18 modes, factor=4), FGCRO-DR converged at 2792 iterations, whereas
+FGMRES failed at both common MAXITER 3000 and 6000. That comparison
+measures a convergence/iteration-budget advantage only because
+FGMRES was not converged. On the easier 116-spring control with
+factor=2, both methods converge, and FGMRES is faster. Thus the
+accepted intra-solve recycle feature should stay **optional and OFF
+by default**; never imply universal speedup, change production
+CalculiX or automatically switch all MFAMG solves to FGCRO-DR.
+
+Both data sets are single fixed-operator replays, not a genuine
+consecutive Newton/contact sequence. All matrices, modes, private
+manifests and per-run logs remain on the local computer. The remaining
+real-data gates are authentic A1/b1→A2/b2→A3/b3 and the separately
+planned candidate 12/14/18 audit. PR stays Draft / NO MERGE.
+
 ### Paired FGMRES control vs FGCRO-DR (same A/b/modes)
 
 To isolate the algorithmic opt-in, the new
