@@ -51,9 +51,17 @@ def analyze(base_path, generated_path, control_path):
     principal_cosines = [math.sqrt(min(1.0, max(0.0, x))) for x in eigenvalues]
     if tuple(sha256_input(p) for p in paths) != before:
         raise ValueError("mode inputs changed during post-hoc overlap audit")
+    # Under an isotropic random two-dimensional generated subspace in the
+    # n-12 dimensional orthogonal complement, the expected squared
+    # projection of each unit direction onto a fixed 6D control is 6/(n-12).
+    # This analytic reference is NOT a p-value or convergence benchmark.
+    isotropic_expected = len(qoffline) / (n0 - len(qbase))
+    measured = min(1.0, max(0.0, mean))
     return {
         "n": n0,
-        "mean_squared_projection": min(1.0, max(0.0, mean)),
+        "mean_squared_projection": measured,
+        "isotropic_null_expected": isotropic_expected,
+        "over_isotropic_null_ratio": measured / isotropic_expected,
         "principal_cosine_min": principal_cosines[0],
         "principal_cosine_max": principal_cosines[1],
     }
@@ -76,6 +84,9 @@ def main():
     print("V8_AUTO14_OVERLAP_GENERATED_EXTRA=2")
     print("V8_AUTO14_OVERLAP_OFFLINE_EXTRA=6")
     print("V8_AUTO14_OVERLAP_MEAN_SQUARED_PROJECTION=%.12g" % summary["mean_squared_projection"])
+    print("V8_AUTO14_OVERLAP_ISOTROPIC_NULL_EXPECTED=%.12g" % summary["isotropic_null_expected"])
+    print("V8_AUTO14_OVERLAP_OVER_ISOTROPIC_NULL_RATIO=%.12g" % summary["over_isotropic_null_ratio"])
+    print("V8_AUTO14_OVERLAP_NULL_NOTE=ANALYTIC_REFERENCE_NOT_P_VALUE")
     print("V8_AUTO14_OVERLAP_PRINCIPAL_COSINE_MIN=%.12g" % summary["principal_cosine_min"])
     print("V8_AUTO14_OVERLAP_PRINCIPAL_COSINE_MAX=%.12g" % summary["principal_cosine_max"])
     print("V8_AUTO14_OVERLAP_INTERPRETATION=GEOMETRY_ONLY_NOT_CAUSAL_OR_CONVERGENCE_PROOF")

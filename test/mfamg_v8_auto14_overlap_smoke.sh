@@ -32,6 +32,9 @@ for suffix, expected in [('contained',1.0),('disjoint',0.0),('mixed',0.5)]:
     report=dict(line.split('=',1) for line in run.stdout.splitlines())
     assert report['V8_AUTO14_OVERLAP']=='OK'
     assert abs(float(report['V8_AUTO14_OVERLAP_MEAN_SQUARED_PROJECTION'])-expected)<1e-10, report
+    assert abs(float(report['V8_AUTO14_OVERLAP_ISOTROPIC_NULL_EXPECTED'])-0.5)<1e-10, report
+    assert abs(float(report['V8_AUTO14_OVERLAP_OVER_ISOTROPIC_NULL_RATIO'])-2*expected)<1e-10, report
+    assert report['V8_AUTO14_OVERLAP_NULL_NOTE']=='ANALYTIC_REFERENCE_NOT_P_VALUE'
     assert abs(float(report['V8_AUTO14_OVERLAP_PRINCIPAL_COSINE_MIN']) - expected**0.5)<1e-10, report
     assert abs(float(report['V8_AUTO14_OVERLAP_PRINCIPAL_COSINE_MAX']) - expected**0.5)<1e-10, report
     assert str(tmp) not in run.stdout, 'exposed private path'
