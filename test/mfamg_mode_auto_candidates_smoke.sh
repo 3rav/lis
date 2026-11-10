@@ -39,6 +39,47 @@ B
 python3 "$here/mfamg_mode_auto_candidates.py" "$tmp/A.mtx" "$tmp/base.mtx" \
   --count 2 --steps 180 --seed 51 --output "$tmp/auto.mtx" > "$tmp/report.txt"
 grep -q '^AUTO_MODE_EXTRA_COUNT=2$' "$tmp/report.txt"
+grep -q '^AUTO_MODE_INPUTS_UNCHANGED=1$' "$tmp/report.txt"
+# Synthetic race injection: mutate A or baseline while an already loaded
+# operator is being filtered; the generated file must never materialize.
+python3 - "$here" "$tmp" <<'PY'
+import argparse
+from pathlib import Path
+import shutil
+import sys
+sys.path.insert(0, sys.argv[1])
+import mfamg_mode_auto_candidates as generator
+tmp=Path(sys.argv[2])
+for victim in ("matrix", "baseline"):
+    matrix=tmp/("mutating_"+victim+"_A.mtx")
+    baseline=tmp/("mutating_"+victim+"_base.mtx")
+    output=tmp/("mutating_"+victim+"_out.mtx")
+    shutil.copyfile(tmp/"A.mtx",matrix)
+    shutil.copyfile(tmp/"base.mtx",baseline)
+    args=argparse.Namespace(matrix=str(matrix),baseline=str(baseline),
+        output=str(output),target="small-singular",count=2,steps=180,
+        seed=51,step_scale=0.8,rank_tol=1e-10,max_nnz=10000000)
+    real_multiply=generator.multiply
+    called=[False]
+    target=matrix if victim=="matrix" else baseline
+    def mutate_once(*args,**kwargs):
+        if not called[0]:
+            called[0]=True
+            with target.open("ab") as stream:
+                stream.write(b"% injected concurrent update\n")
+        return real_multiply(*args,**kwargs)
+    generator.multiply=mutate_once
+    try:
+        try:
+            generator.generate(args)
+        except ValueError as error:
+            assert "input changed during automatic candidate generation" in str(error), error
+        else:
+            raise AssertionError("modified input silently accepted")
+    finally:
+        generator.multiply=real_multiply
+    assert called[0] and not output.exists(), victim
+PY
 grep -q '^8 4$' "$tmp/auto.mtx"
 python3 "$here/mfamg_mode_audit.py" "$tmp/A.mtx" "$tmp/base.mtx" "$tmp/auto.mtx" \
   --csv-out "$tmp/audit.csv" > "$tmp/audit.txt"
