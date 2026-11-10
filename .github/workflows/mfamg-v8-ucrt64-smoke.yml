@@ -465,6 +465,10 @@ jobs:
           bash test/mfamg_replay_v8_candidate_compare_smoke.sh
           python3 -m py_compile test/mfamg_v8_snapshot_sequence.py
           python3 -m py_compile test/mfamg_v8_triplet_windows.py
+          python3 -m py_compile test/mfamg_v8_newton_preflight.py
+          bash -n test/mfamg_v8_newton_preflight_smoke.sh
+          bash test/mfamg_v8_newton_preflight_smoke.sh
+          bash -n test/mfamg_v8_newton_triplet_one_shot.sh
           bash -n test/mfamg_v8_snapshot_sequence_smoke.sh
           bash test/mfamg_v8_snapshot_sequence_smoke.sh
 
