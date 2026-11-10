@@ -55,10 +55,13 @@ call() {
     --baseline "$tmp/baseline.mtx" \
     --generated "${2:-$tmp/generated.mtx}" \
     --offline-control "$tmp/offline.mtx" \
-    --out-dir "$1" --repetitions 2 --require-offline-control-converged
+    --out-dir "$1" --repetitions 2 --require-offline-control-converged "${@:3}"
 }
 LIS_FORBIDDEN_AMBIENT=1 call "$tmp/success" > "$tmp/success.out"
 grep -q '^V8_CANDIDATE_ASSESSMENT=CONTROL_CONVERGED$' "$tmp/success.out"
+grep -q '^V8_CANDIDATE_GENERATED_CONVERGED=1$' "$tmp/success.out"
+call "$tmp/guard_success" "" --require-generated-converged > "$tmp/guard_success.out"
+grep -q '^V8_CANDIDATE_GENERATED_CONVERGED=1$' "$tmp/guard_success.out"
 python3 - "$tmp/success" <<'PY'
 import csv, json, pathlib, sys
 p = pathlib.Path(sys.argv[1])
@@ -90,6 +93,13 @@ fi
 grep -q 'first 12 columns must equal baseline' "$tmp/bad.out"
 test ! -e "$tmp/bad"
 MOCK_FAIL_GENERATED=1 call "$tmp/nonconverged" > "$tmp/nonconverged.out"
+# An offline18 PASS must NOT hide automatic generated14 nonconvergence.
+if MOCK_FAIL_GENERATED=1 call "$tmp/guard_failed" "" --require-generated-converged > "$tmp/guard_failed.out" 2>&1; then
+  echo "ERROR: failed automatic mode accepted as converged" >&2; exit 1
+fi
+grep -q '^V8_CANDIDATE_GENERATED_CONVERGED=0$' "$tmp/guard_failed.out"
+grep -q '^V8_CANDIDATE_ASSESSMENT=CONTROL_CONVERGED$' "$tmp/guard_failed.out"
+test -s "$tmp/guard_failed/assessment.json"
 python3 - "$tmp/nonconverged/assessment.json" <<'PY'
 import json, sys
 report = json.load(open(sys.argv[1]))
