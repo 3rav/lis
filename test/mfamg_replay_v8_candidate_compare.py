@@ -74,6 +74,8 @@ def main():
     p.add_argument("--repetitions", type=int, default=1)
     p.add_argument("--tol", type=float, default=1e-5)
     p.add_argument("--require-offline-control-converged", action="store_true")
+    p.add_argument("--require-generated-converged", action="store_true",
+                   help="Fail closed if any automatic 14-mode solve does not converge")
     args = p.parse_args()
     if not (1 <= args.repetitions <= 10 and math.isfinite(args.tol)
             and 0 < args.tol < 1):
@@ -152,8 +154,12 @@ def main():
         (args.out_dir / "assessment.json").write_text(
             json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print("V8_CANDIDATE_ASSESSMENT=" + result["assessment"])
+        print("V8_CANDIDATE_GENERATED_CONVERGED=" +
+              str(int(result["metrics"]["generated14"]["all_converged"])))
         print("V8_CANDIDATE_SUMMARY=" + str(args.out_dir / "assessment.json"))
         if args.require_offline_control_converged and result["assessment"] != "CONTROL_CONVERGED":
+            return 1
+        if args.require_generated_converged and not result["metrics"]["generated14"]["all_converged"]:
             return 1
         return 0
     except (OSError, ValueError, OverflowError) as exc:
