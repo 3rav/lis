@@ -121,6 +121,8 @@ def main():
     p.add_argument("--expected-modes", type=int, default=18)
     p.add_argument("--pairs", type=int, default=3)
     p.add_argument("--maxiter", type=int, default=3000, help="Common FGMRES/FGCRODR MAXITER (100..6000)")
+    p.add_argument("--fine-agg-factor", type=int, choices=(2, 4), default=4,
+                   help="Identical MFAMG aggregation factor (2 for historical 116-spring, 4 for 31-spring)")
     p.add_argument("--tol", type=float, default=1e-5)
     p.add_argument("--require-both-converged", action="store_true")
     a = p.parse_args()
@@ -153,12 +155,14 @@ def main():
                               "LIS_FGCRODR_INTRA_TRACE",
                               "LIS_MFAMG_REPLAY_VALIDATE_RECYCLE")}
         fixed["LIS_MFAMG_REPLAY_MAXITER"] = str(a.maxiter)
+        fixed["LIS_MFAMG_FINE_AGG_FACTOR"] = str(a.fine_agg_factor)
         cfg = {k: v for k, v in os.environ.items() if not k.startswith("LIS_")}
         manifest = dict(
             schema="mfamg-fgmres-vs-fgcrodr-paired-v1",
             inputs_sha256_and_size=hashes,
             baseline_type="historical_v7_binary" if a.exe_v7 else "same_v8_binary_fgmres",
-            pairs=a.pairs, expected_modes=a.expected_modes, maxiter=a.maxiter, mode_rows=n,
+            pairs=a.pairs, expected_modes=a.expected_modes, maxiter=a.maxiter,
+            fine_agg_factor=a.fine_agg_factor, mode_rows=n,
             tolerance=a.tol, common_LIS_environment=fixed,
             experiment="single_fixed_A_b; independent fresh processes; no Newton",
             note="Private matrix/modes/logs remain local; do not upload",
