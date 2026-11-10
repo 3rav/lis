@@ -28,7 +28,8 @@ else:
     announced="fgmres" if os.environ.get("MOCK_BAD_METHOD")=="1" else method
     print("REPLAY n=24 nnz=70 modes=2 restart=180 maxiter=%s tol=1e-5 method=%s recycle_k=%d" % (os.environ.get("LIS_MFAMG_REPLAY_MAXITER"),announced,8 if method=="fgcrodr" else 0))
 assert os.environ.get("LIS_UNWANTED_FLAG") is None
-assert os.environ.get("LIS_MFAMG_REPLAY_MAXITER") in ("3000","6000")
+assert os.environ.get("LIS_MFAMG_REPLAY_MAXITER") in ("1000","3000","6000")
+assert os.environ.get("LIS_MFAMG_FINE_AGG_FACTOR") in ("2","4")
 if os.environ.get("MOCK_MUTATE")=="1":
     Path(sys.argv[2]).write_text("changed\n")
 if method=="fgcrodr":
@@ -81,6 +82,22 @@ assert m["maxiter"]==6000
 assert m["common_LIS_environment"]["LIS_MFAMG_REPLAY_MAXITER"]=="6000"
 assert len(list(csv.DictReader(Path(sys.argv[2]).open())))==6
 PY
+# Reproduce the historical 116-spring control's *configuration*, not
+# private numerical results: both methods must use factor=2, maxiter=1000.
+call "$tmp/factor2" --maxiter 1000 --fine-agg-factor 2 > "$tmp/factor2.out"
+grep -q 'V8_SOLVER_PAIR_ASSESSMENT=MATCHED_CONVERGED' "$tmp/factor2.out"
+python3 - "$tmp/factor2/manifest.json" "$tmp/factor2/paired_runs.csv" <<'PY'
+import csv,json,sys
+from pathlib import Path
+m=json.loads(Path(sys.argv[1]).read_text())
+assert m["fine_agg_factor"] == 2 and m["maxiter"] == 1000, m
+assert m["common_LIS_environment"]["LIS_MFAMG_FINE_AGG_FACTOR"] == "2"
+assert m["common_LIS_environment"]["LIS_MFAMG_REPLAY_MAXITER"] == "1000"
+assert len(list(csv.DictReader(Path(sys.argv[2]).open()))) == 6
+PY
+if call "$tmp/badfactor" --fine-agg-factor 3 > "$tmp/badfactor.out" 2>&1; then exit 1; fi
+grep -q 'invalid choice' "$tmp/badfactor.out"
+test ! -e "$tmp/badfactor"
 if call "$tmp/badlimit" --maxiter 6001 > "$tmp/badlimit.out" 2>&1; then exit 1; fi
 grep -q 'maxiter 100..6000' "$tmp/badlimit.out"
 test ! -e "$tmp/badlimit"
