@@ -817,6 +817,42 @@ convergence feasibility probe, **not a reliable timing speedup claim**.
 If both converge at maxiter=6000, conduct a separately named repeated
 AB/BA study using the same budget. Do not publish private logs.
 
+### Real A04/b04 follow-up: same-binary common MAXITER=6000 probe (2026-11-10)
+
+The user ran the one-pair private UCRT64 probe with the already built
+accepted upstream #214 `-winfix1` EXE, fixed A04/b04, the identical
+all-18 Ritz basis, restart 180, tolerance 1e-5 and **common
+`LIS_MFAMG_REPLAY_MAXITER=6000` for both solvers**.
+
+| Method | Status | Iterations | True relative residual | Wall time |
+| --- | --- | ---: | ---: | ---: |
+| FGMRES control | 4 (MAXITER) | 6001 | 3.65628547731e-05 | 256.392 s |
+| FGCRO-DR v8, intra k=8 | 0 (converged) | 2792 | 9.989979821954e-06 | 197.002 s |
+
+`MAXITER6000_PROBE_EXIT=1` and
+`V8_SOLVER_PAIR_ASSESSMENT=INCONCLUSIVE_NONCONVERGENCE` are **correct**.
+The benchmark intentionally reports no speedup because FGMRES is
+nonconverged; shorter/longer wall time on a failed solve is NOT a
+valid speed comparison. A single pair adds feasibility evidence, not
+repeatable timing statistics. The previously recorded 3-pair
+maxiter=3000 test also showed FGMRES 0/3 converged versus FGCRO-DR
+3/3 converged, with the same 2792 FGCRO-DR iterations. At maxiter
+6000, FGMRES residual remains above the specified 1e-5 tolerance.
+
+**Interpretation:** On this one fixed real A04/b04 contact snapshot
+and the same 18-mode basis, the accepted upstream FGCRO-DR reaches
+the requested accuracy within the iteration budget and FGMRES does
+not, including with twice the original MAXITER. This is a
+**convergence / iteration-budget advantage**, not a proven wall-time
+speedup, broad contact robustness, or CalculiX production result.
+
+**Next private gate:** do not keep raising MAXITER solely to force a
+speedup comparison. Prefer a separate 116-spring validation and
+authentic consecutive Newton operators (A1/b1 → A2/b2 → A3/b3)
+if available; keep exact status/true residual/iter and recycling
+algebra checks. The private inputs, manifests, per-run logs and
+output folders remain local. PR #47 remains Draft / NO MERGE.
+
 ### Paired FGMRES control vs FGCRO-DR (same A/b/modes)
 
 To isolate the algorithmic opt-in, the new
