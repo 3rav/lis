@@ -62,6 +62,17 @@ git archive "$REF" \
   test/mfamg_replay_v8_repeats.py \
   test/mfamg_replay_v8_candidate_compare.py | tar -xf - -C "$PY_SRC"
 cd "$PY_SRC"
+# Protect the ENTIRE local generation -> comparison pipeline against a
+# private snapshot changing between the two independently safe phases.
+# Git hash-object only hashes local bytes; it does NOT upload or git-add.
+input_stamps() {
+  git hash-object "$A"
+  git hash-object "$B"
+  git hash-object "$BASE"
+  git hash-object "$OFFLINE"
+  git hash-object "$EXE"
+}
+BEFORE_STAMPS="$(input_stamps)"
 # Fail before the potentially expensive generator when the offline
 # control is not a true baseline-preserving 18-column reference.
 # This comparison does not feed any offline vector into the generator.
@@ -95,6 +106,11 @@ if [[ ! -s "$AUTO" ]]; then
   exit 2
 fi
 
+if [[ "$(input_stamps)" != "$BEFORE_STAMPS" ]]; then
+  echo "V8_AUTO14_ASSESSMENT=INCONCLUSIVE_INPUT_MUTATION"
+  exit 2
+fi
+echo "V8_AUTO14_INPUTS_UNCHANGED_BEFORE_COMPARE=1"
 echo "V8_AUTO14_MATCHED_CONTROL_START"
 set +e
 python3 test/mfamg_replay_v8_candidate_compare.py \
@@ -109,6 +125,10 @@ python3 test/mfamg_replay_v8_candidate_compare.py \
   --require-generated-converged
 RC=$?
 set -e
+if [[ "$(input_stamps)" != "$BEFORE_STAMPS" ]]; then
+  echo "V8_AUTO14_ASSESSMENT=INCONCLUSIVE_INPUT_MUTATION"
+  RC=2
+fi
 echo "V8_AUTO14_COMPARE_EXIT=$RC"
 if [[ -f "$OUT/assessment.json" ]]; then
   echo "=== LOCAL AGGREGATE 12 / 14 / 18 ASSESSMENT ==="
