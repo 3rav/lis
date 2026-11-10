@@ -10,6 +10,7 @@ near-nullspace corrections. No private data is uploaded.
 """
 import argparse
 from array import array
+import hashlib
 import math
 import os
 import random
@@ -83,9 +84,22 @@ def normalized(vec, basis, tolerance):
     return [x / size for x in projected]
 
 
+def sha256_input(path):
+    # Compare privately in-memory; never print a contact input digest/path.
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for block in iter(lambda: source.read(4 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.digest()
+
+
 def generate(args):
     if os.path.lexists(args.output):
         raise ValueError("output already exists")
+    # Pin original A and baseline bytes: otherwise a concurrent snapshot
+    # replacement can silently mix the vector basis and the operator.
+    original_matrix = sha256_input(args.matrix)
+    original_baseline = sha256_input(args.baseline)
     n, base = read_modes(args.baseline)
     if n > 250000 or len(base) + args.count > 256:
         raise ValueError("matrix size or mode count exceeds prototype limits")
@@ -134,6 +148,11 @@ def generate(args):
         print("AUTO_MODE_%02d_A_NORM_AFTER=%.12g" % (j + 1, after))
         print("AUTO_MODE_%02d_RAYLEIGH_BEFORE=%.12g" % (j + 1, rayleigh_before))
         print("AUTO_MODE_%02d_RAYLEIGH_AFTER=%.12g" % (j + 1, rayleigh_after))
+    # Check again BEFORE materializing any generated mode file. On mutation,
+    # fail closed and leave the originally requested output path untouched.
+    if (sha256_input(args.matrix) != original_matrix or
+            sha256_input(args.baseline) != original_baseline):
+        raise ValueError("input changed during automatic candidate generation")
     with open(args.output, "x", encoding="ascii", newline="\n") as stream:
         stream.write("%%MatrixMarket matrix array real general\n")
         stream.write("%% Experimental automatic %s filtered candidates\n" % args.target)
@@ -142,6 +161,7 @@ def generate(args):
         for column in base + candidates:
             for value in column:
                 stream.write("%.17g\n" % value)
+    print("AUTO_MODE_INPUTS_UNCHANGED=1")
     print("AUTO_MODE_TARGET=" + args.target)
     print("AUTO_MODE_OUTPUT=" + args.output)
     print("AUTO_MODE_EXTRA_COUNT=%d" % len(candidates))
