@@ -15,7 +15,9 @@ import subprocess
 import sys
 
 from mfamg_mode_audit import read_modes
-from mfamg_v8_snapshot_sequence import read_steps, inspect_preflight
+from mfamg_v8_snapshot_sequence import (
+    read_steps, inspect_preflight, snapshot_hashes, check_unchanged,
+)
 
 
 def mm_shape(path, kind):
@@ -64,6 +66,8 @@ def main():
             raise ValueError("duplicated input file or EXE path")
         if any(not x.is_file() or not x.stat().st_size for x in paths):
             raise ValueError("missing/empty declared input or solver")
+        checked = {str(i): path for i, path in enumerate(paths)}
+        hashes = snapshot_hashes(checked)
         n, modes = read_modes(args.modes)
         if n <= 0 or len(modes) < 1 or len(modes) > 256:
             raise ValueError("invalid mode array")
@@ -92,6 +96,7 @@ def main():
             if n_detected is not None and n_detected != n:
                 raise ValueError("CSR preflight matrix size differs from modes")
             states.append((graph, changed))
+            check_unchanged(checked, hashes)
         changed = sum(v[0] != "unchanged" for v in states)
         if not changed:
             raise ValueError("no actual operator changes in this declared sequence")
