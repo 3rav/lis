@@ -78,6 +78,8 @@ def main():
     p.add_argument("--continue-on-failure", action="store_true")
     p.add_argument("--max-windows", type=int, default=0,
                    help="0=all; otherwise run only first N adjacent triplets")
+    p.add_argument("--fine-agg-factor", type=int, choices=(2, 4), default=4,
+                   help="Common local MFAMG factor (2=116 springs, 4=31 springs)")
     args = p.parse_args()
     if not 0 <= args.max_windows <= 48:
         p.error("max-windows must be 0..48")
@@ -108,6 +110,8 @@ def main():
         max_windows = len(steps) - 2
         if args.max_windows:
             max_windows = min(max_windows, args.max_windows)
+        fixed = dict(ENV)
+        fixed["LIS_MFAMG_FINE_AGG_FACTOR"] = str(args.fine_agg_factor)
         manifest = {
             "schema": "mfamg-v8-persistent-triplet-v1",
             "step_ids": [s["step"] for s in steps],
@@ -116,13 +120,13 @@ def main():
             "n": n,
             "windows_requested": max_windows,
             "fresh_third": args.fresh_third,
-            "solver_environment": ENV,
+            "solver_environment": fixed,
             "limitation": "One LIS_SOLVER persists for EXACTLY 3 consecutive linear systems per window. Each window is a NEW process. Synthetic PASS does not certify contact Newton.",
         }
         (out / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if not k.startswith("LIS_")}
-        env.update(ENV)
+        env.update(fixed)
         rows = []
         with (out / "triplets.csv").open(
                 "x", newline="", encoding="utf-8") as stream:
