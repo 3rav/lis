@@ -1026,7 +1026,13 @@ columns are explicitly filtered against the baseline and earlier
 accepted vectors. It checks finite operator products, reduction
 of the selected objective (A-norm for small-singular; Rayleigh
 quotient for negative-curvature), rank, input dimensions and
-exclusive output creation.
+exclusive output creation. The generator now also checks privately
+computed SHA-256 digests of the ORIGINAL A and baseline mode file
+both before and after filtering. If either input changes during
+the potentially long calculation, it rejects the entire candidate
+**before creating any output file**. It never prints the digests.
+The public synthetic CI injects mutations into each input while
+filtering to ensure both are rejected without an output file.
 
 Start with a **small diagnostic experiment**, not six expensive
 full-size modes at once:
