@@ -5,6 +5,41 @@ The existing three-step runner can validate a *user-declared* matrix sequence,
 but **cannot certify where that sequence came from**. A successful CSV
 preflight or three-solve replay is never proof of Newton chronology.
 
+## Local source/model compatibility probe (read-only)
+
+Before attempting any instrumented export, test the exact local CalculiX
+source tree and the original input deck **without copying or uploading them**.
+Use MSYS2 UCRT64 and substitute your PRIVATE paths only in the terminal:
+
+```bash
+CCX_ROOT="/local/private/CalculiX-source"
+CCX_INP="/local/private/model.inp"
+(
+  set -euo pipefail
+  cd "$HOME/lis-v8"
+  BRANCH=experiment/mfamg-fgcrodr-replay-v8-20261108
+  git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+  git show "refs/remotes/origin/$BRANCH:test/mfamg_v8_ccx_capture_probe.py" |
+    python3 - --source-root "$(cygpath -m "$CCX_ROOT")"               --input-file "$(cygpath -m "$CCX_INP")"
+)
+```
+
+The probe prints **only** aggregate `CCX_CAPTURE_*` values. It checks that
+`src/nonlingeo.c` (or `nonlingeo.c`) exists, contains the expected
+assembly/Newton-loop signatures, and reports coarse source solver signatures
+and the **top-level only** `*STEP`, `*STATIC`, `*DYNAMIC`, contact,
+spring and `*INCLUDE` input directives. Included files and runtime solver
+selection are **not** resolved. It verifies both files stayed byte-for-byte
+unchanged, makes no outputs and never prints their paths or hashes.
+
+`CCX_CAPTURE_PROBE=SOURCE_AND_MODEL_READABLE` is NOT certification of
+the correct interception point, physical chronology, a valid .inp, or that
+three Newton linear systems actually occur. The exact solver branch and
+Matrix Market serialization must be reviewed against that LOCAL version
+**before** editing an isolated experimental source copy. In particular,
+the stiffness assembly is not automatically the final operator and RHS
+consumed by the solver. Never instrument or rebuild the production tree.
+
 ## Source of truth: the ORIGINAL nonlinear solve
 
 When an authentic sequence is available (or when a future research-only
