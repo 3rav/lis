@@ -93,8 +93,11 @@ def main():
         fingerprints = fingerprint_inputs(paths)
         if args.out_dir.exists():
             raise ValueError("output directory already exists: " + str(args.out_dir))
-        args.out_dir.mkdir(parents=True)
-        os.chmod(args.out_dir, 0o700)
+        # Windows ACLs, not POSIX chmod, control native MSYS2/Python paths.
+        # Keep restrictive POSIX permissions when they are meaningful.
+        args.out_dir.mkdir(parents=True, mode=0o700)
+        if os.name != "nt":
+            os.chmod(args.out_dir, 0o700)
         manifest = {
             "schema": "mfamg-v8-automatic-candidate-control-v1",
             "input_fingerprints": fingerprints,
