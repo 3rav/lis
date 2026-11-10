@@ -62,6 +62,20 @@ git archive "$REF" \
   test/mfamg_replay_v8_repeats.py \
   test/mfamg_replay_v8_candidate_compare.py | tar -xf - -C "$PY_SRC"
 cd "$PY_SRC"
+# Fail before the potentially expensive generator when the offline
+# control is not a true baseline-preserving 18-column reference.
+# This comparison does not feed any offline vector into the generator.
+python3 - "$(cygpath -m "$BASE")" "$(cygpath -m "$OFFLINE")" <<'PY'
+import sys
+sys.path.insert(0, "test")
+from mfamg_mode_audit import read_modes
+n0, base = read_modes(sys.argv[1])
+n1, offline = read_modes(sys.argv[2])
+if n0 != n1 or len(base) != 12 or len(offline) != 18 or offline[:12] != base:
+    print("V8_AUTO14_PREFLIGHT=BLOCKED_INVALID_12_18_BASELINE")
+    raise SystemExit(2)
+print("V8_AUTO14_PREFLIGHT=BASELINE12_OFFLINE18_MATCH")
+PY
 echo "V8_AUTO14_GENERATOR_START"
 set +e
 python3 test/mfamg_mode_auto_candidates.py \
