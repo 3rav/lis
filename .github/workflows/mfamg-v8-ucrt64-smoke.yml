@@ -456,6 +456,7 @@ jobs:
           bash -n test/mfamg_v8_31_upstream214_one_shot.sh
           bash -n test/mfamg_v8_31_maxiter6000_probe.sh
           bash -n test/mfamg_v8_116_upstream214_one_shot.sh
+          bash -n test/mfamg_v8_auto14_upstream214_one_shot.sh
           bash test/mfamg_v8_solver_pair_compare_smoke.sh
           python3 -m py_compile test/mfamg_mode_auto_candidates.py
           bash -n test/mfamg_mode_auto_candidates_smoke.sh
