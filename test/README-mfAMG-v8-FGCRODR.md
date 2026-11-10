@@ -632,7 +632,7 @@ The public test/mfamg_replay_v8_repeats.py now runs matched AB/BA
 pairs using the same environment, changing only the mode file:
 
     python3 test/mfamg_replay_v8_repeats.py \
-      --exe "$HOME/lis-v8/bin6000/mfamgreplay.exe" \
+      --exe "$HOME/mfamg_replay/build-v8-upstream214-20261109-winfix1/test/.libs/mfamgreplay.exe" \
       --matrix "$HOME/mfamg_replay/challenge_31/A04.mtx" \
       --rhs "$HOME/mfamg_replay/challenge_31/b04.mtx" \
       --modes-17 "$HOME/mfamg_replay/v8_mode_audit/loo/modes_omit_ritz_01.mtx" \
@@ -1070,6 +1070,57 @@ operator. Validate rank and run the same fixed replay comparison
 before any claim. Synthetic smoke checks mode novelty and output
 non-overwrite; it does NOT constitute contact evidence.
 
+### Guarded upstream #214 small-singular 12/14/18 feasibility stage
+
+An optional **one-shot** for the 31-spring private fixed A04/b04
+control is now available: `test/mfamg_v8_auto14_upstream214_one_shot.sh`.
+It uses the previously compiled `-winfix1` **accepted upstream #214**
+EXE, without rebuilding or modifying the user's LIS worktree.
+
+Before doing any expensive Python iterations, it verifies that
+`challenge_31/modes04.mtx` has exactly 12 columns and that the
+previously verified Ritz `v8_mode_audit/ritz/modes_all_ritz.mtx`
+has 18 columns with exactly the **same first 12**, preventing
+accidental comparisons against an unrelated baseline. The generator
+receives **ONLY A04 and the original 12-mode baseline**:
+`--target small-singular --count 2 --steps 60 --seed 20261109`.
+It does **not** use the offline six Ritz vectors to construct
+the two new candidates. (An earlier negative-curvature real-data
+attempt was inconclusive; small-singular is a separate experiment.)
+
+The script puts the generated 14-mode file, archived public Python
+scripts and comparator logs in new, separate private paths; it
+refuses to overwrite anything. The comparison is one fresh solve
+each at 12/14/18 modes, all with FGCRO-DR, k=8, factor=4,
+restart=180, maxiter=3000 and independently measured true residual.
+The offline 18-mode control is given ONLY to the comparator, not
+the generator. `CONTROL_CONVERGED` is not enough to claim automatic
+14-mode success: check `metrics.generated14.converged` and
+`metrics.generated14.all_converged` before drawing conclusions.
+
+If the generator cannot establish independence and A-norm decrease,
+the script exits nonzero and **does not invent modes** or start
+the expensive solver comparison. The generator's pure-Python
+3.6-million-entry matrix filtering can be resource-intensive.
+
+To run later on the user's own MSYS2 UCRT64 machine:
+
+```bash
+(
+set -euo pipefail
+cd "$HOME/lis-v8"
+BRANCH=experiment/mfamg-fgcrodr-replay-v8-20261108
+git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+git show "refs/remotes/origin/$BRANCH:test/mfamg_v8_auto14_upstream214_one_shot.sh" | bash
+)
+```
+
+Only aggregate `V8_AUTO14_GENERATOR_EXIT`, `V8_AUTO14_COMPARE_EXIT`
+and the local `assessment.json` are suitable for later sharing.
+All raw A/b/modes and detailed solver logs remain private.
+This is **not** a completed benchmark, speedup claim, validation
+of 12+2 for contact, or production CalculiX integration.
+
 ### Local controlled replay of automatic candidates (12/14/18)
 
 A fixed-operator comparison runner is now available:
@@ -1090,7 +1141,8 @@ All files stay local in MSYS2 UCRT64. **Choose NEW paths for outputs**;
 the commands refuse overwriting existing results:
 
     cd "$HOME/lis-v8"
-    git pull --ff-only
+    # Legacy manual variant; prefer the guarded one-shot above.
+    # Do not run git pull/reset/clean on a worktree with local experiments.
     python3 test/mfamg_mode_auto_candidates.py \
       "$HOME/mfamg_replay/challenge_31/A04.mtx" \
       "$HOME/mfamg_replay/challenge_31/modes04.mtx" \
