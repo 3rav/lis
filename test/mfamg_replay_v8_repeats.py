@@ -228,8 +228,10 @@ def main():
         input_hashes = fingerprint_inputs(inputs)
         if a.out_dir.exists():
             raise ValueError("output directory already exists: " + str(a.out_dir))
-        a.out_dir.mkdir(parents=True)
-        os.chmod(a.out_dir, 0o700)
+        # Windows native Python uses ACLs; chmod(0700) can fail under MSYS2.
+        a.out_dir.mkdir(parents=True, mode=0o700)
+        if os.name != "nt":
+            os.chmod(a.out_dir, 0o700)
         manifest = {
             "schema": "mfamg-v8-matched-inputs-v1",
             "input_fingerprints": input_hashes,
