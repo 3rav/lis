@@ -59,6 +59,7 @@ call() {
 }
 LIS_FORBIDDEN_AMBIENT=1 call "$tmp/success" > "$tmp/success.out"
 grep -q '^V8_CANDIDATE_ASSESSMENT=CONTROL_CONVERGED$' "$tmp/success.out"
+grep -q '^V8_CANDIDATE_GATE=PASSED_GENERATED_AND_CONTROL_CONVERGENCE$' "$tmp/success.out"
 grep -q '^V8_CANDIDATE_GENERATED_CONVERGED=1$' "$tmp/success.out"
 call "$tmp/guard_success" "" --require-generated-converged > "$tmp/guard_success.out"
 grep -q '^V8_CANDIDATE_GENERATED_CONVERGED=1$' "$tmp/guard_success.out"
@@ -73,6 +74,7 @@ assert [r["variant"] for r in rows] == [
 assert [int(r["converged"]) for r in rows] == [0, 1, 1, 1, 1, 0]
 report = json.loads((p / "assessment.json").read_text())
 assert report["assessment"] == "CONTROL_CONVERGED"
+assert report["candidate_gate"] == "PASSED_GENERATED_AND_CONTROL_CONVERGENCE"
 assert report["generated_vs_offline_percent_median_wall_reduction"] == 25
 assert report["metrics"]["baseline12"]["median_wall_if_all_converged"] is None
 assert report["metrics"]["generated14"]["all_converged"]
@@ -99,11 +101,13 @@ if MOCK_FAIL_GENERATED=1 call "$tmp/guard_failed" "" --require-generated-converg
 fi
 grep -q '^V8_CANDIDATE_GENERATED_CONVERGED=0$' "$tmp/guard_failed.out"
 grep -q '^V8_CANDIDATE_ASSESSMENT=CONTROL_CONVERGED$' "$tmp/guard_failed.out"
+grep -q '^V8_CANDIDATE_GATE=FAILED_GENERATED_NONCONVERGENCE$' "$tmp/guard_failed.out"
 test -s "$tmp/guard_failed/assessment.json"
 python3 - "$tmp/nonconverged/assessment.json" <<'PY'
 import json, sys
 report = json.load(open(sys.argv[1]))
 assert report["metrics"]["generated14"]["converged"] == 0
+assert report["candidate_gate"] == "FAILED_GENERATED_NONCONVERGENCE"
 assert report["generated_vs_offline_percent_median_wall_reduction"] is None
 PY
 if MOCK_FAIL_OFFLINE=1 call "$tmp/offline_fail" > "$tmp/offline_fail.out" 2>&1; then
@@ -111,6 +115,7 @@ if MOCK_FAIL_OFFLINE=1 call "$tmp/offline_fail" > "$tmp/offline_fail.out" 2>&1; 
   exit 1
 fi
 grep -q 'V8_CANDIDATE_ASSESSMENT=INCONCLUSIVE_OFFLINE_CONTROL' "$tmp/offline_fail.out"
+grep -q '^V8_CANDIDATE_GATE=INCONCLUSIVE_OFFLINE_CONTROL$' "$tmp/offline_fail.out"
 if MOCK_MISSING=1 call "$tmp/missing" > "$tmp/missing.out" 2>&1; then
   echo "ERROR: missing replay result was accepted" >&2
   exit 1

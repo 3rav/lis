@@ -59,8 +59,20 @@ def assess(rows, repeats):
                             o["median_wall_if_all_converged"])
     status = ("CONTROL_CONVERGED" if metrics["offline18"]["all_converged"]
               else "INCONCLUSIVE_OFFLINE_CONTROL")
+    # Preserve the legacy control-only assessment for existing consumers.
+    # A separate candidate gate makes offline18 success impossible to mistake
+    # for convergence of the automatically generated 14-mode candidate.
+    if not complete:
+        candidate_gate = "INCONCLUSIVE_INCOMPLETE"
+    elif not o["all_converged"]:
+        candidate_gate = "INCONCLUSIVE_OFFLINE_CONTROL"
+    elif not g["all_converged"]:
+        candidate_gate = "FAILED_GENERATED_NONCONVERGENCE"
+    else:
+        candidate_gate = "PASSED_GENERATED_AND_CONTROL_CONVERGENCE"
     return {
         "assessment": status if complete else "INCONCLUSIVE_INCOMPLETE",
+        "candidate_gate": candidate_gate,
         "metrics": metrics,
         "generated_vs_offline_percent_median_wall_reduction": comparison,
         "caution": "Descriptive fixed-A replay only; unequal modes, no proof of speedup or Newton safety.",
@@ -154,6 +166,7 @@ def main():
         (args.out_dir / "assessment.json").write_text(
             json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print("V8_CANDIDATE_ASSESSMENT=" + result["assessment"])
+        print("V8_CANDIDATE_GATE=" + result["candidate_gate"])
         print("V8_CANDIDATE_GENERATED_CONVERGED=" +
               str(int(result["metrics"]["generated14"]["all_converged"])))
         print("V8_CANDIDATE_SUMMARY=" + str(args.out_dir / "assessment.json"))
