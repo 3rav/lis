@@ -181,6 +181,22 @@ triplet() {
     --snapshots "$tmp/steps.csv" --out-dir "$1" --fresh-third
 }
 triplet "$tmp/triplet" > "$tmp/triplet.out"
+# The real 116-spring Newton series may require factor=2.
+python3 "$here/mfamg_v8_triplet_windows.py" \
+  --exe "$tmp/replay.py" --modes "$tmp/modes.mtx" \
+  --snapshots "$tmp/steps.csv" --out-dir "$tmp/triplet_factor2" \
+  --fine-agg-factor 2 --fresh-third > "$tmp/triplet_factor2.out"
+python3 - "$tmp/triplet_factor2/manifest.json" <<'PY'
+import json,sys
+assert json.load(open(sys.argv[1]))["solver_environment"]["LIS_MFAMG_FINE_AGG_FACTOR"] == "2"
+PY
+if python3 "$here/mfamg_v8_triplet_windows.py" \
+  --exe "$tmp/replay.py" --modes "$tmp/modes.mtx" \
+  --snapshots "$tmp/steps.csv" --out-dir "$tmp/triplet_bad_factor" \
+  --fine-agg-factor 3 > "$tmp/triplet_bad_factor.out" 2>&1; then
+  echo "ERROR: invalid Newton aggregation factor accepted" >&2; exit 1
+fi
+test ! -e "$tmp/triplet_bad_factor"
 grep -q '^V8_TRIPLET_ASSESSMENT=PERSISTENT_TRIPLETS_PASS' "$tmp/triplet.out"
 python3 - "$tmp/triplet" <<'PY'
 import csv,json,sys
