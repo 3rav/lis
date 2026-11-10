@@ -105,7 +105,8 @@ python3 test/mfamg_replay_v8_candidate_compare.py \
   --generated "$(cygpath -m "$AUTO")" \
   --offline-control "$(cygpath -m "$OFFLINE")" \
   --out-dir "$(cygpath -m "$OUT")" \
-  --repetitions 1 --require-offline-control-converged
+  --repetitions 1 --require-offline-control-converged \
+  --require-generated-converged
 RC=$?
 set -e
 echo "V8_AUTO14_COMPARE_EXIT=$RC"
