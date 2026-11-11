@@ -34,6 +34,8 @@
 #define FGCRODR_DEFAULT_KEEP_QUALITY     ((LIS_REAL)0.90)
 #define FGCRODR_DEFAULT_REJECT_QUALITY   ((LIS_REAL)0.10)
 #define FGCRODR_BUILD_TINY               ((LIS_REAL)1.0e-14)
+/* Same strict limit as the opt-in replay A*Z=C validation gate. */
+#define FGCRODR_RECYCLE_RELATION_LIMIT    ((LIS_REAL)1.0e-8)
 
 
 struct LIS_FGCRODR_STATE_STRUCT
@@ -2899,6 +2901,7 @@ lis_fgcrodr_install_recycle(
     LIS_INT jdim)
 {
     LIS_FGCRODR_STATE state;
+    LIS_VECTOR az_check = NULL;
 
     LIS_INT err;
 
@@ -2911,6 +2914,7 @@ lis_fgcrodr_install_recycle(
     LIS_SCALAR alpha;
 
     LIS_REAL nrm;
+    LIS_REAL relation_error;
 
 
     if(
@@ -2996,6 +3000,10 @@ lis_fgcrodr_install_recycle(
     state =
         solver->fgcrodr_state;
 
+    /* Allocate once, outside the candidate loop. */
+    err = lis_vector_duplicate(solver->A,&az_check);
+    if(err)
+        goto fail;
 
     keep = 0;
 
@@ -3120,6 +3128,35 @@ lis_fgcrodr_install_recycle(
             1.0/nrm,
             state->w[keep]);
 
+        /*
+         * A two-pass MGS transformation is applied separately to C and Z.
+         * With ill-conditioned contact operators, their floating-point
+         * rounding may cause ||A Z - C|| to grow even though C^H C = I.
+         *
+         * The externally visible replay validation requires <= 1e-8.
+         * Enforce the SAME threshold before accepting a candidate:
+         * a bad direction must never poison the persistent recycle space.
+         * Skipping it simply reduces the effective recycle dimension.
+         *
+         * This extra matvec is evaluated after all C/Z/W transforms;
+         * the Arnoldi relation and the physical solution are unchanged.
+         */
+        err=lis_matvec(solver->A,state->z[keep],az_check);
+        if(err)
+            goto fail;
+        err=lis_vector_axpy((LIS_SCALAR)-1.0,
+                            state->c[keep],az_check);
+        if(err)
+            goto fail;
+        err=lis_vector_nrm2(az_check,&relation_error);
+        if(err)
+            goto fail;
+        if(!isfinite((double)relation_error) ||
+           relation_error>FGCRODR_RECYCLE_RELATION_LIMIT)
+        {
+            /* Candidate rejected; its keep slot is overwritten next. */
+            continue;
+        }
 
         keep++;
 
@@ -3184,10 +3221,16 @@ lis_fgcrodr_install_recycle(
     }
 
 
+    if(az_check)
+        lis_vector_destroy(az_check);
+
     return LIS_SUCCESS;
 
 
 fail:
+
+    if(az_check)
+        lis_vector_destroy(az_check);
 
     lis_fgcrodr_vectors_destroy(
         state);
@@ -6941,3 +6984,4 @@ lis_fgcrodr_quad(
 #undef FGCRODR_DEFAULT_KEEP_QUALITY
 #undef FGCRODR_DEFAULT_REJECT_QUALITY
 #undef FGCRODR_BUILD_TINY
+#undef FGCRODR_RECYCLE_RELATION_LIMIT
