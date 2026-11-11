@@ -285,6 +285,66 @@ static int replay_check_or_replace_csr_values(LIS_MATRIX target,LIS_MATRIX sourc
     return 0;
 }
 
+/*
+ * Offline-only validation contract:
+ *   legacy: orth <= 1e-8 and max ||AZ-C|| <= 1e-8;
+ *   normwise opt-in: orth <= 1e-8 and
+ *       max ||AZ-C|| / (|| |A||Z| || + ||C||) <= 1e-13.
+ *
+ * Both report the unchanged absolute relation result. The independent
+ * true residual of the physical solution is always checked afterwards.
+ * The scale-aware criterion is explicitly opt-in and CSR/serial only.
+ */
+#define REPLAY_RECYCLE_NORMWISE_TOL 1.0e-13
+
+static int replay_check_recycle(
+    LIS_SOLVER solver,
+    const char *legacy_label,
+    const char *scaled_label,
+    LIS_REAL *orth,
+    LIS_REAL *relation)
+{
+    const char *mode=getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE_NORMWISE");
+    const int normwise=(mode!=NULL && strcmp(mode,"1")==0);
+    LIS_REAL scaled=0.0,abs_amplification=0.0;
+    LIS_INT vrc;
+    int legacy_pass,scaled_pass;
+
+    if(normwise)
+        vrc=lis_fgcrodr_validate_recycle_normwise(
+            solver,orth,relation,&scaled,&abs_amplification);
+    else
+        vrc=lis_fgcrodr_validate_recycle(solver,orth,relation);
+
+    legacy_pass=(vrc==LIS_SUCCESS &&
+                 isfinite((double)*orth) &&
+                 isfinite((double)*relation) &&
+                 *orth<=1.0e-8 && *relation<=1.0e-8);
+
+    printf("%s rc=%lld orth_error=%.12e relation_error=%.12e\n",
+           legacy_label,(long long)vrc,
+           (double)*orth,(double)*relation);
+
+    if(!normwise)
+        return legacy_pass ? 0 : 1;
+
+    scaled_pass=(vrc==LIS_SUCCESS &&
+                 isfinite((double)*orth) &&
+                 isfinite((double)*relation) &&
+                 isfinite((double)scaled) &&
+                 isfinite((double)abs_amplification) &&
+                 *orth<=1.0e-8 &&
+                 scaled<=REPLAY_RECYCLE_NORMWISE_TOL);
+
+    printf("%s rc=%lld normwise_scaled_max=%.12e "
+           "absAz_norm_max=%.12e threshold=1.0e-13 "
+           "absolute_pass=%d pass=%d\n",
+           scaled_label,(long long)vrc,(double)scaled,
+           (double)abs_amplification,legacy_pass,scaled_pass);
+
+    return scaled_pass ? 0 : 1;
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL,A2=NULL,A3=NULL;
@@ -562,16 +622,10 @@ int main(int argc,char **argv)
             const char *validate=getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE");
             if(validate!=NULL && strcmp(validate,"1")==0)
             {
-                LIS_INT validation_rc=lis_fgcrodr_validate_recycle(
-                    solver,&recycle_orth,&recycle_relation);
-                printf("REPLAY_RECYCLE_CHECK rc=%lld orth_error=%.12e "
-                       "relation_error=%.12e\n",
-                       (long long)validation_rc,
-                       (double)recycle_orth,(double)recycle_relation);
-                if(validation_rc!=LIS_SUCCESS ||
-                   !isfinite((double)recycle_orth) ||
-                   !isfinite((double)recycle_relation) ||
-                   recycle_orth>1.0e-8 || recycle_relation>1.0e-8)
+                if(replay_check_recycle(
+                       solver,"REPLAY_RECYCLE_CHECK",
+                       "REPLAY_RECYCLE_SCALED_CHECK",
+                       &recycle_orth,&recycle_relation))
                     recycle_validation_failed=1;
             }
         }
@@ -770,12 +824,10 @@ int main(int argc,char **argv)
             if(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE")!=NULL &&
                strcmp(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE"),"1")==0)
             {
-                vrc=lis_fgcrodr_validate_recycle(solver,&orth2,&relation2);
-                printf("REPLAY_NEWTON_RECYCLE_CHECK rc=%lld orth_error=%.12e relation_error=%.12e\n",
-                       (long long)vrc,(double)orth2,(double)relation2);
-                if(vrc!=LIS_SUCCESS || !isfinite((double)orth2) ||
-                   !isfinite((double)relation2) || orth2>1.0e-8 ||
-                   relation2>1.0e-8)
+                if(replay_check_recycle(
+                       solver,"REPLAY_NEWTON_RECYCLE_CHECK",
+                       "REPLAY_NEWTON_RECYCLE_SCALED_CHECK",
+                       &orth2,&relation2))
                     second_ok=0;
             }
         }
@@ -926,14 +978,10 @@ int main(int argc,char **argv)
                 if(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE")!=NULL &&
                    strcmp(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE"),"1")==0)
                 {
-                    vrc=lis_fgcrodr_validate_recycle(
-                        solver,&orth3,&relation3);
-                    printf("REPLAY_SEQUENCE_RECYCLE_CHECK step=3 rc=%lld orth_error=%.12e relation_error=%.12e\n",
-                           (long long)vrc,(double)orth3,(double)relation3);
-                    if(vrc!=LIS_SUCCESS ||
-                       !isfinite((double)orth3) ||
-                       !isfinite((double)relation3) ||
-                       orth3>1.0e-8 || relation3>1.0e-8)
+                    if(replay_check_recycle(
+                           solver,"REPLAY_SEQUENCE_RECYCLE_CHECK",
+                           "REPLAY_SEQUENCE_RECYCLE_SCALED_CHECK",
+                           &orth3,&relation3))
                         last_ok=0;
                 }
             }
