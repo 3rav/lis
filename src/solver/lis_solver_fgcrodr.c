@@ -34,8 +34,6 @@
 #define FGCRODR_DEFAULT_KEEP_QUALITY     ((LIS_REAL)0.90)
 #define FGCRODR_DEFAULT_REJECT_QUALITY   ((LIS_REAL)0.10)
 #define FGCRODR_BUILD_TINY               ((LIS_REAL)1.0e-14)
-/* Same strict limit as the opt-in replay A*Z=C validation gate. */
-#define FGCRODR_RECYCLE_RELATION_LIMIT    ((LIS_REAL)1.0e-8)
 
 
 struct LIS_FGCRODR_STATE_STRUCT
@@ -2901,7 +2899,6 @@ lis_fgcrodr_install_recycle(
     LIS_INT jdim)
 {
     LIS_FGCRODR_STATE state;
-    LIS_VECTOR az_check = NULL;
 
     LIS_INT err;
 
@@ -2914,7 +2911,6 @@ lis_fgcrodr_install_recycle(
     LIS_SCALAR alpha;
 
     LIS_REAL nrm;
-    LIS_REAL relation_error;
 
 
     if(
@@ -3000,10 +2996,6 @@ lis_fgcrodr_install_recycle(
     state =
         solver->fgcrodr_state;
 
-    /* Allocate once, outside the candidate loop. */
-    err = lis_vector_duplicate(solver->A,&az_check);
-    if(err)
-        goto fail;
 
     keep = 0;
 
@@ -3128,35 +3120,6 @@ lis_fgcrodr_install_recycle(
             1.0/nrm,
             state->w[keep]);
 
-        /*
-         * A two-pass MGS transformation is applied separately to C and Z.
-         * With ill-conditioned contact operators, their floating-point
-         * rounding may cause ||A Z - C|| to grow even though C^H C = I.
-         *
-         * The externally visible replay validation requires <= 1e-8.
-         * Enforce the SAME threshold before accepting a candidate:
-         * a bad direction must never poison the persistent recycle space.
-         * Skipping it simply reduces the effective recycle dimension.
-         *
-         * This extra matvec is evaluated after all C/Z/W transforms;
-         * the Arnoldi relation and the physical solution are unchanged.
-         */
-        err=lis_matvec(solver->A,state->z[keep],az_check);
-        if(err)
-            goto fail;
-        err=lis_vector_axpy((LIS_SCALAR)-1.0,
-                            state->c[keep],az_check);
-        if(err)
-            goto fail;
-        err=lis_vector_nrm2(az_check,&relation_error);
-        if(err)
-            goto fail;
-        if(!isfinite((double)relation_error) ||
-           relation_error>FGCRODR_RECYCLE_RELATION_LIMIT)
-        {
-            /* Candidate rejected; its keep slot is overwritten next. */
-            continue;
-        }
 
         keep++;
 
@@ -3221,16 +3184,10 @@ lis_fgcrodr_install_recycle(
     }
 
 
-    if(az_check)
-        lis_vector_destroy(az_check);
-
     return LIS_SUCCESS;
 
 
 fail:
-
-    if(az_check)
-        lis_vector_destroy(az_check);
 
     lis_fgcrodr_vectors_destroy(
         state);
@@ -4942,6 +4899,175 @@ lis_fgcrodr_validate_recycle(
 
 
 /*
+ * Read-only relation diagnostics for serial CSR research replay.
+ *
+ * The legacy validator tests max_i ||A*Z_i-C_i||_2 against an absolute
+ * 1e-8 limit.  On a stiff contact operator this can exceed the limit
+ * purely from cancellation, even when the physical x has converged.
+ *
+ * In addition, report
+ *
+ *   max_i ||A*Z_i-C_i||_2 / (|| |A|*|Z_i| ||_2 + ||C_i||_2)
+ *
+ * i.e. a NORMWISE scaled relation residual, not the componentwise
+ * Oettli-Prager backward error.  Do not change the strict validation
+ * gate or the recycle state based on this observational diagnostic.
+ *
+ * Only active with the existing per-solver -fgcrodr_intra_trace=1.
+ * Not compiled on MPI builds (a local CSR norm is not globally valid).
+ */
+#ifndef USE_MPI
+static void
+lis_fgcrodr_trace_recycle_relation(
+    LIS_SOLVER solver,
+    LIS_INT iteration)
+{
+    LIS_FGCRODR_STATE state;
+    LIS_MATRIX A;
+    LIS_VECTOR az = NULL;
+    LIS_INT k,row,j,col,err,rc;
+    LIS_REAL orth_error=0.0,relation_error=0.0;
+    LIS_REAL scaled_max=0.0,amp_max=0.0;
+    LIS_REAL raw,norm_abs_az,row_abs,denom,ratio;
+    double start,elapsed;
+    int scaled_ok=1;
+
+    if(solver==NULL || solver->A==NULL)
+        return;
+    state=solver->fgcrodr_state;
+    if(state==NULL || !state->intra_trace ||
+       !state->valid || state->dim<=0)
+        return;
+
+    start=lis_wtime();
+    rc=lis_fgcrodr_validate_recycle(
+        solver,&orth_error,&relation_error);
+
+    A=solver->A;
+    if(rc!=LIS_SUCCESS ||
+       A->matrix_type!=LIS_MATRIX_CSR ||
+       A->ptr==NULL || A->index==NULL || A->value==NULL)
+        scaled_ok=0;
+
+    if(scaled_ok)
+    {
+        err=lis_vector_duplicate(A,&az);
+        if(err!=LIS_SUCCESS)
+            scaled_ok=0;
+    }
+    if(scaled_ok)
+    {
+        for(k=0;k<state->dim && scaled_ok;k++)
+        {
+            if(state->z[k]==NULL || state->c[k]==NULL ||
+               state->z[k]->value==NULL ||
+               state->z[k]->n<A->n)
+            {
+                scaled_ok=0;
+                break;
+            }
+            err=lis_matvec(A,state->z[k],az);
+            if(err!=LIS_SUCCESS)
+            {
+                scaled_ok=0;
+                break;
+            }
+            err=lis_vector_axpy(
+                (LIS_SCALAR)-1.0,state->c[k],az);
+            if(err!=LIS_SUCCESS)
+            {
+                scaled_ok=0;
+                break;
+            }
+            err=lis_vector_nrm2(az,&raw);
+            if(err!=LIS_SUCCESS)
+            {
+                scaled_ok=0;
+                break;
+            }
+
+            /* CSR: each row computes (|A|*|Z_k|)[row]. */
+            norm_abs_az=0.0;
+            for(row=0;row<A->n;row++)
+            {
+                row_abs=0.0;
+                for(j=A->ptr[row];j<A->ptr[row+1];j++)
+                {
+                    col=A->index[j];
+                    if(col<0 || col>=state->z[k]->n)
+                    {
+                        scaled_ok=0;
+                        break;
+                    }
+                    row_abs +=
+                        (LIS_REAL)fabs(A->value[j]) *
+                        (LIS_REAL)fabs(state->z[k]->value[col]);
+                }
+                if(!scaled_ok)
+                    break;
+                norm_abs_az=hypot(norm_abs_az,row_abs);
+            }
+            if(!scaled_ok)
+                break;
+
+            /* ||C_k||=1 to rounding, but use its actual norm. */
+            err=lis_vector_nrm2(state->c[k],&denom);
+            if(err!=LIS_SUCCESS)
+            {
+                scaled_ok=0;
+                break;
+            }
+            denom+=norm_abs_az;
+            if(denom<=0.0 || !isfinite((double)denom))
+            {
+                scaled_ok=0;
+                break;
+            }
+            ratio=raw/denom;
+            if(!isfinite((double)ratio))
+            {
+                scaled_ok=0;
+                break;
+            }
+            if(ratio>scaled_max)
+                scaled_max=ratio;
+            if(norm_abs_az>amp_max)
+                amp_max=norm_abs_az;
+        }
+    }
+    if(az)
+        lis_vector_destroy(az);
+
+    elapsed=lis_wtime()-start;
+    if(scaled_ok)
+        fprintf(stderr,
+            "LIS_FGCRODR_RELATION_TRACE iter=%d builds=%llu "
+            "updates=%llu dim=%d validation_rc=%d "
+            "orth_error=%.12e relation_error=%.12e "
+            "normwise_scaled_max=%.12e absAz_norm_max=%.12e "
+            "diag_seconds=%.6f\n",
+            (int)iteration,
+            (unsigned long long)state->builds,
+            (unsigned long long)state->updates,
+            (int)state->dim,(int)rc,
+            (double)orth_error,(double)relation_error,
+            (double)scaled_max,(double)amp_max,elapsed);
+    else
+        fprintf(stderr,
+            "LIS_FGCRODR_RELATION_TRACE iter=%d builds=%llu "
+            "updates=%llu dim=%d validation_rc=%d "
+            "orth_error=%.12e relation_error=%.12e "
+            "scaled=UNAVAILABLE diag_seconds=%.6f\n",
+            (int)iteration,
+            (unsigned long long)state->builds,
+            (unsigned long long)state->updates,
+            (int)state->dim,(int)rc,
+            (double)orth_error,(double)relation_error,elapsed);
+}
+#endif
+
+
+/*
  * Prepare a persistent flexible recycle basis for a changed matrix
  * value generation.
  *
@@ -6550,6 +6676,15 @@ lis_fgcrodr_flexible_core(
 
 
         /*
+         * Read-only, opt-in per-cycle diagnostic.  Time spent here is
+         * overhead for the diagnostic run, not a solver speed result.
+         */
+#ifndef USE_MPI
+        lis_fgcrodr_trace_recycle_relation(solver,iter);
+#endif
+
+
+        /*
          * The no-improvement stop was requested during Arnoldi.
          * The current flexible correction and recycle-space
          * maintenance are now complete.
@@ -6984,4 +7119,3 @@ lis_fgcrodr_quad(
 #undef FGCRODR_DEFAULT_KEEP_QUALITY
 #undef FGCRODR_DEFAULT_REJECT_QUALITY
 #undef FGCRODR_BUILD_TINY
-#undef FGCRODR_RECYCLE_RELATION_LIMIT
