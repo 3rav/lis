@@ -417,14 +417,14 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Pin strict-relation FGCRODR 2D research solver
+      - name: Pin diagnostic-only FGCRODR 2D research solver
         run: |
           set -euo pipefail
           # Upstream accepted develop #214: 815a73ada1d18d970ec9b6d24306d23ff631fb35.
           # PR #47 research-only deltas: fused 2D 4x8 Q^H Z overlap and
-          # post-MGS A*Z=C validation before retaining recycle directions.
+          # opt-in read-only per-cycle unscaled/normwise relation trace.
           # Retain an exact blob pin; this is deliberately no longer upstream-identical.
-          expected=1b1e4fc404be0d9babb9ebf680133635325136a1
+          expected=2968c3be5ae0416410af7d19c11b15f9a49a13dc
           actual="$(git hash-object src/solver/lis_solver_fgcrodr.c)"
           test "$actual" = "$expected" || {
             echo "ERROR: research FGCRODR source differs from the audited tile version" >&2
@@ -433,7 +433,7 @@ jobs:
           }
           grep -q 'lis_fgcrodr_flexible_overlap' src/solver/lis_solver_fgcrodr.c
           grep -q 'FGCRODR_OVERLAP_ROW_TILE 8' src/solver/lis_solver_fgcrodr.c
-          grep -q 'FGCRODR_RECYCLE_RELATION_LIMIT' src/solver/lis_solver_fgcrodr.c
+          grep -q 'lis_fgcrodr_trace_recycle_relation' src/solver/lis_solver_fgcrodr.c
           grep -q -- '-fgcrodr_intra' src/solver/lis_solver_fgcrodr.c
           if grep -q 'LIS_FGCRODR_INTRA_SOLVE_RECYCLE' src/solver/lis_solver_fgcrodr.c; then
             echo 'ERROR: process-global research toggle reintroduced into LIS core' >&2
