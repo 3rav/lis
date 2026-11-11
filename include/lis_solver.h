@@ -284,6 +284,11 @@ extern "C"
         extern LIS_INT lis_fgcrodr_validate_recycle(
                 LIS_SOLVER solver, LIS_REAL *orth_error,
                 LIS_REAL *relation_error);
+        /* Opt-in serial CSR normwise diagnostic. MPI/other formats fail closed. */
+        extern LIS_INT lis_fgcrodr_validate_recycle_normwise(
+                LIS_SOLVER solver, LIS_REAL *orth_error,
+                LIS_REAL *relation_error, LIS_REAL *scaled_error,
+                LIS_REAL *abs_az_norm_max);
 
 
 
