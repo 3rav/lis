@@ -40,6 +40,47 @@ is reprojected through C and Z, and the inherited FGMRES logic checks the
 true residual at each restart. The previous cross-solve logic remains
 unchanged when unset.
 
+### Explicit, scale-aware recycle validation (research replay only)
+
+A real 60,265-DOF contact A/b solve (FGCRO-DR, 2138 iterations) met the
+independently computed linear tolerance 1e-5, but its legacy opt-in
+recycle validator failed: max_i ||A*Z_i-C_i||_2 = 1.861361941556e-8
+above an *absolute* 1e-8 cutoff. A private per-cycle diagnostic found
+the **normwise scaled** residual remained ~1.0e-16 across all 12 cycles
+while || |A| |Z_i| || grew dramatically. This supports amplification
+of floating-point rounding in a stiff operator; it is not evidence of
+a certified Newton trajectory or a universal speedup.
+
+For the same strict absolute validation as before, set only:
+
+    LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1
+
+For an **explicit opt-in** alternative acceptance gate on serial CSR
+(the original absolute residual is still printed), set both:
+
+    LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1
+    LIS_MFAMG_REPLAY_VALIDATE_RECYCLE_NORMWISE=1
+
+The opt-in normwise check requires both:
+- orth_error <= 1e-8, unchanged;
+- max_i ||A*Z_i-C_i||_2 / (|| |A| |Z_i| ||_2 + ||C_i||_2) <= 1e-13.
+
+The 1e-13 cutoff is a deliberately conservative *normwise* arithmetic
+acceptance gate, NOT the original absolute 1e-8 criterion and NOT
+a componentwise Oettli-Prager backward-error estimate. The replay
+also requires solver status=0 AND independently computed true relative
+residual <=1e-5; no scaled criterion can override these. The program
+prints REPLAY_RECYCLE_CHECK (absolute values), followed by
+REPLAY_RECYCLE_SCALED_CHECK with both absolute_pass and pass.
+If the scaled computation is unsupported (MPI, non-CSR) or nonfinite,
+it fails closed; it does not silently fall back. The same rule applies
+to the optional step-2/step-3 in-process replay checks.
+
+The normal FGMRES default, FGCRO-DR algorithm, installed recycle vectors
+and production CalculiX remain unchanged. These checks run only on
+request, outside the timed lis_solve() window. Keep captured inputs,
+modes and raw logs private.
+
 The replay can additionally show stable recycling diagnostics:
 
     LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1
