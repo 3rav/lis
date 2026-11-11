@@ -170,6 +170,7 @@ jobs:
           LIS_MFAMG_REPLAY_METHOD=fgcrodr LIS_MFAMG_REPLAY_RECYCLE_DIM=1 \
           LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1 LIS_FGCRODR_INTRA_TRACE=1 \
           LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1 \
+          LIS_MFAMG_REPLAY_VALIDATE_RECYCLE_NORMWISE=1 \
             "$exe" A.mtx b_hard.mtx modes.mtx > hard_fgcrodr_intra.log 2>&1
           intra_rc=$?
           set -e
@@ -200,6 +201,7 @@ jobs:
           grep -q 'method=fgcrodr recycle_k=1' hard_fgcrodr_intra.log
           grep -q '^REPLAY_RECYCLE_STATS .*uses=1 ' hard_fgcrodr_intra.log
           grep -q '^REPLAY_RECYCLE_CHECK rc=0 ' hard_fgcrodr_intra.log
+          grep -q '^REPLAY_RECYCLE_SCALED_CHECK rc=0 .* pass=1
           grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' hard_fgcrodr_intra.log
           test "$intra_rc" -eq 0
       - name: Test changed operator A1 to A2 with the SAME solver and MFAMG modes
@@ -418,14 +420,15 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Pin diagnostic-only FGCRODR 2D research solver
+      - name: Pin opt-in scaled-validation FGCRODR 2D research solver
         run: |
           set -euo pipefail
           # Upstream accepted develop #214: 815a73ada1d18d970ec9b6d24306d23ff631fb35.
           # PR #47 research-only deltas: fused 2D 4x8 Q^H Z overlap and
-          # opt-in read-only per-cycle unscaled/normwise relation trace.
+          # opt-in read-only per-cycle unscaled/normwise relation trace,
+          # and opt-in serial CSR normwise validation API.
           # Retain an exact blob pin; this is deliberately no longer upstream-identical.
-          expected=2968c3be5ae0416410af7d19c11b15f9a49a13dc
+          expected=96715b9c14c5190b68119f20930ccc54c8466c5e
           actual="$(git hash-object src/solver/lis_solver_fgcrodr.c)"
           test "$actual" = "$expected" || {
             echo "ERROR: research FGCRODR source differs from the audited tile version" >&2
@@ -435,6 +438,474 @@ jobs:
           grep -q 'lis_fgcrodr_flexible_overlap' src/solver/lis_solver_fgcrodr.c
           grep -q 'FGCRODR_OVERLAP_ROW_TILE 8' src/solver/lis_solver_fgcrodr.c
           grep -q 'lis_fgcrodr_trace_recycle_relation' src/solver/lis_solver_fgcrodr.c
+          grep -q 'lis_fgcrodr_validate_recycle_normwise' src/solver/lis_solver_fgcrodr.c
+          grep -q -- '-fgcrodr_intra' src/solver/lis_solver_fgcrodr.c
+          if grep -q 'LIS_FGCRODR_INTRA_SOLVE_RECYCLE' src/solver/lis_solver_fgcrodr.c; then
+            echo 'ERROR: process-global research toggle reintroduced into LIS core' >&2
+            exit 1
+          fi
+          grep -q 'LIS_FGCRODR_INTRA_SOLVE_RECYCLE' test/mfamgreplay.c
+          grep -q -- '-fgcrodr_intra' test/mfamgreplay.c
+          echo ACCEPTED_UPSTREAM_DEVELOP_FGCRODR_BLOB_OK
+      - name: Validate Matrix Market spectral audit on a synthetic system
+        run: |
+          python3 -m py_compile test/mfamg_mode_audit.py
+          bash -n test/mfamg_mode_audit_smoke.sh
+          bash test/mfamg_mode_audit_smoke.sh
+          python3 -m py_compile test/mfamg_mode_ritz_selection.py
+          bash -n test/mfamg_mode_ritz_selection_smoke.sh
+          bash test/mfamg_mode_ritz_selection_smoke.sh
+          python3 -m py_compile test/mfamg_mode_ritz_leave_one_out.py
+          bash -n test/mfamg_mode_ritz_leave_one_out_smoke.sh
+          bash -n test/mfamg_replay_ritz_leave_one_out.sh
+          bash test/mfamg_mode_ritz_leave_one_out_smoke.sh
+          python3 -m py_compile test/mfamg_replay_v8_repeats.py
+          bash -n test/mfamg_replay_v8_repeats_smoke.sh
+          bash test/mfamg_replay_v8_repeats_smoke.sh
+          python3 -m py_compile test/mfamg_v8_solver_pair_compare.py
+          bash -n test/mfamg_v8_solver_pair_compare_smoke.sh
+          bash -n test/mfamg_v8_31_upstream214_one_shot.sh
+          bash -n test/mfamg_v8_31_maxiter6000_probe.sh
+          bash -n test/mfamg_v8_116_upstream214_one_shot.sh
+          bash -n test/mfamg_v8_auto14_upstream214_one_shot.sh
+          bash test/mfamg_v8_solver_pair_compare_smoke.sh
+          python3 -m py_compile test/mfamg_mode_auto_candidates.py
+          bash -n test/mfamg_mode_auto_candidates_smoke.sh
+          bash test/mfamg_mode_auto_candidates_smoke.sh
+          python3 -m py_compile test/mfamg_replay_v8_candidate_compare.py
+          bash -n test/mfamg_replay_v8_candidate_compare_smoke.sh
+          bash test/mfamg_replay_v8_candidate_compare_smoke.sh
+          python3 -m py_compile test/mfamg_v8_auto14_overlap.py
+          bash -n test/mfamg_v8_auto14_overlap_one_shot.sh
+          bash -n test/mfamg_v8_auto14_overlap_smoke.sh
+          bash test/mfamg_v8_auto14_overlap_smoke.sh
+          python3 -m py_compile test/mfamg_v8_snapshot_sequence.py
+          python3 -m py_compile test/mfamg_v8_triplet_windows.py
+          python3 -m py_compile test/mfamg_v8_newton_preflight.py
+          bash -n test/mfamg_v8_newton_preflight_smoke.sh
+          bash test/mfamg_v8_newton_preflight_smoke.sh
+          python3 -m py_compile test/mfamg_v8_ccx_capture_probe.py
+          bash -n test/mfamg_v8_ccx_capture_probe_smoke.sh
+          bash test/mfamg_v8_ccx_capture_probe_smoke.sh
+          python3 -m py_compile test/mfamg_v8_ccx_isolated_stage.py
+          bash -n test/mfamg_v8_ccx_isolated_stage_smoke.sh
+          bash test/mfamg_v8_ccx_isolated_stage_smoke.sh
+          bash -n test/mfamg_v8_newton_triplet_one_shot.sh
+          bash -n test/mfamg_v8_snapshot_sequence_smoke.sh
+          bash test/mfamg_v8_snapshot_sequence_smoke.sh
+
+  linux-operator-transport:
+    name: Linux C replay A1/A2 KEEP/REJECT (synthetic only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build real-valued serial LIS and experimental replay
+        run: |
+          set -euxo pipefail
+          autoreconf -fiv
+          mkdir -p build-linux
+          cd build-linux
+          ../configure --enable-shared --disable-complex --disable-mpi --disable-test \
+            CFLAGS="-O1 -g -fsanitize=address -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address"
+          make -j2
+          make -C test mfamgreplay testmfamgv8maxiter testmfamgv8intra testmfamgv8transport
+          # Libtool wrapper configures the dynamic-library lookup path.
+          test -s test/mfamgreplay
+      - name: Require cross-operator REJECT and same-object KEEP
+        run: |
+          set -euo pipefail
+          bash -n test/mfamg_v8_cross_operator_smoke.sh
+          export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1:print_stacktrace=1"
+          bash test/mfamg_v8_cross_operator_smoke.sh \
+            "$PWD/build-linux/test/mfamgreplay" \
+            "$PWD/build-linux/cross-operator-smoke"
+      - name: Check active FGCRODR MAXITER workspace cleanup with LeakSanitizer
+        run: |
+          set -euo pipefail
+          export ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:abort_on_error=1:print_stacktrace=1"
+          export LSAN_OPTIONS="exitcode=23"
+          ./build-linux/test/testmfamgv8maxiter > build-linux/maxiter-lsan.log 2>&1 || {
+            cat build-linux/maxiter-lsan.log
+            exit 1
+          }
+          grep -q 'FGCRODR_ACTIVE_MAXITER_CLEANUP_OK' build-linux/maxiter-lsan.log
+          cat build-linux/maxiter-lsan.log
+      - name: Require accepted upstream per-solver intra-solve regression (ASan/LSan)
+        run: |
+          set -euo pipefail
+          export ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:abort_on_error=1:print_stacktrace=1"
+          export LSAN_OPTIONS="exitcode=23"
+          ./build-linux/test/testmfamgv8intra > build-linux/intra-upstream-lsan.log 2>&1 || {
+            cat build-linux/intra-upstream-lsan.log
+            exit 1
+          }
+          grep -q '^FGCRODR_INTRA_ON_OK ' build-linux/intra-upstream-lsan.log
+          grep -q '^FGCRODR_INTRA_OFF_OK ' build-linux/intra-upstream-lsan.log
+          grep -q '^FGCRODR_INTRA_CHANGED_OPERATOR_OK ' build-linux/intra-upstream-lsan.log
+          grep -q '^FGCRODR_INTRA_VALUE_GENERATION_OK ' build-linux/intra-upstream-lsan.log
+          cat build-linux/intra-upstream-lsan.log
+      - name: Verify nonuniform same-CSR TRANSPORT policy under ASan/LSan
+        run: |
+          set -euo pipefail
+          export ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:abort_on_error=1:print_stacktrace=1"
+          export LSAN_OPTIONS="exitcode=23"
+          ./build-linux/test/testmfamgv8transport > build-linux/transport-lsan.log 2>&1 || {
+            cat build-linux/transport-lsan.log
+            exit 1
+          }
+          grep -q '^FGCRODR_TRANSPORT_POLICY_OK ' build-linux/transport-lsan.log
+          cat build-linux/transport-lsan.log
+      - name: Archive public synthetic Linux replay logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-linux-cross-operator-synthetic
+          path: build-linux/cross-operator-smoke/*.log
+          if-no-files-found: ignore
+
+  linux-v7-v8-fgmres-parity:
+    name: Pinned v7/v8 FGMRES parity (public synthetic A/b)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out pinned historical v7
+        uses: actions/checkout@v4
+        with:
+          ref: c4bc64eb55cd3ca0ff0a00db5472aafbafb7a122
+          path: source-v7
+      - name: Check out experimental v8 under test
+        uses: actions/checkout@v4
+        with:
+          path: source-v8
+      - name: Build each replay from its OWN source with matching flags
+        run: |
+          set -euo pipefail
+          for version in v7 v8; do
+            (
+              cd "source-$version"
+              autoreconf -fiv
+              mkdir -p build-parity
+              cd build-parity
+              ../configure --enable-shared --disable-complex --disable-mpi --disable-test
+              make -j2
+              make -C test mfamgreplay
+              test -s test/mfamgreplay
+            )
+          done
+      - name: Compare real compiled FGMRES status, iteration and true residual
+        run: |
+          set -euo pipefail
+          mkdir -p parity-smoke
+          cd parity-smoke
+          python3 - <<'PY'
+          from pathlib import Path
+          n=240
+          with Path("A.mtx").open("w",encoding="ascii") as f:
+              f.write("%%MatrixMarket matrix coordinate real general\n")
+              f.write(f"{n} {n} {3*n-2}\n")
+              for i in range(1,n+1):
+                  f.write(f"{i} {i} 4\n")
+                  if i>1: f.write(f"{i} {i-1} -1\n")
+                  if i<n: f.write(f"{i} {i+1} -1\n")
+          with Path("b.mtx").open("w",encoding="ascii") as f:
+              f.write("%%MatrixMarket matrix array real general\n")
+              f.write(f"{n} 1\n")
+              for i in range(n): f.write(f"{1+(i%7)*0.03:.17g}\n")
+          with Path("modes.mtx").open("w",encoding="ascii") as f:
+              f.write("%%MatrixMarket matrix array real general\n")
+              f.write(f"{n} 2\n")
+              for _ in range(n): f.write("1\n")
+              for i in range(n): f.write(f"{(i-(n-1)/2)/n:.17g}\n")
+          PY
+          export LIS_MFAMG_EXPERIMENT_FINE_AGG=1
+          export LIS_MFAMG_EXPERIMENT_DEEP_MERGE=1
+          export LIS_MFAMG_FINE_AGG_FACTOR=2
+          export LIS_MFAMG_STAR_SCHUR=0
+          export LIS_MFAMG_VCYCLE_SMOOTH_STEPS=3
+          export LIS_FGMRES_PROJECTED_RELATIVE=1
+          export LIS_MFAMG_REPLAY_RESTART=180
+          export LIS_MFAMG_REPLAY_MAXITER=3000
+          "$GITHUB_WORKSPACE/source-v7/build-parity/test/mfamgreplay" \
+            A.mtx b.mtx modes.mtx > v7.log 2>&1
+          env LIS_MFAMG_REPLAY_METHOD=fgmres \
+            "$GITHUB_WORKSPACE/source-v8/build-parity/test/mfamgreplay" \
+            A.mtx b.mtx modes.mtx > v8.log 2>&1
+          python3 - <<'PY'
+          import math
+          from pathlib import Path
+          def read(path):
+              groups={"REPLAY":[],"REPLAY_RESULT":[]}
+              for line in Path(path).read_text().splitlines():
+                  for tag in groups:
+                      if line.startswith(tag+" "):
+                          groups[tag].append(dict(item.split("=",1)
+                              for item in line.split()[1:] if "=" in item))
+              assert all(len(entries)==1 for entries in groups.values()),path
+              return groups["REPLAY"][0],groups["REPLAY_RESULT"][0]
+          oldh,old=read("v7.log")
+          newh,new=read("v8.log")
+          assert "method" not in oldh, oldh
+          assert newh["method"]=="fgmres" and newh["recycle_k"]=="0",newh
+          for key in ("n","nnz","modes","restart","maxiter","tol"):
+              assert oldh[key]==newh[key],(key,oldh[key],newh[key])
+          assert oldh["n"]=="240" and oldh["modes"]=="2",oldh
+          assert old["status"]==new["status"]=="0",(old,new)
+          assert old["solve_rc"]==new["solve_rc"]=="0",(old,new)
+          assert old["iter"]==new["iter"],(old["iter"],new["iter"])
+          for name,data in (("v7",old),("v8",new)):
+              residual=float(data["true_relative"])
+              assert math.isfinite(residual) and 0<=residual<=1e-5,(name,residual)
+          assert math.isclose(float(old["true_relative"]),float(new["true_relative"]),
+                              rel_tol=1e-8,abs_tol=1e-12),(old,new)
+          print("V7_V8_FGMRES_PARITY_OK iterations="+old["iter"])
+          PY
+      - name: Archive public synthetic parity logs if needed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-v7-fgmres-parity-synthetic
+          path: parity-smoke/*.log
+          if-no-files-found: ignore
+ hard_fgcrodr_intra.log
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' hard_fgcrodr_intra.log
+          test "$intra_rc" -eq 0
+      - name: Test changed operator A1 to A2 with the SAME solver and MFAMG modes
+        run: |
+          set -euo pipefail
+          cd build-ci/smoke
+          {
+            echo '%%MatrixMarket matrix coordinate real general'
+            echo '240 240 718'
+            for ((i=1;i<=240;i++)); do
+              echo "$i $i 5"
+              if (( i>1 )); then echo "$i $((i-1)) -1"; fi
+              if (( i<240 )); then echo "$i $((i+1)) -1"; fi
+            done
+          } > A_newton2.mtx
+          {
+            echo '%%MatrixMarket matrix array real general'
+            echo '240 1'
+            for ((i=1;i<=240;i++)); do
+              echo "$(( (i*29)%19 - 9 ))"
+            done
+          } > b_newton2.mtx
+          # Independent third synthetic operator: same graph, changed
+          # diagonal AND both off-diagonal coefficients.
+          {
+            echo '%%MatrixMarket matrix coordinate real general'
+            echo '240 240 718'
+            for ((i=1;i<=240;i++)); do
+              echo "$i $i 6"
+              if (( i>1 )); then echo "$i $((i-1)) -0.9"; fi
+              if (( i<240 )); then echo "$i $((i+1)) -1.1"; fi
+            done
+          } > A_newton3.mtx
+          {
+            echo '%%MatrixMarket matrix coordinate real general'
+            echo '240 240 718'
+            for ((i=1;i<=240;i++)); do
+              echo "$i $i 6"
+              if (( i>1 )); then echo "$i $((i-1)) -0.9"; fi
+              if (( i<240 )); then
+                if (( i==1 )); then
+                  echo '1 3 -1.1'
+                else
+                  echo "$i $((i+1)) -1.1"
+                fi
+              fi
+            done
+          } > A_newton3_changed_graph.mtx
+          {
+            echo '%%MatrixMarket matrix array real general'
+            echo '240 1'
+            for ((i=1;i<=240;i++)); do
+              echo "$(( (i*31)%17 - 8 ))"
+            done
+          } > b_newton3.mtx
+          exe=../test/.libs/mfamgreplay.exe
+          "$exe" --compare-csr A.mtx A_newton2.mtx > csr_preflight_ok.log 2>&1
+          grep -q '^REPLAY_CSR_COMPARE compatible=1 n=240 nnz=718 changed_nnz=240$' csr_preflight_ok.log
+          if "$exe" --compare-csr A.mtx A.mtx > csr_preflight_unchanged.log 2>&1; then
+            echo 'ERROR: unchanged A was accepted as changed by CSR preflight' >&2
+            exit 1
+          fi
+          grep -q '^REPLAY_CSR_COMPARE compatible=0$' csr_preflight_unchanged.log
+          export LIS_MFAMG_EXPERIMENT_FINE_AGG=1
+          export LIS_MFAMG_FINE_AGG_FACTOR=2
+          export LIS_MFAMG_EXPERIMENT_DEEP_MERGE=1
+          export LIS_MFAMG_VCYCLE_SMOOTH_STEPS=1
+          export LIS_MFAMG_REPLAY_RESTART=2
+          export LIS_MFAMG_REPLAY_MAXITER=100
+          export LIS_FGMRES_PROJECTED_RELATIVE=1
+          export LIS_MFAMG_REPLAY_METHOD=fgcrodr
+          export LIS_MFAMG_REPLAY_RECYCLE_DIM=1
+          export LIS_FGCRODR_INTRA_SOLVE_RECYCLE=1
+          export LIS_MFAMG_REPLAY_VALIDATE_RECYCLE=1
+          exe=../test/.libs/mfamgreplay.exe
+          export LIS_MFAMG_REPLAY_NEXT_A=A_newton2.mtx
+          export LIS_MFAMG_REPLAY_NEXT_B=b_newton2.mtx
+          "$exe" A.mtx b_hard.mtx modes.mtx > newton_same_solver.log 2>&1
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_same_solver.log
+          grep -q '^REPLAY_NEWTON_STEP step=2 n=240 ' newton_same_solver.log
+          grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' newton_same_solver.log
+          grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' newton_same_solver.log
+          # A2 is a distinct matrix object: old recycle space MUST
+          # be rejected rather than quietly reused with stale A1*Z.
+          grep -q '^REPLAY_NEWTON_MATRIX mode=separate_object' newton_same_solver.log
+          grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=0 keeps_delta=0 transports_delta=0 rejects_delta=[1-9][0-9]*$' newton_same_solver.log
+          # Positive control: same matrix object, same sparsity pattern,
+          # but explicitly changed value_generation. This must exercise
+          # KEEP or TRANSPORT (real cross-operator Z reuse).
+          LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1 \
+            "$exe" A.mtx b_hard.mtx modes.mtx > newton_inplace_solver.log 2>&1
+          grep -q '^REPLAY_NEWTON_MATRIX mode=inplace_diag_shift shift=-1' newton_inplace_solver.log
+          grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' newton_inplace_solver.log
+          grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' newton_inplace_solver.log
+          grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=[1-9][0-9]* ' newton_inplace_solver.log
+          # Control for graph-compatible A2 value replacement.
+          LIS_MFAMG_REPLAY_NEXT_REPLACE_VALUES=1 \
+            "$exe" A.mtx b_hard.mtx modes.mtx > newton_replaced_solver.log 2>&1
+          grep -Eq '^REPLAY_NEWTON_MATRIX mode=inplace_replace_values changed_nnz=[1-9][0-9]*$' newton_replaced_solver.log
+          grep -Eq '^REPLAY_NEWTON_POLICY cross_uses_delta=[1-9][0-9]* ' newton_replaced_solver.log
+          grep -q '^REPLAY_NEWTON_RECYCLE_CHECK rc=0 ' newton_replaced_solver.log
+          grep -q '^REPLAY_NEWTON_RESULT step=2 solve_rc=0 status=0 ' newton_replaced_solver.log
+          # Step3 uses the SAME solver object as both A1 and A2.
+          # First path: second-step A5, then third-step A6 with
+          # same CSR graph; require actual cross-system reuse.
+          LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1 \
+          LIS_MFAMG_REPLAY_THIRD_A=A_newton3.mtx \
+          LIS_MFAMG_REPLAY_THIRD_B=b_newton3.mtx \
+          LIS_MFAMG_REPLAY_THIRD_REPLACE_VALUES=1 \
+            "$exe" A.mtx b_hard.mtx modes.mtx > newton_three_keep.log 2>&1
+          grep -q '^REPLAY_SEQUENCE_MATRIX step=3 mode=inplace_replace_values ' newton_three_keep.log
+          grep -q '^REPLAY_SEQUENCE_RECYCLE_CHECK step=3 rc=0 ' newton_three_keep.log
+          grep -q '^REPLAY_SEQUENCE_RESULT step=3 solve_rc=0 status=0 ' newton_three_keep.log
+          grep -Eq '^REPLAY_SEQUENCE_POLICY step=3 cross_uses_delta=[1-9][0-9]* ' newton_three_keep.log
+          # Second path: changed graph must force REJECT.
+          LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1 \
+          LIS_MFAMG_REPLAY_THIRD_A=A_newton3_changed_graph.mtx \
+          LIS_MFAMG_REPLAY_THIRD_B=b_newton3.mtx \
+            "$exe" A.mtx b_hard.mtx modes.mtx > newton_three_reject.log 2>&1
+          grep -q '^REPLAY_SEQUENCE_MATRIX step=3 mode=separate_object' newton_three_reject.log
+          grep -q '^REPLAY_SEQUENCE_RECYCLE_CHECK step=3 rc=0 ' newton_three_reject.log
+          grep -q '^REPLAY_SEQUENCE_RESULT step=3 solve_rc=0 status=0 ' newton_three_reject.log
+          grep -Eq '^REPLAY_SEQUENCE_POLICY step=3 cross_uses_delta=0 keeps_delta=0 transports_delta=0 rejects_delta=[1-9][0-9]*$' newton_three_reject.log
+          unset LIS_MFAMG_REPLAY_NEXT_A LIS_MFAMG_REPLAY_NEXT_B
+          "$exe" A_newton2.mtx b_newton2.mtx modes.mtx > newton_fresh_solver.log 2>&1
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_fresh_solver.log
+          "$exe" A_newton3.mtx b_newton3.mtx modes.mtx > newton_fresh_third.log 2>&1
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_fresh_third.log
+          # Avoid relying on Python in the Windows UCRT64 runner.
+          for entry in "newton_same_solver.log:REPLAY_NEWTON_RESULT" \
+                       "newton_inplace_solver.log:REPLAY_NEWTON_RESULT" \
+                       "newton_replaced_solver.log:REPLAY_NEWTON_RESULT" \
+                       "newton_three_keep.log:REPLAY_SEQUENCE_RESULT" \
+                       "newton_three_reject.log:REPLAY_SEQUENCE_RESULT" \
+                       "newton_fresh_third.log:REPLAY_RESULT" \
+                       "newton_fresh_solver.log:REPLAY_RESULT"; do
+            log="${entry%%:*}"
+            marker="${entry#*:}"
+            awk -v wanted="$marker" '
+              $1==wanted {
+                count++
+                for (i=2;i<=NF;i++) if ($i ~ /^true_relative=/) {
+                  split($i,v,"=")
+                  if ((v[2]+0) > 1e-5 || (v[2]+0) < 0) bad=1
+                  found++
+                }
+              }
+              END { if(count!=1 || found!=1 || bad) exit 1 }
+            ' "$log"
+          done
+          echo MFAMG_V8_CHANGED_OPERATOR_SAME_SOLVER_OK
+          if LIS_MFAMG_REPLAY_NEXT_A=A_newton2.mtx "$exe" A.mtx b_hard.mtx modes.mtx \
+                > newton_missing_rhs.log 2>&1; then
+            echo 'ERROR: incomplete A2/B2 input was accepted' >&2
+            exit 1
+          fi
+          grep -q 'specify both NEXT_A and NEXT_B' newton_missing_rhs.log
+          if LIS_MFAMG_REPLAY_NEXT_DIAG_SHIFT=-1 \
+                "$exe" A.mtx b_hard.mtx modes.mtx > newton_shift_without_A2.log 2>&1; then
+            echo 'ERROR: diagonal shift without A2/b2 was accepted' >&2
+            exit 1
+          fi
+          grep -q 'diagonal shift requires NEXT_A and NEXT_B' newton_shift_without_A2.log
+          # Step 1 may succeed but any step-2 I/O failure must still fail.
+          if LIS_MFAMG_REPLAY_NEXT_A=A_newton2.mtx \
+             LIS_MFAMG_REPLAY_NEXT_B=nonexistent-step2-RHS.mtx \
+             "$exe" A.mtx b_hard.mtx modes.mtx > newton_bad_rhs.log 2>&1; then
+            echo 'ERROR: missing second RHS produced a successful exit' >&2
+            exit 1
+          fi
+          grep -q '^REPLAY_RESULT solve_rc=0 status=0 ' newton_bad_rhs.log
+          {
+            echo '%%MatrixMarket matrix coordinate real general'
+            echo '3 3 3'
+            for ((i=1;i<=3;i++)); do echo "$i $i 4"; done
+          } > A_wrong_size.mtx
+          if LIS_MFAMG_REPLAY_NEXT_A=A_wrong_size.mtx \
+             LIS_MFAMG_REPLAY_NEXT_B=b_newton2.mtx \
+             "$exe" A.mtx b_hard.mtx modes.mtx > newton_bad_shape.log 2>&1; then
+            echo 'ERROR: incompatible second operator was accepted' >&2
+            exit 1
+          fi
+          grep -q 'operator dimensions/distribution changed' newton_bad_shape.log
+      - name: Publish experimental UCRT64 mfamgreplay EXE
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-replay-ucrt64-experimental
+          path: build-ci/test/.libs/mfamgreplay.exe
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+      - name: Check symmetric-indefinite 480-row recycling
+        run: |
+          set -euo pipefail
+          bash test/mfamg_replay_indefinite_ci.sh \
+            "$PWD/build-ci/test/.libs/mfamgreplay.exe" \
+            "$PWD/build-ci/smoke"
+      - name: Check ill-conditioned indefinite 480-row recycling
+        run: |
+          set -euo pipefail
+          bash test/mfamg_replay_illconditioned_ci.sh \
+            "$PWD/build-ci/test/.libs/mfamgreplay.exe" \
+            "$PWD/build-ci/smoke"
+      - name: Upload smoke logs even when failing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-v8-smoke-logs
+          path: build-ci/smoke/*.log
+          if-no-files-found: ignore
+
+  mode-audit-smoke:
+    name: Offline mode audit (no private data)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin opt-in scaled-validation FGCRODR 2D research solver
+        run: |
+          set -euo pipefail
+          # Upstream accepted develop #214: 815a73ada1d18d970ec9b6d24306d23ff631fb35.
+          # PR #47 research-only deltas: fused 2D 4x8 Q^H Z overlap and
+          # opt-in read-only per-cycle unscaled/normwise relation trace,
+          # and opt-in serial CSR normwise validation API.
+          # Retain an exact blob pin; this is deliberately no longer upstream-identical.
+          expected=96715b9c14c5190b68119f20930ccc54c8466c5e
+          actual="$(git hash-object src/solver/lis_solver_fgcrodr.c)"
+          test "$actual" = "$expected" || {
+            echo "ERROR: research FGCRODR source differs from the audited tile version" >&2
+            echo "expected=$expected actual=$actual" >&2
+            exit 1
+          }
+          grep -q 'lis_fgcrodr_flexible_overlap' src/solver/lis_solver_fgcrodr.c
+          grep -q 'FGCRODR_OVERLAP_ROW_TILE 8' src/solver/lis_solver_fgcrodr.c
+          grep -q 'lis_fgcrodr_trace_recycle_relation' src/solver/lis_solver_fgcrodr.c
+          grep -q 'lis_fgcrodr_validate_recycle_normwise' src/solver/lis_solver_fgcrodr.c
           grep -q -- '-fgcrodr_intra' src/solver/lis_solver_fgcrodr.c
           if grep -q 'LIS_FGCRODR_INTRA_SOLVE_RECYCLE' src/solver/lis_solver_fgcrodr.c; then
             echo 'ERROR: process-global research toggle reintroduced into LIS core' >&2
