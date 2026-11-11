@@ -979,8 +979,8 @@ int main(int argc,char **argv)
                    strcmp(getenv("LIS_MFAMG_REPLAY_VALIDATE_RECYCLE"),"1")==0)
                 {
                     if(replay_check_recycle(
-                           solver,"REPLAY_SEQUENCE_RECYCLE_CHECK",
-                           "REPLAY_SEQUENCE_RECYCLE_SCALED_CHECK",
+                           solver,"REPLAY_SEQUENCE_RECYCLE_CHECK step=3",
+                           "REPLAY_SEQUENCE_RECYCLE_SCALED_CHECK step=3",
                            &orth3,&relation3))
                         last_ok=0;
                 }
