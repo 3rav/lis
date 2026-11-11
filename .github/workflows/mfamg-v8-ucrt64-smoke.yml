@@ -195,6 +195,7 @@ jobs:
           # Key requirement: the newly built space must be actively used
           # at the next cycle, not simply built at the end of a solve.
           grep -q '^LIS_FGCRODR_INTRA_RECYCLE iter=' hard_fgcrodr_intra.log
+          grep -q '^LIS_FGCRODR_RELATION_TRACE iter=.*normwise_scaled_max=' hard_fgcrodr_intra.log
           ! grep -q '^LIS_FGCRODR_INTRA_RECYCLE iter=' hard_fgcrodr_no_intra.log
           grep -q 'method=fgcrodr recycle_k=1' hard_fgcrodr_intra.log
           grep -q '^REPLAY_RECYCLE_STATS .*uses=1 ' hard_fgcrodr_intra.log
