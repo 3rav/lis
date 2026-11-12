@@ -1,0 +1,198 @@
+name: MFAMG deep sibling merge regression
+
+on:
+  push:
+    branches:
+      - experiment/mfamg-star-rooted-20261112
+  pull_request:
+    paths:
+      - 'src/precon/lis_precon_mfamg.c'
+      - 'test/testmfamgdeepmerge.c'
+      - 'test/Makefile.am'
+      - 'include/lis.h'
+      - 'src/solver/lis_solver.c'
+      - 'src/solver/lis_solver_options.c'
+      - '.github/workflows/mfamg-deep-sibling-merge-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: serial
+            flags: ''
+          - mode: openmp
+            flags: '--enable-omp'
+          - mode: quad
+            flags: '--enable-quad'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Configure
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --disable-fortran --disable-f90 \
+            --disable-saamg --disable-mpi ${{ matrix.flags }}
+      - name: Build
+        run: make -j2
+      - name: Run targeted deep-merge regression
+        run: ./test/testmfamgdeepmerge
+      - name: Run full regression suite
+        run: make -j2 check
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-linux-${{ matrix.mode }}-logs
+          path: |
+            config.log
+            test/test-suite.log
+            test/*.log
+          if-no-files-found: ignore
+
+  mpi:
+    name: Linux MPI (2 ranks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin \
+            openmpi-bin libopenmpi-dev
+      - name: Configure
+        run: |
+          autoreconf -fiv
+          ./configure MPICC=mpicc MPIRUN=mpiexec --enable-test --enable-mpi \
+            --disable-fortran --disable-f90 --disable-saamg --disable-omp
+      - name: Build and run regression
+        run: |
+          make -j2
+          ./test/testmfamgdeepmerge
+          mpiexec -n 2 ./test/testmfamgdeepmerge
+          make -j2 check
+      - name: Mutation proof - removing rank guard MUST break deep MPI test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("src/precon/lis_precon_mfamg.c")
+          source = p.read_text()
+          needle = "state->deep_sibling_merge && level->A->nprocs==1)"
+          assert source.count(needle) == 1, "Unexpected guard layout"
+          p.write_text(source.replace(needle, "state->deep_sibling_merge)"))
+          PY
+          make -j2
+          # The test binary may be statically linked; force relinking
+          # against the mutated library, not just rebuilding the library.
+          touch test/testmfamgdeepmerge.c
+          make -C test testmfamgdeepmerge
+          set +e
+          mpiexec -n 2 ./test/testmfamgdeepmerge > mpi-mutant.log 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "ERROR: MPI mutant unexpectedly passed; guard was not tested"
+            cat mpi-mutant.log
+            exit 1
+          fi
+          if ! grep -q "MFAMG DEEP MERGE integration rc=" mpi-mutant.log; then
+            echo "ERROR: mutant failed for an unrelated reason"
+            cat mpi-mutant.log
+            exit 1
+          fi
+          echo "MPI_RANK_GUARD_MUTATION=KILLED (expected numerical test failure)"
+          git restore src/precon/lis_precon_mfamg.c
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-mpi-logs
+          path: |
+            config.log
+            test/test-suite.log
+            test/*.log
+          if-no-files-found: ignore
+
+  mingw:
+    name: Windows MSYS2 UCRT64
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            autoconf automake libtool make mingw-w64-ucrt-x86_64-gcc
+      - name: Configure and build
+        run: |
+          autoreconf -fiv
+          ./configure CC=gcc --enable-test --disable-shared --enable-static \
+            --disable-fortran --disable-f90 --disable-saamg --disable-mpi
+          make -j2
+      - name: Run targeted and full tests
+        run: |
+          ./test/testmfamgdeepmerge.exe
+          make -j2 check
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-windows-logs
+          path: |
+            config.log
+            test/test-suite.log
+            test/*.log
+          if-no-files-found: ignore
+
+  deep-merge-sanitizer:
+    name: Linux ASan/LSan/UBSan deep merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      LSAN_OPTIONS: exitcode=23:report_objects=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build with AddressSanitizer, LeakSanitizer and UBSan
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --disable-fortran --disable-f90 \
+            --disable-saamg --disable-mpi --disable-omp \
+            CC=gcc \
+            CFLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all" \
+            LDFLAGS="-fsanitize=address,undefined"
+          make -j2
+      - name: Exercise repeated 0 -> 1 -> 0 integrated solves under sanitizers
+        run: ./test/testmfamgdeepmerge
+      - name: Upload sanitizer logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-deep-asan-logs
+          path: |
+            config.log
+            test/test-suite.log
+            test/*.log
+          if-no-files-found: ignore
