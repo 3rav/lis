@@ -12,6 +12,7 @@
 #endif
 
 #include <math.h>
+#include <stdint.h>
 #ifdef _COMPLEX
 #include <complex.h>
 #endif
@@ -20,6 +21,9 @@
 
 #include "lislib.h"
 
+
+extern uint16_t lis_half_from_double(double value);
+extern double lis_half_to_double(uint16_t value);
 
 #define LIS_MFAMG_MAX_LEVELS 32
 #define LIS_MFAMG_COARSE_LIMIT 8
@@ -59,6 +63,7 @@ struct LIS_MFAMG_LEVEL
     LIS_INT *prolong_row_ptr;
 
     LIS_SCALAR *prolong;
+    uint16_t *prolong_half;
 
     LIS_INT smoother_type;
 
@@ -89,6 +94,7 @@ struct LIS_MFAMG_LEVEL
 struct LIS_MFAMG_STRUCT
 {
     LIS_INT nlevels;
+    LIS_INT half_mode;
     LIS_INT level_capacity;
     LIS_INT smoother_block_size;
     struct LIS_MFAMG_LEVEL *levels;
@@ -200,6 +206,69 @@ lis_mfamg_smoother_destroy(
 
 
 
+
+/* Setup and coarse-grid Galerkin products stay in LIS_SCALAR precision.
+ * Only the resident prolongation coefficients use IEEE binary16.
+ * An unsafe conversion or allocation failure keeps the full precision data.
+ */
+static LIS_SCALAR
+lis_mfamg_prolong_value(const struct LIS_MFAMG_LEVEL *level, LIS_INT i)
+{
+    if(level->prolong_half)
+        return (LIS_SCALAR)lis_half_to_double(level->prolong_half[i]);
+    return level->prolong[i];
+}
+
+static void
+lis_mfamg_compress_prolongation(struct LIS_MFAMG_STRUCT *state)
+{
+#ifndef _COMPLEX
+    LIS_INT l, i, count;
+    struct LIS_MFAMG_LEVEL *level;
+    uint16_t *packed;
+    double original, decoded;
+    if(state==NULL || state->half_mode==LIS_PRECON_HALF_OFF)
+        return;
+    for(l=0;l<state->nlevels-1;l++)
+    {
+        level=&state->levels[l];
+        if(level->prolong==NULL)
+            continue;
+        count=level->prolong_row_ptr ?
+            level->prolong_row_ptr[level->n] : level->n;
+        if(count<=0 || (size_t)count>SIZE_MAX/sizeof(uint16_t))
+            continue;
+        packed=(uint16_t *)lis_malloc((size_t)count*sizeof(uint16_t),
+                                     "lis_mfamg_compress_prolongation");
+        if(packed==NULL)
+            continue;
+        for(i=0;i<count;i++)
+        {
+            original=(double)level->prolong[i];
+            if(!isfinite(original))
+                break;
+            packed[i]=lis_half_from_double(original);
+            decoded=lis_half_to_double(packed[i]);
+            if(!isfinite(decoded) || (original!=0.0 && decoded==0.0))
+                break;
+            if(state->half_mode==LIS_PRECON_HALF_ON &&
+               fabs(decoded-original)>0.01*fabs(original)+1.0e-7)
+                break;
+        }
+        if(i!=count)
+        {
+            lis_free(packed);
+            continue;
+        }
+        lis_free(level->prolong);
+        level->prolong=NULL;
+        level->prolong_half=packed;
+    }
+#else
+    (void)state;
+#endif
+}
+
 static void
 lis_mfamg_state_free(
     struct LIS_MFAMG_STRUCT *state)
@@ -237,6 +306,8 @@ lis_mfamg_state_free(
 
             if(level->prolong)
                 lis_free(level->prolong);
+            if(level->prolong_half)
+                lis_free(level->prolong_half);
 
             if(level->coarse_ranges)
                 lis_free(level->coarse_ranges);
@@ -10035,7 +10106,7 @@ lis_mfamg_v_cycle(
     if(
         level->aggregate==NULL
         ||
-        level->prolong==NULL
+        (level->prolong==NULL && level->prolong_half==NULL)
         ||
         level->diagonal==NULL
         ||
@@ -10182,10 +10253,7 @@ lis_mfamg_v_cycle(
 
                 coarse_b[p] +=
                     conj(
-                        level->prolong[
-                            row_start
-                            +
-                            q])
+                        lis_mfamg_prolong_value(level,row_start+q))
                     *
                     residual;
             }
@@ -10213,7 +10281,7 @@ lis_mfamg_v_cycle(
 
             coarse_b[a] +=
                 conj(
-                    level->prolong[i])
+                    lis_mfamg_prolong_value(level,i))
                 *
                 residual;
         }
@@ -10291,10 +10359,7 @@ lis_mfamg_v_cycle(
                     q;
 
                 xv[i] +=
-                    level->prolong[
-                        row_start
-                        +
-                        q]
+                    lis_mfamg_prolong_value(level,row_start+q)
                     *
                     coarse_x[p];
             }
@@ -10316,7 +10381,7 @@ lis_mfamg_v_cycle(
             }
 
             xv[i] +=
-                level->prolong[i]
+                lis_mfamg_prolong_value(level,i)
                 *
                 coarse_x[a];
         }
@@ -13765,6 +13830,9 @@ lis_precon_create_mfamg(
     }
 
 
+    state->half_mode = solver->precon_half_mode;
+    lis_mfamg_compress_prolongation(state);
+
     precon->A =
         A;
 
@@ -14407,7 +14475,9 @@ lis_precon_psd_update_mfamg(
     }
 
 
-    if(same_pattern)
+    /* Packed transfer coefficients require transactional rebuilding. */
+    if(same_pattern && precon->mfamg->half_mode==LIS_PRECON_HALF_OFF &&
+       solver->precon_half_mode==LIS_PRECON_HALF_OFF)
     {
         err =
             lis_mfamg_refresh_serial_scalar_numeric(
