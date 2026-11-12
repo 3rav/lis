@@ -1,0 +1,54 @@
+name: MFAMG original sibling-only multi-hub benchmark
+on:
+  push:
+    branches:
+      - experiment/mfamg-siblings-only-multihub-20261112
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Linux GCC serial 64-hub 12352-DOF comparison
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Autotools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Configure and build
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-omp
+          make -j2
+      - name: Measure 64 connected hubs with 24 arms x8 and 0 -> 1 -> 0
+        run: |
+          for rep in 1 2 3 4 5 6 7; do
+            echo "MFAMG_BENCHMARK_REPETITION=$rep"
+            ./test/testmfamgdeepmerge
+          done 2>&1 | tee mfamg-deep-benchmark.log
+          python3 - <<'PY'
+          import re,statistics
+          from pathlib import Path
+          text=Path("mfamg-deep-benchmark.log").read_text()
+          hits=re.findall(r'MFAMG_DEEP_BENCHMARK n=(\d+) arm=(\d+) phase=(\d+) option=(\d+) create_cpu=([0-9.]+) solve_cpu=([0-9.]+) iters=(\d+)',text)
+          assert len(hits)==21, f"Expected 21 benchmark measurements, got {len(hits)}"
+          for phase in (0,1,2):
+              rows=[x for x in hits if int(x[2])==phase]
+              builds=[float(x[4])*1000 for x in rows]
+              solves=[float(x[5])*1000 for x in rows]
+              iters={int(x[6]) for x in rows}
+              print(f'MFAMG_DEEP_BENCHMARK_STATS phase={phase} count={len(rows)} build_cpu_ms={statistics.mean(builds):.3f}+/-{statistics.stdev(builds):.3f} solve_cpu_ms={statistics.mean(solves):.3f}+/-{statistics.stdev(solves):.3f} iterations={sorted(iters)}')
+          PY
+      - name: Upload benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfamg-deep-32x512
+          path: |
+            mfamg-deep-benchmark.log
+            config.log
+          if-no-files-found: ignore
