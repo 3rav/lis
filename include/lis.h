@@ -895,6 +895,8 @@ struct LIS_PRECON_STRUCT
 	 * Kept at the end of LIS_PRECON_STRUCT.
 	 */
 	LIS_HALF_ILU half;
+	/* Optional serial restricted additive Schwarz ILUT subdomains. */
+	struct LIS_ILUT_RAS_STRUCT *ilut_ras;
 };
 typedef struct LIS_PRECON_STRUCT *LIS_PRECON;
 
@@ -1094,6 +1096,13 @@ struct LIS_SOLVER_STRUCT
 	LIS_INT sequence_precon_half_mode;
 	/* Appended to preserve the offsets of all preexisting solver fields. */
 	LIS_INT mfamg_deep_sibling_merge;
+	/* -1 disables RAS (default); 0..2 selects overlap depth. */
+	LIS_INT ilut_ras_overlap;
+	LIS_INT ilut_ras_domains;
+	LIS_INT ilut_schur;
+	LIS_INT sequence_precon_ilut_ras_overlap;
+	LIS_INT sequence_precon_ilut_ras_domains;
+	LIS_INT sequence_precon_ilut_schur;
 };
 typedef struct LIS_SOLVER_STRUCT *LIS_SOLVER;
 
