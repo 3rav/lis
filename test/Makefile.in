@@ -134,7 +134,7 @@ test_PROGRAMS = testesubspaceretry$(EXEEXT) etest1$(EXEEXT) \
 	testmatrixoperatorlifecycle$(EXEEXT) \
 	testmatrixoperatormpi$(EXEEXT) testsequence$(EXEEXT) \
 	testwarmstart$(EXEEXT) testrecovery$(EXEEXT) \
-	testthreads$(EXEEXT) testfgcrodr$(EXEEXT) testmfamg$(EXEEXT) \
+	testthreads$(EXEEXT) testfgcrodr$(EXEEXT) testsnapshot$(EXEEXT) testmfamg$(EXEEXT) \
 	testmfamggalerkin$(EXEEXT) testexactnullspace$(EXEEXT) \
 	testhalfconfig$(EXEEXT) testhalfconvert$(EXEEXT) \
 	testfeastfoundation$(EXEEXT) testfeastcontour$(EXEEXT) \
@@ -683,6 +683,10 @@ am_testmatvecblock_OBJECTS = testmatvecblock.$(OBJEXT)
 testmatvecblock_OBJECTS = $(am_testmatvecblock_OBJECTS)
 testmatvecblock_LDADD = $(LDADD)
 testmatvecblock_DEPENDENCIES =
+am_testsnapshot_OBJECTS = testsnapshot.$(OBJEXT)
+testsnapshot_OBJECTS = $(am_testsnapshot_OBJECTS)
+testsnapshot_LDADD = $(LDADD)
+testsnapshot_DEPENDENCIES =
 am_testmfamg_OBJECTS = testmfamg.$(OBJEXT)
 testmfamg_OBJECTS = $(am_testmfamg_OBJECTS)
 testmfamg_LDADD = $(LDADD)
@@ -1003,6 +1007,7 @@ am__depfiles_remade = ./$(DEPDIR)/benchautojacobirefresh.Po \
 	./$(DEPDIR)/testrecovery.Po ./$(DEPDIR)/testrepeatedsystems.Po \
 	./$(DEPDIR)/testrhistoryerror.Po ./$(DEPDIR)/testrqirestore.Po \
 	./$(DEPDIR)/testsequence.Po ./$(DEPDIR)/testshellscale.Po \
+	./$(DEPDIR)/testsnapshot.Po \
 	./$(DEPDIR)/testsolvercallbackcert.Po \
 	./$(DEPDIR)/testsolvercallbackpaths.Po \
 	./$(DEPDIR)/testsolvercapabilities.Po \
@@ -1109,7 +1114,7 @@ SOURCES = $(benchautojacobirefresh_SOURCES) $(benchfrozenilut_SOURCES) \
 	$(testmatrixoperatorlifecycle_SOURCES) \
 	$(testmatrixoperatormpi_SOURCES) \
 	$(testmatrixpolicysolve_SOURCES) $(testmatvecblock_SOURCES) \
-	$(testmfamg_SOURCES) $(testmfamggalerkin_SOURCES) \
+	$(testsnapshot_SOURCES) $(testmfamg_SOURCES) $(testmfamggalerkin_SOURCES) \
 	$(testnearnullspace_SOURCES) \
 	$(testnullspacecandidates_SOURCES) \
 	$(testnullspacelift_SOURCES) $(testompelastic_SOURCES) \
@@ -1192,7 +1197,7 @@ DIST_SOURCES = $(benchautojacobirefresh_SOURCES) \
 	$(testmatrixoperatorlifecycle_SOURCES) \
 	$(testmatrixoperatormpi_SOURCES) \
 	$(testmatrixpolicysolve_SOURCES) $(testmatvecblock_SOURCES) \
-	$(testmfamg_SOURCES) $(testmfamggalerkin_SOURCES) \
+	$(testsnapshot_SOURCES) $(testmfamg_SOURCES) $(testmfamggalerkin_SOURCES) \
 	$(testnearnullspace_SOURCES) \
 	$(testnullspacecandidates_SOURCES) \
 	$(testnullspacelift_SOURCES) $(testompelastic_SOURCES) \
@@ -1667,6 +1672,7 @@ testhalfiluksimd_SOURCES = testhalfiluksimd.c
 testhalfilut_SOURCES = testhalfilut.c
 testmfamg_SOURCES = testmfamg.c
 testmfamggalerkin_SOURCES = testmfamggalerkin.c
+testsnapshot_SOURCES = testsnapshot.c
 getestuser_SOURCES = getestuser.c
 testoperator_SOURCES = testoperator.c
 testdiagonal_SOURCES = testdiagonal.c
@@ -1794,7 +1800,7 @@ TESTS = test.sh testuserrow$(EXEEXT) testuserprecon$(EXEEXT) \
 	testsplitview$(EXEEXT) testsplitviewi64$(EXEEXT) \
 	testmatrixoperatorlifecycle$(EXEEXT) testsequence$(EXEEXT) \
 	testwarmstart$(EXEEXT) testrecovery$(EXEEXT) \
-	testthreads$(EXEEXT) testfgcrodr$(EXEEXT) testmfamg$(EXEEXT) \
+	testthreads$(EXEEXT) testfgcrodr$(EXEEXT) testsnapshot$(EXEEXT) testmfamg$(EXEEXT) \
 	testmfamggalerkin$(EXEEXT) testexactnullspace$(EXEEXT) \
 	testhalfconfig$(EXEEXT) testhalfconvert$(EXEEXT) \
 	testnullspacecandidates$(EXEEXT) testesolverselection$(EXEEXT) \
@@ -2423,6 +2429,10 @@ testmfamggalerkin$(EXEEXT): $(testmfamggalerkin_OBJECTS) $(testmfamggalerkin_DEP
 	@rm -f testmfamggalerkin$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(testmfamggalerkin_OBJECTS) $(testmfamggalerkin_LDADD) $(LIBS)
 
+testsnapshot$(EXEEXT): $(testsnapshot_OBJECTS) $(testsnapshot_DEPENDENCIES) $(EXTRA_testsnapshot_DEPENDENCIES) 
+	@rm -f testsnapshot$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testsnapshot_OBJECTS) $(testsnapshot_LDADD) $(LIBS)
+
 testnearnullspace$(EXEEXT): $(testnearnullspace_OBJECTS) $(testnearnullspace_DEPENDENCIES) $(EXTRA_testnearnullspace_DEPENDENCIES) 
 	@rm -f testnearnullspace$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(testnearnullspace_OBJECTS) $(testnearnullspace_LDADD) $(LIBS)
@@ -2735,6 +2745,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testmatvecblock.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testmfamg.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testmfamggalerkin.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testsnapshot.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testnearnullspace.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testnullspacecandidates.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testnullspacelift.Po@am__quote@ # am--include-marker
@@ -3515,10 +3526,17 @@ testmfamg.log: testmfamg$(EXEEXT)
 testmfamggalerkin.log: testmfamggalerkin$(EXEEXT)
 	@p='testmfamggalerkin$(EXEEXT)'; \
 	b='testmfamggalerkin'; \
-	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
-	--log-file $$b.log --trs-file $$b.trs \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$f" \
+	--log-file $b.log --trs-file $b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
-	"$$tst" $(AM_TESTS_FD_REDIRECT)
+	"$tst" $(AM_TESTS_FD_REDIRECT)
+testsnapshot.log: testsnapshot$(EXEEXT)
+	@p='testsnapshot$(EXEEXT)'; \
+	b='testsnapshot'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$f" \
+	--log-file $b.log --trs-file $b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$tst" $(AM_TESTS_FD_REDIRECT)
 testexactnullspace.log: testexactnullspace$(EXEEXT)
 	@p='testexactnullspace$(EXEEXT)'; \
 	b='testexactnullspace'; \
@@ -3979,6 +3997,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/testmatvecblock.Po
 	-rm -f ./$(DEPDIR)/testmfamg.Po
 	-rm -f ./$(DEPDIR)/testmfamggalerkin.Po
+	-rm -f ./$(DEPDIR)/testsnapshot.Po
 	-rm -f ./$(DEPDIR)/testnearnullspace.Po
 	-rm -f ./$(DEPDIR)/testnullspacecandidates.Po
 	-rm -f ./$(DEPDIR)/testnullspacelift.Po
@@ -4167,6 +4186,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/testmatvecblock.Po
 	-rm -f ./$(DEPDIR)/testmfamg.Po
 	-rm -f ./$(DEPDIR)/testmfamggalerkin.Po
+	-rm -f ./$(DEPDIR)/testsnapshot.Po
 	-rm -f ./$(DEPDIR)/testnearnullspace.Po
 	-rm -f ./$(DEPDIR)/testnullspacecandidates.Po
 	-rm -f ./$(DEPDIR)/testnullspacelift.Po
