@@ -5595,7 +5595,7 @@ check_mfamg_half_storage(LIS_MATRIX A)
     if(err) goto fail;
     err=lis_vector_duplicate(A,&z);
     if(err) goto fail;
-    lis_vector_set_all((LIS_SCALAR)1.0,b);
+    build_manufactured_rhs(b);
     lis_vector_set_all((LIS_SCALAR)1.0,z);
     basis[0]=z;
 
