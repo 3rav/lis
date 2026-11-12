@@ -356,6 +356,9 @@ jobs:
           ./test/testfgcrodrmaxiter
           ./test/testfgcrodrintra
           ./test/testfgcrodr
+
+      - name: Validate ILUT RCM, RAS, Schur and contact KKT under sanitizers
+        run: ./test/testhalfilut
       - name: Upload sanitizer logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
