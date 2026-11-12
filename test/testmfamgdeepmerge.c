@@ -15,7 +15,11 @@
 
 #define STAR_N 121
 #define STAR_ARMS 32
-#define ARM_LENGTH 512
+#define ARM_LENGTH 8
+#define MULTIHUB_SIDE 8
+#define MULTIHUB_COUNT (MULTIHUB_SIDE*MULTIHUB_SIDE)
+#define MULTIHUB_ARMS 24
+#define MULTIHUB_N (MULTIHUB_COUNT*(1+MULTIHUB_ARMS*ARM_LENGTH))
 #define DEEP_N (1 + STAR_ARMS*ARM_LENGTH)
 #define MPI_N 2049
 #define MAX_LEVELS 32
@@ -138,8 +142,8 @@ done:
  */
 static LIS_INT build_matrix(int distributed, LIS_MATRIX *A)
 {
-    LIS_INT g,n,degree,neighbors[3],count,k,err;
-    n=distributed ? MPI_N : DEEP_N;
+    LIS_INT g,n,degree,count=0,k,err,hub,arm,t,neighbors[3];
+    n=distributed ? MPI_N : MULTIHUB_N;
     err=lis_matrix_create(LIS_COMM_WORLD,A);
     if(err) return err;
     err=lis_matrix_set_size(*A,0,n);
@@ -149,31 +153,60 @@ static LIS_INT build_matrix(int distributed, LIS_MATRIX *A)
         if(distributed) {
             if(g>0) neighbors[count++]=g-1;
             if(g+1<n) neighbors[count++]=g+1;
-        } else if(g==0) {
-            /* hub row has STAR_ARMS links: handled separately */
-            for(k=0;k<STAR_ARMS;k++) {
+        } else if(g<MULTIHUB_COUNT) {
+            /* 8x8 grid of strongly linked hubs with 24 short chains
+             * attached to each hub: 64*(1+24*8) = 12352 unknowns.
+             */
+            for(k=0;k<MULTIHUB_ARMS;k++) {
+                LIS_INT leaf=MULTIHUB_COUNT+
+                    (g*MULTIHUB_ARMS+k)*ARM_LENGTH;
                 err=lis_matrix_set_value(
-                    LIS_INS_VALUE,g,1+k*ARM_LENGTH,
-                    (LIS_SCALAR)-1.0,*A);
+                    LIS_INS_VALUE,g,leaf,(LIS_SCALAR)-1.0,*A);
                 if(err) return err;
             }
-            count=STAR_ARMS;
+            count=MULTIHUB_ARMS;
+            if(g%MULTIHUB_SIDE>0) {
+                err=lis_matrix_set_value(
+                    LIS_INS_VALUE,g,g-1,(LIS_SCALAR)-1.0,*A);
+                if(err) return err;
+                count++;
+            }
+            if(g%MULTIHUB_SIDE<MULTIHUB_SIDE-1) {
+                err=lis_matrix_set_value(
+                    LIS_INS_VALUE,g,g+1,(LIS_SCALAR)-1.0,*A);
+                if(err) return err;
+                count++;
+            }
+            if(g>=MULTIHUB_SIDE) {
+                err=lis_matrix_set_value(
+                    LIS_INS_VALUE,g,g-MULTIHUB_SIDE,(LIS_SCALAR)-1.0,*A);
+                if(err) return err;
+                count++;
+            }
+            if(g+MULTIHUB_SIDE<MULTIHUB_COUNT) {
+                err=lis_matrix_set_value(
+                    LIS_INS_VALUE,g,g+MULTIHUB_SIDE,(LIS_SCALAR)-1.0,*A);
+                if(err) return err;
+                count++;
+            }
         } else {
-            LIS_INT t=(g-1)%ARM_LENGTH;
-            if(t==0) neighbors[count++]=0;
-            else neighbors[count++]=g-1;
+            LIS_INT local=g-MULTIHUB_COUNT;
+            t=local%ARM_LENGTH;
+            arm=local/ARM_LENGTH;
+            hub=arm/MULTIHUB_ARMS;
+            neighbors[count++]=(t==0)?hub:(g-1);
             if(t+1<ARM_LENGTH) neighbors[count++]=g+1;
         }
         degree=count;
-        if(g!=0 || distributed) {
+        if(distributed || g>=MULTIHUB_COUNT) {
             for(k=0;k<count;k++) {
-                err=lis_matrix_set_value(LIS_INS_VALUE,g,neighbors[k],
-                                         (LIS_SCALAR)-1.0,*A);
+                err=lis_matrix_set_value(
+                    LIS_INS_VALUE,g,neighbors[k],(LIS_SCALAR)-1.0,*A);
                 if(err) return err;
             }
         }
         err=lis_matrix_set_value(LIS_INS_VALUE,g,g,
-                                 (LIS_SCALAR)degree+(LIS_SCALAR)1.0e-3,*A);
+                    (LIS_SCALAR)degree+(LIS_SCALAR)1.0e-3,*A);
         if(err) return err;
     }
     return lis_matrix_assemble(*A);
@@ -220,10 +253,12 @@ static int integration_test(int distributed)
          * Distributed line uses blocks of eight unknowns. */
         if(distributed)
             modes[1]->value[i]=(LIS_SCALAR)((g/8)+1)/32.0;
-        else if(g==0)
-            modes[1]->value[i]=(LIS_SCALAR)0.5;
+        else if(g<MULTIHUB_COUNT)
+            modes[1]->value[i]=(LIS_SCALAR)(g+1)/MULTIHUB_COUNT;
         else
-            modes[1]->value[i]=(LIS_SCALAR)((g-1)/ARM_LENGTH+1)/STAR_ARMS;
+            modes[1]->value[i]=(LIS_SCALAR)(
+                (g-MULTIHUB_COUNT)/(MULTIHUB_ARMS*ARM_LENGTH)+1
+            )/MULTIHUB_COUNT;
         exact->value[i]=(LIS_SCALAR)(1.0+0.02*(g%7));
     }
     err=lis_matvec(A,exact,b);
