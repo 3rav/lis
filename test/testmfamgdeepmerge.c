@@ -9,12 +9,13 @@
 #endif
 #include <math.h>
 #include <stdio.h>
+#include <time.h>
 #include "lislib.h"
 #include "lis_solver_options.h"
 
 #define STAR_N 121
 #define STAR_ARMS 32
-#define ARM_LENGTH 32
+#define ARM_LENGTH 512
 #define DEEP_N (1 + STAR_ARMS*ARM_LENGTH)
 #define MPI_N 2049
 #define MAX_LEVELS 32
@@ -189,6 +190,8 @@ static int integration_test(int distributed)
     LIS_INT attempts=0,events=0,reduced=0,max_depth=0;
     LIS_INT i,g,iter=0,baseline_iter=0,err=0,changed=0,phase;
     LIS_REAL norm_b=0.0,norm_r=0.0,physical=0.0,baseline=0.0;
+    clock_t tic,toc;
+    double build_seconds=0.0,solve_seconds=0.0;
     const int flags[3]={0,1,0};
     char option[200];
     int failed=1;
@@ -250,7 +253,10 @@ static int integration_test(int distributed)
          * Construct the exact same MFAMG preconditioner path as lis_solve,
          * and inspect its internal, per-instance merge counters.
          */
+        tic=clock();
         err=lis_precon_create(solver,&precon);
+        toc=clock();
+        build_seconds=(double)(toc-tic)/CLOCKS_PER_SEC;
         if(err) goto done;
         err=lis_precon_mfamg_get_hierarchy_info(
             precon,MAX_LEVELS,&nlevels,&coarse_n,levels,owns);
@@ -331,7 +337,10 @@ static int integration_test(int distributed)
 
         err=lis_vector_set_all((LIS_SCALAR)0.0,x);
         if(err) goto done;
+        tic=clock();
         err=lis_solve(A,b,x,solver);
+        toc=clock();
+        solve_seconds=(double)(toc-tic)/CLOCKS_PER_SEC;
         if(err!=LIS_SUCCESS) {
             fprintf(stderr,"MFAMG DEEP MERGE solve phase=%d rc=%d\n",
                     phase,(int)err);
@@ -364,6 +373,9 @@ static int integration_test(int distributed)
                 (double)baseline,(double)physical);
             goto done;
         }
+        printf("MFAMG_DEEP_BENCHMARK n=%d arm=%d phase=%d option=%d create_cpu=%.6f solve_cpu=%.6f iters=%d residual=%.9e\n",
+               (int)A->gn,ARM_LENGTH,phase,flags[phase],
+               build_seconds,solve_seconds,(int)iter,(double)physical);
         printf("MFAMG DEEP MERGE SOLVE phase=%d mpi=%d iter=%d rel=%.9e PASS\n",
                phase,distributed,(int)iter,(double)physical);
     }
