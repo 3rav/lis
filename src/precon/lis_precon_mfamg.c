@@ -32,6 +32,8 @@
  */
 #define LIS_MFAMG_DEEP_SIBLING_MIN_LEVEL 4
 #define LIS_MFAMG_DEEP_SIBLING_TARGET_FACTOR 8
+/* Only high-degree hubs merit reaggregating the deep hierarchy. */
+#define LIS_MFAMG_DEEP_SIBLING_MIN_FAN_IN 3
 #define LIS_MFAMG_COARSE_PIVOT_TOL LIS_MFAMG_RANK_TOL
 
 #define LIS_MFAMG_SMOOTHER_WEIGHTED_JACOBI 0
@@ -4044,10 +4046,12 @@ cleanup:
 
 /*
  * Opt-in distance-two grouping for star-shaped coarse graphs.
- * An existing aggregate selects its strongest adjacent aggregate as
- * anchor. Aggregates with the same anchor are packed into larger groups.
- * The multivector QR still determines every local rank; no modes are
- * dropped; MPI aggregates are not merged by this serial-only helper.
+ * An existing aggregate selects its strongest DIAGONAL-NORMALIZED
+ * adjacent aggregate as anchor. When at least three sibling aggregates
+ * select the same hub, combine the hub with as many of those siblings as
+ * will fit in one connected aggregate; leave other siblings separate.
+ * This avoids disconnected siblings-only aggregate groups. The multivector
+ * QR still determines local ranks. MPI uses the original aggregation path.
  */
 static LIS_INT
 lis_mfamg_merge_sibling_aggregates(
@@ -4055,9 +4059,9 @@ lis_mfamg_merge_sibling_aggregates(
     LIS_INT depth, LIS_INT target,
     LIS_INT row_capacity, LIS_INT *cols, LIS_SCALAR *vals)
 {
-    LIS_INT n, nc, i, j, k, a, b, nnz, new_nc, active, used;
+    LIS_INT n, nc, i, j, k, a, b, nnz, new_nc, used, eligible;
     LIS_INT *work=NULL,*counts,*anchors,*heads,*links,*remap;
-    LIS_REAL *score=NULL, mag, diagonal_i, diagonal_j, strength_limit;
+    LIS_REAL *score=NULL, mag, diagonal_i, diagonal_j, strength;
     LIS_VECTOR diagonal=NULL;
     LIS_INT err=LIS_SUCCESS;
 
@@ -4128,18 +4132,19 @@ lis_mfamg_merge_sibling_aggregates(
 #endif
             if(!isfinite((double)diagonal_j) || diagonal_j<=0.0) continue;
             /*
-             * Reject weak or near-zero projected couplings. The anchor
-             * must meet the same normalized diagonal strength criterion
-             * used in the ordinary connected aggregate builder.
+             * Rank by the same diagonal-normalized edge strength used
+             * to qualify candidates (rather than by raw |a_ij|).
+             * Divide by square roots separately to reduce overflow risk.
+             * Symmetric positive diagonal scaling preserves this ranking
+             * in exact arithmetic; finite-precision ties remain exact.
              */
-            strength_limit=LIS_MFAMG_STRENGTH_THETA *
-                sqrt(diagonal_i)*sqrt(diagonal_j);
-            if(!isfinite((double)strength_limit) ||
-               mag<strength_limit || mag<=0.0) continue;
-            /* Deterministic tie-break by the smaller aggregate index. */
-            if(mag>score[a] ||
-               (mag==score[a] && (anchors[a]<0 || b<anchors[a]))) {
-                score[a]=mag; anchors[a]=b;
+            strength=(mag/sqrt(diagonal_i))/sqrt(diagonal_j);
+            if(!isfinite((double)strength) ||
+               strength<LIS_MFAMG_STRENGTH_THETA ||
+               strength<=0.0) continue;
+            if(strength>score[a] ||
+               (strength==score[a] && (anchors[a]<0 || b<anchors[a]))) {
+                score[a]=strength; anchors[a]=b;
             }
         }
     }
@@ -4150,16 +4155,28 @@ lis_mfamg_merge_sibling_aggregates(
         links[a]=heads[b];
         heads[b]=a;
     }
+    /*
+     * A valid rooted group contains the anchor itself and at least
+     * MIN_FAN_IN eligible siblings, all connected by strong edges to
+     * that anchor. Never pack overflow siblings into a hub-free group.
+     * Iterate hubs and children by aggregate index for reproducibility.
+     */
     new_nc=0;
     for(b=0;b<nc;b++) {
-        active=-1; used=0;
+        if(remap[b]>=0 || counts[b]>=target) continue;
+        eligible=0;
+        for(a=heads[b];a>=0;a=links[a])
+            if(a!=b && remap[a]<0 && counts[a]<=target-counts[b])
+                eligible++;
+        if(eligible<LIS_MFAMG_DEEP_SIBLING_MIN_FAN_IN) continue;
+        remap[b]=new_nc;
+        used=counts[b];
         for(a=heads[b];a>=0;a=links[a]) {
-            if(active<0 || counts[a]>target-used) {
-                active=new_nc++; used=0;
-            }
-            remap[a]=active;
+            if(a==b || remap[a]>=0 || counts[a]>target-used) continue;
+            remap[a]=new_nc;
             used+=counts[a];
         }
+        new_nc++;
     }
     for(a=0;a<nc;a++)
         if(remap[a]<0) remap[a]=new_nc++;
