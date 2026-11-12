@@ -30,6 +30,8 @@ jobs:
             options: ''
           - mode: openmp
             options: '--enable-omp'
+          - mode: half
+            options: '--enable-half'
     env:
       OMP_NUM_THREADS: '2'
       OMP_DYNAMIC: 'FALSE'
