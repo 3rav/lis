@@ -27,6 +27,25 @@ storage is opt-in, separate from solver arithmetic precision.
 The half-precision update path rebuilds the hierarchy transactionally
 instead of attempting numeric in-place refresh of released arrays.
 
+## Numerical range and fallback behavior
+
+IEEE binary16 has a largest finite value of **65504**, a smallest positive
+normal value of **2^-14**, and a smallest positive subnormal of **2^-24**.
+MFAMG does not apply automatic per-level scaling to its stored coefficients.
+For example, unscaled stiffness matrices can produce diagonals or block
+factors larger than 65504. Those arrays **remain in the original precision**
+instead of being silently saturated or stored as infinity. Similarly, any
+nonzero coefficient that would round to zero is kept in full precision.
+
+The `on` mode applies an **element-wise** error check (1% relative tolerance
+plus a small absolute allowance for transfer/block factors, and a reciprocal
+error check for Jacobi diagonals). It is **not** an end-to-end convergence
+probe. The `noprobe` mode removes the rounding-error tolerance entirely;
+it still rejects nonfinite values and nonzero-to-zero underflow, but may
+admit more numerical error. Prefer `on` for production uses and validate
+convergence against `off` on your own matrices. These settings reduce
+storage of eligible arrays only when their values are representable.
+
 ## Testing
 
 `testmfamg` now tests `off`, `on`, and `noprobe` for weighted-Jacobi
