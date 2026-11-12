@@ -970,6 +970,8 @@ struct LIS_SOLVER_STRUCT
 	LIS_INT near_nullspace_dim;
 	/* MFAMG block size; 1 preserves weighted Jacobi. */
 	LIS_INT mfamg_block_size;
+	/* Opt-in serial deep-level sibling aggregate grouping. */
+	LIS_INT mfamg_deep_sibling_merge;
 	LIS_NEAR_NULLSPACE_COARSE near_nullspace_coarse;
 	/* Persistent GCRO-DR recycle state. */
 	LIS_VECTOR *recycle_u;

@@ -342,3 +342,8 @@ test_PROGRAMS += testfgmresprojected
 testfgmresprojected_SOURCES = testfgmresprojected.c
 testfgmresprojected_LDADD = $(LDADD) -lm
 TESTS += testfgmresprojected$(EXEEXT)
+
+# Opt-in serial MFAMG deep sibling aggregate grouping regression.
+test_PROGRAMS += testmfamgdeepmerge
+testmfamgdeepmerge_SOURCES = testmfamgdeepmerge.c
+TESTS += testmfamgdeepmerge$(EXEEXT)
