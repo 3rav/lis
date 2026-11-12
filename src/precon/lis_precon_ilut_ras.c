@@ -326,8 +326,13 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
     s->owner=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"RAS owners");
     s->parts=(struct LIS_ILUT_RAS_PART *)lis_malloc(
         (size_t)s->ndomains*sizeof(*s->parts),"RAS subdomains");
+    /*
+     * If one of these allocations fails, the generic preconditioner
+     * destructor still visits any allocated parts. Initialize them first.
+     */
+    if(s->parts)
+        memset(s->parts,0,(size_t)s->ndomains*sizeof(*s->parts));
     if(!s->owner || !s->parts) return LIS_OUT_OF_MEMORY;
-    memset(s->parts,0,(size_t)s->ndomains*sizeof(*s->parts));
     for(i=0;i<n;i++) s->owner[i]=
         (LIS_INT)((double)i*s->ndomains/n);
     for(d=0;d<s->ndomains;d++)
