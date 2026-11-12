@@ -14,6 +14,8 @@
 
 extern LIS_INT lis_precon_mfamg_get_half_storage_info(
     LIS_PRECON precon, LIS_INT *packed_levels, LIS_INT *packed_coefficients);
+extern LIS_INT lis_precon_mfamg_get_half_block_info(
+    LIS_PRECON precon, LIS_INT *packed_levels, LIS_INT *packed_coefficients);
 
 extern LIS_INT
 lis_precon_mfamg_get_smoother_omega(
@@ -5573,7 +5575,7 @@ fail:
  * against the ordinary full-precision preconditioner.
  */
 static int
-check_mfamg_half_storage(LIS_MATRIX A)
+check_mfamg_half_storage(LIS_MATRIX A, LIS_INT block_size)
 {
     const LIS_INT modes[3] = {
         LIS_PRECON_HALF_OFF, LIS_PRECON_HALF_ON, LIS_PRECON_HALF_NOPROBE
@@ -5583,6 +5585,7 @@ check_mfamg_half_storage(LIS_MATRIX A)
     LIS_PRECON precon=NULL;
     LIS_SCALAR reference[TEST_N];
     LIS_INT err=0, capability=LIS_FALSE, packed_levels, packed_coeffs;
+    LIS_INT packed_block_levels, packed_block_coeffs;
     LIS_INT mode=0, i;
     LIS_REAL rel, delta;
     int failed=0;
@@ -5603,7 +5606,8 @@ check_mfamg_half_storage(LIS_MATRIX A)
     {
         err=lis_solver_create(&solver);
         if(err) goto fail;
-        err=lis_solver_set_option(
+        err=lis_solver_set_option(block_size>1 ?
+            "-i gmres -p mfamg -mfamg_block_size 3 -scale none -print none" :
             "-i gmres -p mfamg -scale none -print none",solver);
         if(err) goto fail;
         err=lis_solver_set_precon_half(solver,modes[mode]);
@@ -5624,6 +5628,24 @@ check_mfamg_half_storage(LIS_MATRIX A)
         err=lis_precon_mfamg_get_half_storage_info(
             precon,&packed_levels,&packed_coeffs);
         if(err) goto fail;
+        packed_block_levels=-1;
+        packed_block_coeffs=-1;
+        err=lis_precon_mfamg_get_half_block_info(
+            precon,&packed_block_levels,&packed_block_coeffs);
+        if(err) goto fail;
+        if((mode==0 || !capability) &&
+           (packed_block_levels!=0 || packed_block_coeffs!=0))
+        {
+            fprintf(stderr,"MFAMG half disabled but block LU was packed\n");
+            failed=1;
+        }
+        if(mode>0 && capability && block_size>1 &&
+           (packed_block_levels<1 || packed_block_coeffs<1))
+        {
+            fprintf(stderr,"MFAMG half block mode %d did not pack LU\n",
+                    (int)modes[mode]);
+            failed=1;
+        }
         if((mode==0 || !capability) &&
            (packed_levels!=0 || packed_coeffs!=0))
         {
@@ -5666,8 +5688,10 @@ check_mfamg_half_storage(LIS_MATRIX A)
                 }
             }
         }
-        printf("MFAMG_HALF mode=%d packed_levels=%d packed_coefficients=%d residual=%.6e\n",
-               (int)modes[mode],(int)packed_levels,(int)packed_coeffs,
+        printf("MFAMG_HALF mode=%d block=%d packed_transfer=%d/%d packed_lu=%d/%d residual=%.6e\n",
+               (int)modes[mode],(int)block_size,
+               (int)packed_levels,(int)packed_coeffs,
+               (int)packed_block_levels,(int)packed_block_coeffs,
                (double)rel);
 
         solver->precon=NULL;
@@ -5769,7 +5793,8 @@ run_serial(void)
     }
 
 
-    failed |= check_mfamg_half_storage(A);
+    failed |= check_mfamg_half_storage(A,0);
+    failed |= check_mfamg_half_storage(A,3);
 
     err =
         create_user(
