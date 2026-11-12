@@ -14,6 +14,23 @@
 #include "lislib.h"
 
 #define __FUNC__ "lis_precon_ilut_ras"
+#if defined(_COMPLEX) || defined(USE_COMPLEX)
+/* Explicitly unsupported: never drop imaginary parts in contact-Schur math. */
+LIS_INT lis_precon_create_ilut_ras(LIS_SOLVER solver,LIS_PRECON precon)
+{
+    (void)solver; (void)precon;
+    return LIS_ERR_NOT_IMPLEMENTED;
+}
+LIS_INT lis_psolve_ilut_ras(LIS_SOLVER solver,LIS_VECTOR b,LIS_VECTOR x)
+{
+    (void)solver; (void)b; (void)x;
+    return LIS_ERR_NOT_IMPLEMENTED;
+}
+void lis_precon_ilut_ras_destroy(struct LIS_ILUT_RAS_STRUCT *s)
+{
+    (void)s;
+}
+#else
 #define LIS_ILUT_RAS_SCHUR_LIMIT 256
 
 struct LIS_ILUT_RAS_PART {
@@ -393,3 +410,5 @@ lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
     }
     return LIS_SUCCESS;
 }
+
+#endif /* real-valued ILUT RAS implementation */
