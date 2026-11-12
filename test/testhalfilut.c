@@ -557,6 +557,91 @@ cleanup:
 }
 
 
+
+/* Opt-in serial partitioned RAS ILUT with diagonal-approximate Schur
+ * correction must remain separate from the legacy ILUT default.
+ */
+static int
+check_ilut_ras_schur(LIS_MATRIX A)
+{
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_VECTOR b=NULL,x=NULL,e=NULL,r=NULL;
+    LIS_INT err,overlap,schur;
+    LIS_REAL bn=0.0,rn=0.0;
+    int failed=0;
+    char opts[300];
+
+    if(A->nprocs!=1 || A->n!=64) return 0;
+    if(lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x) ||
+       lis_vector_duplicate(A,&e) || lis_vector_duplicate(A,&r))
+    { failed=1; goto cleanup; }
+    lis_vector_set_all((LIS_SCALAR)1.0,e);
+    err=lis_matvec(A,e,b);
+    if(err) { failed=1; goto cleanup; }
+    err=lis_vector_nrm2(b,&bn);
+    if(err) { failed=1; goto cleanup; }
+
+    for(overlap=0;overlap<=2;overlap++)
+    for(schur=0;schur<=1;schur++)
+    {
+        solver=NULL;pc=NULL;
+        err=lis_solver_create(&solver);
+        if(err) { failed=1; goto cleanup; }
+        snprintf(opts,sizeof(opts),
+            "-i gmres -p ilut -scale none -print none "
+            "-iluc_drop 0 -iluc_rate 8 -ilu_pivot_tol 1e-12 "
+            "-ilut_ras_domains 4 -ilut_ras_overlap %d -ilut_schur %d",
+            (int)overlap,(int)schur);
+        err=lis_solver_set_option(opts,solver);
+        if(err) { failed=1; goto cleanup; }
+        err=lis_solver_set_matrix(A,solver);
+        if(err) { failed=1; goto cleanup; }
+        err=lis_precon_create(solver,&pc);
+        if(err) { failed=1; goto cleanup; }
+        solver->precon=pc;
+        if(pc->ilut_ras==NULL)
+        { failed=1; goto cleanup; }
+        err=lis_psolve(solver,b,x);
+        if(err) { failed=1; goto cleanup; }
+        err=lis_matvec(A,x,r);
+        if(err) { failed=1; goto cleanup; }
+        err=lis_vector_axpy((LIS_SCALAR)-1.0,b,r);
+        if(err) { failed=1; goto cleanup; }
+        err=lis_vector_nrm2(r,&rn);
+        if(err || !(rn/bn<0.80))
+        {
+            fprintf(stderr,"ILUT RAS overlap=%d schur=%d residual %.5e\n",
+                    (int)overlap,(int)schur,(double)(rn/bn));
+            failed=1; goto cleanup;
+        }
+        /* No mathematically incorrect adjoint implementation. */
+        err=lis_psolveh(solver,b,x);
+        if(err!=LIS_ERR_NOT_IMPLEMENTED)
+        {
+            fprintf(stderr,"ILUT RAS unexpectedly accepted adjoint\n");
+            failed=1; goto cleanup;
+        }
+        solver->precon=NULL;
+        lis_precon_destroy(pc);pc=NULL;
+        lis_solver_destroy(solver);solver=NULL;
+    }
+    printf("ILUT_RAS_SCHUR PASSED\n");
+
+cleanup:
+    if(pc)
+    {
+        if(solver) solver->precon=NULL;
+        lis_precon_destroy(pc);
+    }
+    if(solver) lis_solver_destroy(solver);
+    if(r) lis_vector_destroy(r);
+    if(e) lis_vector_destroy(e);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    return failed;
+}
+
 int
 main(
 	int argc,
@@ -616,6 +701,8 @@ main(
 		failed = 1;
 		goto cleanup;
 	}
+
+	failed |= check_ilut_ras_schur(A);
 
 	failed |=
 		run_mode(
