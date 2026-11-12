@@ -5584,6 +5584,7 @@ check_mfamg_half_storage(LIS_MATRIX A, LIS_INT block_size)
     LIS_SOLVER solver=NULL;
     LIS_PRECON precon=NULL;
     LIS_SCALAR reference[TEST_N];
+    LIS_SCALAR before_update[TEST_N];
     LIS_INT err=0, capability=LIS_FALSE, packed_levels, packed_coeffs;
     LIS_INT packed_block_levels, packed_block_coeffs;
     LIS_INT mode=0, i;
@@ -5693,6 +5694,53 @@ check_mfamg_half_storage(LIS_MATRIX A, LIS_INT block_size)
                (int)packed_levels,(int)packed_coeffs,
                (int)packed_block_levels,(int)packed_block_coeffs,
                (double)rel);
+
+        if(mode>0)
+        {
+            for(i=0;i<TEST_N;i++)
+                before_update[i]=x->value[i];
+            err=lis_precon_psd_update(solver,precon);
+            if(err)
+            {
+                /* The PSD dispatcher may destroy the preconditioner. */
+                precon=NULL;
+                solver->precon=NULL;
+                goto fail;
+            }
+            packed_levels=0;
+            packed_coeffs=0;
+            err=lis_precon_mfamg_get_half_storage_info(
+                precon,&packed_levels,&packed_coeffs);
+            if(err) goto fail;
+            if(capability && (packed_levels<1 || packed_coeffs<1))
+            {
+                fprintf(stderr,"MFAMG PSD rebuild lost transfer FP16 storage\n");
+                failed=1;
+            }
+            packed_block_levels=0;
+            packed_block_coeffs=0;
+            err=lis_precon_mfamg_get_half_block_info(
+                precon,&packed_block_levels,&packed_block_coeffs);
+            if(err) goto fail;
+            if(capability && block_size>1 && packed_block_levels<1)
+            {
+                fprintf(stderr,"MFAMG PSD rebuild lost LU FP16 storage\n");
+                failed=1;
+            }
+            lis_vector_set_all((LIS_SCALAR)0.0,x);
+            err=lis_psolve(solver,b,x);
+            if(err) goto fail;
+            for(i=0;i<TEST_N;i++)
+            {
+                delta=fabs(x->value[i]-before_update[i]);
+                if(!(delta<=1.0e-6*(1.0+fabs(before_update[i]))))
+                {
+                    fprintf(stderr,"MFAMG half PSD rebuild changed correction\n");
+                    failed=1;
+                    break;
+                }
+            }
+        }
 
         solver->precon=NULL;
         lis_precon_destroy(precon);
