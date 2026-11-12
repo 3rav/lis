@@ -362,3 +362,8 @@ TESTS += testmfamgfineagg$(EXEEXT)
 test_PROGRAMS += testmfamgdeepmerge
 testmfamgdeepmerge_SOURCES = testmfamgdeepmerge.c
 TESTS += testmfamgdeepmerge$(EXEEXT)
+
+# Research-only v8 offline replay (no changes to production LIS source).
+bin_PROGRAMS += mfamgreplay
+mfamgreplay_SOURCES = mfamgreplay.c
+mfamgreplay_LDADD = $(LDADD) -lm
