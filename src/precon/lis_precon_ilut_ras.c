@@ -13,6 +13,7 @@
 #include <string.h>
 #include "lislib.h"
 
+#define __FUNC__ "lis_precon_ilut_ras"
 #define LIS_ILUT_RAS_SCHUR_LIMIT 256
 
 struct LIS_ILUT_RAS_PART {
