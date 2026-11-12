@@ -344,7 +344,7 @@ jobs:
         run: |
           autoreconf -fiv
           ./configure --enable-test --disable-fortran --disable-f90 \
-            --disable-saamg --disable-mpi --disable-omp \
+            --disable-saamg --disable-mpi --disable-omp --enable-half \
             CC=gcc \
             CFLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all" \
             LDFLAGS="-fsanitize=address,undefined"
