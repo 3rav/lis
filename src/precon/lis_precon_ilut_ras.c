@@ -360,7 +360,7 @@ lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
     for(i=0;i<ng;i++)
         s->schur_rhs[i] =
             B->value[s->gamma[s->pivots[i]]] -
-            s->residual->value[s->gamma[s->pivots[i]]]];
+            s->residual->value[s->gamma[s->pivots[i]]];
     /* Solve factored approximate Schur via pivoted forward/backward solve. */
     for(i=0;i<ng;i++)
     {
