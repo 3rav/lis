@@ -62,21 +62,72 @@ static int structural_star_test(void)
     if(err) goto done;
     err=lis_precon_mfamg_merge_siblings_for_test(A,96,id,&nc);
     if(err) goto done;
-    if(nc!=3) {
-        fprintf(stderr,"MFAMG DEEP MERGE expected 3 groups, got %d\n",(int)nc);
+    if(nc!=STAR_N-95) {
+        fprintf(stderr,"MFAMG DEEP MERGE rooted star expected %d groups, got %d\n",
+                STAR_N-95,(int)nc);
         goto done;
     }
+    /* Rooted aggregate contains hub and 95 of the leaves.
+     * No group composed solely of disconnected leaves is permitted. */
+    if(id[0]<0 || id[0]>=nc) goto done;
+
     for(i=0;i<STAR_N;i++) {
         if(id[i]<0 || id[i]>=nc) goto done;
         if(++sizes[id[i]]>96) goto done;
     }
-    printf("MFAMG DEEP MERGE structural star=%d groups=%d PASS\n",
+    if(sizes[id[0]]!=96) goto done;
+    for(i=0;i<nc;i++)
+        if(i!=id[0] && sizes[i]!=1) {
+            fprintf(stderr,"MFAMG DEEP MERGE disconnected residual group size=%d\n",
+                    (int)sizes[i]);
+            goto done;
+        }
+    printf("MFAMG DEEP MERGE structural rooted star=%d groups=%d PASS\n",
            STAR_N,(int)nc);
     failed=0;
 done:
     if(err) fprintf(stderr,"MFAMG DEEP MERGE structural rc=%d\n",(int)err);
     if(A) lis_matrix_destroy(A);
     if(solver) lis_solver_destroy(solver);
+    return failed;
+}
+
+/* A regular 1-D chain has at most two incoming anchor choices.
+ * fan_in>=3 must leave its aggregation unchanged. */
+static int structural_line_gate_test(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_INT ids[9],nc=9,i,err=0;
+    int failed=1;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,9);
+    if(err) goto done;
+    for(i=0;i<9;i++) {
+        ids[i]=i;
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,2.5,A);
+        if(err) goto done;
+        if(i>0) {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,-1.0,A);
+            if(err) goto done;
+        }
+        if(i<8) {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,-1.0,A);
+            if(err) goto done;
+        }
+    }
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    err=lis_precon_mfamg_merge_siblings_for_test(A,8,ids,&nc);
+    if(err) goto done;
+    if(nc!=9) {
+        fprintf(stderr,"MFAMG DEEP MERGE line fan-in gate merged %d groups\n",
+                (int)(9-nc));
+        goto done;
+    }
+    failed=0;
+done:
+    if(A) lis_matrix_destroy(A);
     return failed;
 }
 
@@ -338,7 +389,10 @@ int main(int argc,char **argv)
 #ifdef USE_MPI
     MPI_Comm_size(LIS_COMM_WORLD,&nprocs);
 #endif
-    if(nprocs==1 && structural_star_test()!=0) goto done;
+    if(nprocs==1) {
+        if(structural_star_test()!=0 ||
+           structural_line_gate_test()!=0) goto done;
+    }
     failed=integration_test(nprocs>1);
 done:
     lis_finalize();
