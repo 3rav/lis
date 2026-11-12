@@ -2,7 +2,7 @@ name: MFAMG rooted vs siblings-only 32x512 benchmark
 on:
   push:
     branches:
-      - experiment/mfamg-star-rooted-benchmark-20261112
+      - experiment/mfamg-rooted-multihub-20261112
   workflow_dispatch:
 
 permissions:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   benchmark:
-    name: Linux GCC serial 16385-DOF comparison
+    name: Linux GCC serial 64-hub 12352-DOF comparison
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -24,7 +24,7 @@ jobs:
           autoreconf -fiv
           ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-omp
           make -j2
-      - name: Measure CPU time for 32 arms of length 512 with 0 -> 1 -> 0
+      - name: Measure 64 connected hubs with 24 arms x8 and 0 -> 1 -> 0
         run: |
           for rep in 1 2 3 4 5 6 7; do
             echo "MFAMG_BENCHMARK_REPETITION=$rep"
