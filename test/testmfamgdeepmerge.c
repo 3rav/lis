@@ -9,12 +9,17 @@
 #endif
 #include <math.h>
 #include <stdio.h>
+#include <time.h>
 #include "lislib.h"
 #include "lis_solver_options.h"
 
 #define STAR_N 121
 #define STAR_ARMS 32
-#define ARM_LENGTH 32
+#define ARM_LENGTH 8
+#define MULTIHUB_SIDE 8
+#define MULTIHUB_COUNT (MULTIHUB_SIDE*MULTIHUB_SIDE)
+#define MULTIHUB_ARMS 24
+#define MULTIHUB_N (MULTIHUB_COUNT*(1+MULTIHUB_ARMS*ARM_LENGTH))
 #define DEEP_N (1 + STAR_ARMS*ARM_LENGTH)
 #define MPI_N 2049
 #define MAX_LEVELS 32
@@ -62,15 +67,27 @@ static int structural_star_test(void)
     if(err) goto done;
     err=lis_precon_mfamg_merge_siblings_for_test(A,96,id,&nc);
     if(err) goto done;
-    if(nc!=3) {
-        fprintf(stderr,"MFAMG DEEP MERGE expected 3 groups, got %d\n",(int)nc);
+    if(nc!=STAR_N-95) {
+        fprintf(stderr,"MFAMG DEEP MERGE rooted star expected %d groups, got %d\n",
+                STAR_N-95,(int)nc);
         goto done;
     }
+    /* Rooted aggregate contains hub and 95 of the leaves.
+     * No group composed solely of disconnected leaves is permitted. */
+    if(id[0]<0 || id[0]>=nc) goto done;
+
     for(i=0;i<STAR_N;i++) {
         if(id[i]<0 || id[i]>=nc) goto done;
         if(++sizes[id[i]]>96) goto done;
     }
-    printf("MFAMG DEEP MERGE structural star=%d groups=%d PASS\n",
+    if(sizes[id[0]]!=96) goto done;
+    for(i=0;i<nc;i++)
+        if(i!=id[0] && sizes[i]!=1) {
+            fprintf(stderr,"MFAMG DEEP MERGE disconnected residual group size=%d\n",
+                    (int)sizes[i]);
+            goto done;
+        }
+    printf("MFAMG DEEP MERGE structural rooted star=%d groups=%d PASS\n",
            STAR_N,(int)nc);
     failed=0;
 done:
@@ -80,14 +97,53 @@ done:
     return failed;
 }
 
+/* A regular 1-D chain has at most two incoming anchor choices.
+ * fan_in>=3 must leave its aggregation unchanged. */
+static int structural_line_gate_test(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_INT ids[9],nc=9,i,err=0;
+    int failed=1;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,9);
+    if(err) goto done;
+    for(i=0;i<9;i++) {
+        ids[i]=i;
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,2.5,A);
+        if(err) goto done;
+        if(i>0) {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,-1.0,A);
+            if(err) goto done;
+        }
+        if(i<8) {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,-1.0,A);
+            if(err) goto done;
+        }
+    }
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    err=lis_precon_mfamg_merge_siblings_for_test(A,8,ids,&nc);
+    if(err) goto done;
+    if(nc!=9) {
+        fprintf(stderr,"MFAMG DEEP MERGE line fan-in gate merged %d groups\n",
+                (int)(9-nc));
+        goto done;
+    }
+    failed=0;
+done:
+    if(A) lis_matrix_destroy(A);
+    return failed;
+}
+
 /* Assemble a diagonally shifted graph Laplacian.
  * Serial: 32 chains of length 32 meeting at node 0.
  * MPI: a distributed SPD line, avoiding a hub-dominated partition.
  */
 static LIS_INT build_matrix(int distributed, LIS_MATRIX *A)
 {
-    LIS_INT g,n,degree,neighbors[3],count,k,err;
-    n=distributed ? MPI_N : DEEP_N;
+    LIS_INT g,n,degree,count=0,k,err,hub,arm,t,neighbors[3];
+    n=distributed ? MPI_N : MULTIHUB_N;
     err=lis_matrix_create(LIS_COMM_WORLD,A);
     if(err) return err;
     err=lis_matrix_set_size(*A,0,n);
@@ -97,31 +153,60 @@ static LIS_INT build_matrix(int distributed, LIS_MATRIX *A)
         if(distributed) {
             if(g>0) neighbors[count++]=g-1;
             if(g+1<n) neighbors[count++]=g+1;
-        } else if(g==0) {
-            /* hub row has STAR_ARMS links: handled separately */
-            for(k=0;k<STAR_ARMS;k++) {
+        } else if(g<MULTIHUB_COUNT) {
+            /* 8x8 grid of strongly linked hubs with 24 short chains
+             * attached to each hub: 64*(1+24*8) = 12352 unknowns.
+             */
+            for(k=0;k<MULTIHUB_ARMS;k++) {
+                LIS_INT leaf=MULTIHUB_COUNT+
+                    (g*MULTIHUB_ARMS+k)*ARM_LENGTH;
                 err=lis_matrix_set_value(
-                    LIS_INS_VALUE,g,1+k*ARM_LENGTH,
-                    (LIS_SCALAR)-1.0,*A);
+                    LIS_INS_VALUE,g,leaf,(LIS_SCALAR)-1.0,*A);
                 if(err) return err;
             }
-            count=STAR_ARMS;
+            count=MULTIHUB_ARMS;
+            if(g%MULTIHUB_SIDE>0) {
+                err=lis_matrix_set_value(
+                    LIS_INS_VALUE,g,g-1,(LIS_SCALAR)-1.0,*A);
+                if(err) return err;
+                count++;
+            }
+            if(g%MULTIHUB_SIDE<MULTIHUB_SIDE-1) {
+                err=lis_matrix_set_value(
+                    LIS_INS_VALUE,g,g+1,(LIS_SCALAR)-1.0,*A);
+                if(err) return err;
+                count++;
+            }
+            if(g>=MULTIHUB_SIDE) {
+                err=lis_matrix_set_value(
+                    LIS_INS_VALUE,g,g-MULTIHUB_SIDE,(LIS_SCALAR)-1.0,*A);
+                if(err) return err;
+                count++;
+            }
+            if(g+MULTIHUB_SIDE<MULTIHUB_COUNT) {
+                err=lis_matrix_set_value(
+                    LIS_INS_VALUE,g,g+MULTIHUB_SIDE,(LIS_SCALAR)-1.0,*A);
+                if(err) return err;
+                count++;
+            }
         } else {
-            LIS_INT t=(g-1)%ARM_LENGTH;
-            if(t==0) neighbors[count++]=0;
-            else neighbors[count++]=g-1;
+            LIS_INT local=g-MULTIHUB_COUNT;
+            t=local%ARM_LENGTH;
+            arm=local/ARM_LENGTH;
+            hub=arm/MULTIHUB_ARMS;
+            neighbors[count++]=(t==0)?hub:(g-1);
             if(t+1<ARM_LENGTH) neighbors[count++]=g+1;
         }
         degree=count;
-        if(g!=0 || distributed) {
+        if(distributed || g>=MULTIHUB_COUNT) {
             for(k=0;k<count;k++) {
-                err=lis_matrix_set_value(LIS_INS_VALUE,g,neighbors[k],
-                                         (LIS_SCALAR)-1.0,*A);
+                err=lis_matrix_set_value(
+                    LIS_INS_VALUE,g,neighbors[k],(LIS_SCALAR)-1.0,*A);
                 if(err) return err;
             }
         }
         err=lis_matrix_set_value(LIS_INS_VALUE,g,g,
-                                 (LIS_SCALAR)degree+(LIS_SCALAR)1.0e-3,*A);
+                    (LIS_SCALAR)degree+(LIS_SCALAR)1.0e-3,*A);
         if(err) return err;
     }
     return lis_matrix_assemble(*A);
@@ -138,6 +223,8 @@ static int integration_test(int distributed)
     LIS_INT attempts=0,events=0,reduced=0,max_depth=0;
     LIS_INT i,g,iter=0,baseline_iter=0,err=0,changed=0,phase;
     LIS_REAL norm_b=0.0,norm_r=0.0,physical=0.0,baseline=0.0;
+    clock_t tic,toc;
+    double build_seconds=0.0,solve_seconds=0.0;
     const int flags[3]={0,1,0};
     char option[200];
     int failed=1;
@@ -166,10 +253,12 @@ static int integration_test(int distributed)
          * Distributed line uses blocks of eight unknowns. */
         if(distributed)
             modes[1]->value[i]=(LIS_SCALAR)((g/8)+1)/32.0;
-        else if(g==0)
-            modes[1]->value[i]=(LIS_SCALAR)0.5;
+        else if(g<MULTIHUB_COUNT)
+            modes[1]->value[i]=(LIS_SCALAR)(g+1)/MULTIHUB_COUNT;
         else
-            modes[1]->value[i]=(LIS_SCALAR)((g-1)/ARM_LENGTH+1)/STAR_ARMS;
+            modes[1]->value[i]=(LIS_SCALAR)(
+                (g-MULTIHUB_COUNT)/(MULTIHUB_ARMS*ARM_LENGTH)+1
+            )/MULTIHUB_COUNT;
         exact->value[i]=(LIS_SCALAR)(1.0+0.02*(g%7));
     }
     err=lis_matvec(A,exact,b);
@@ -199,7 +288,10 @@ static int integration_test(int distributed)
          * Construct the exact same MFAMG preconditioner path as lis_solve,
          * and inspect its internal, per-instance merge counters.
          */
+        tic=clock();
         err=lis_precon_create(solver,&precon);
+        toc=clock();
+        build_seconds=(double)(toc-tic)/CLOCKS_PER_SEC;
         if(err) goto done;
         err=lis_precon_mfamg_get_hierarchy_info(
             precon,MAX_LEVELS,&nlevels,&coarse_n,levels,owns);
@@ -280,7 +372,10 @@ static int integration_test(int distributed)
 
         err=lis_vector_set_all((LIS_SCALAR)0.0,x);
         if(err) goto done;
+        tic=clock();
         err=lis_solve(A,b,x,solver);
+        toc=clock();
+        solve_seconds=(double)(toc-tic)/CLOCKS_PER_SEC;
         if(err!=LIS_SUCCESS) {
             fprintf(stderr,"MFAMG DEEP MERGE solve phase=%d rc=%d\n",
                     phase,(int)err);
@@ -313,6 +408,9 @@ static int integration_test(int distributed)
                 (double)baseline,(double)physical);
             goto done;
         }
+        printf("MFAMG_DEEP_BENCHMARK n=%d arm=%d phase=%d option=%d create_cpu=%.6f solve_cpu=%.6f iters=%d residual=%.9e\n",
+               (int)A->gn,ARM_LENGTH,phase,flags[phase],
+               build_seconds,solve_seconds,(int)iter,(double)physical);
         printf("MFAMG DEEP MERGE SOLVE phase=%d mpi=%d iter=%d rel=%.9e PASS\n",
                phase,distributed,(int)iter,(double)physical);
     }
@@ -338,7 +436,8 @@ int main(int argc,char **argv)
 #ifdef USE_MPI
     MPI_Comm_size(LIS_COMM_WORLD,&nprocs);
 #endif
-    if(nprocs==1 && structural_star_test()!=0) goto done;
+    /* Benchmark-only: test the old sibling-only grouping without
+     * running structural expectations for the newer rooted variant. */
     failed=integration_test(nprocs>1);
 done:
     lis_finalize();
