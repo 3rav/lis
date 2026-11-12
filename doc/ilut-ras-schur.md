@@ -30,6 +30,8 @@ and uses a small pivoted dense LU factorization to correct the interface residua
 - The nested ILUT setup may be costly in memory and time; there is currently no automatic partitioner or communication overlap.
 - The adjoint/transpose RAS application is explicitly **not implemented**. Requiring an adjoint raises an error rather than returning an incorrect result.
 - Domain parts own their matrices, factors and work vectors; the outer preconditioner destroys them deterministically.
+- The subdomain and Schur apply workspaces are reused per preconditioner instance. Do not call **the same instance concurrently** from multiple threads without external synchronization; independent instances are separate.
+- Setup OOM paths initialize the allocated subdomain records before cleanup, so a failure in the second allocation cannot traverse uninitialized pointers.
 - Use flexible GMRES or GMRES for testing and inspect true residuals, iterations, setup time, factor fill and maximum RSS. For contact KKT saddle-point matrices, success is **not guaranteed**; validate across several active contact sets and scaling regimes.
 
 The regression `testhalfilut` executes all overlaps 0/1/2 with and without Schur, checking a substantial residual decrease and explicit rejection of unsupported adjoint applies. The current code is a foundation for later **MPI-distributed** RAS plus iterative Schur and ddPQ pivot-matching work, not a claim that these have already been delivered.
