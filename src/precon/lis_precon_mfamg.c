@@ -81,6 +81,7 @@ struct LIS_MFAMG_LEVEL
     LIS_INT block_size;
     LIS_INT block_count;
     LIS_SCALAR *block_lu;
+    uint16_t *block_lu_half;
     LIS_INT *block_pivots;
     LIS_INT *block_valid;
     LIS_SCALAR *block_work;
@@ -153,6 +154,12 @@ lis_mfamg_smoother_destroy(
             NULL;
     }
 
+
+    if(level->block_lu_half)
+    {
+        lis_free(level->block_lu_half);
+        level->block_lu_half=NULL;
+    }
 
     if(level->block_pivots)
     {
@@ -267,6 +274,69 @@ lis_mfamg_compress_prolongation(struct LIS_MFAMG_STRUCT *state)
         lis_free(level->prolong);
         level->prolong=NULL;
         level->prolong_half=packed;
+    }
+#else
+    (void)state;
+#endif
+}
+
+
+/* Block-Jacobi factors are factored in LIS_SCALAR; resident values may
+ * subsequently be packed, while pivots and arithmetic stay unchanged.
+ * Reject invalid or lossy conversions and keep original data on failure.
+ */
+static void
+lis_mfamg_compress_block_factors(struct LIS_MFAMG_STRUCT *state)
+{
+#ifndef _COMPLEX
+    LIS_INT l, capability=LIS_FALSE;
+    size_t count, i;
+    struct LIS_MFAMG_LEVEL *level;
+    uint16_t *packed;
+    double original, decoded;
+
+    if(state==NULL || state->half_mode==LIS_PRECON_HALF_OFF ||
+       lis_half_get_capability(&capability)!=LIS_SUCCESS || !capability)
+        return;
+    for(l=0;l<state->nlevels-1;l++)
+    {
+        level=&state->levels[l];
+        if(level->smoother_type!=LIS_MFAMG_SMOOTHER_BLOCK_JACOBI ||
+           level->block_lu==NULL || level->block_size<=1 ||
+           level->block_count<=0)
+            continue;
+        if((size_t)level->block_count >
+           SIZE_MAX/(size_t)level->block_size/(size_t)level->block_size)
+            continue;
+        count=(size_t)level->block_count *
+              (size_t)level->block_size * (size_t)level->block_size;
+        if(count==0 || count>SIZE_MAX/sizeof(uint16_t))
+            continue;
+        packed=(uint16_t *)lis_malloc(count*sizeof(uint16_t),
+                                     "lis_mfamg_compress_block_factors");
+        if(packed==NULL)
+            continue;
+        for(i=0;i<count;i++)
+        {
+            original=(double)level->block_lu[i];
+            if(!isfinite(original))
+                break;
+            packed[i]=lis_half_from_double(original);
+            decoded=lis_half_to_double(packed[i]);
+            if(!isfinite(decoded) || (original!=0.0 && decoded==0.0))
+                break;
+            if(state->half_mode==LIS_PRECON_HALF_ON &&
+               fabs(decoded-original)>0.01*fabs(original)+1.0e-7)
+                break;
+        }
+        if(i!=count)
+        {
+            lis_free(packed);
+            continue;
+        }
+        lis_free(level->block_lu);
+        level->block_lu=NULL;
+        level->block_lu_half=packed;
     }
 #else
     (void)state;
@@ -1183,11 +1253,21 @@ lis_mfamg_block_factor(
 
 
 
+static LIS_SCALAR
+lis_mfamg_block_lu_value(
+    const LIS_SCALAR *lu, const uint16_t *half, LIS_INT index)
+{
+    if(half)
+        return (LIS_SCALAR)lis_half_to_double(half[index]);
+    return lu[index];
+}
+
 static LIS_INT
 lis_mfamg_block_solve(
     LIS_INT n,
     LIS_INT ld,
     const LIS_SCALAR *lu,
+    const uint16_t *half,
     const LIS_INT *pivots,
     LIS_SCALAR *x)
 {
@@ -1207,7 +1287,7 @@ lis_mfamg_block_solve(
         ||
         ld<n
         ||
-        lu==NULL
+        (lu==NULL && half==NULL)
         ||
         pivots==NULL
         ||
@@ -1253,7 +1333,7 @@ lis_mfamg_block_solve(
         for(j=0;j<i;j++)
         {
             sum -=
-                lu[i*ld+j]
+                lis_mfamg_block_lu_value(lu,half,i*ld+j)
                 *
                 x[j];
         }
@@ -1271,7 +1351,7 @@ lis_mfamg_block_solve(
         for(j=i+1;j<n;j++)
         {
             sum -=
-                lu[i*ld+j]
+                lis_mfamg_block_lu_value(lu,half,i*ld+j)
                 *
                 x[j];
         }
@@ -1279,7 +1359,7 @@ lis_mfamg_block_solve(
 
         mag =
             fabs(
-                lu[i*ld+i]);
+                lis_mfamg_block_lu_value(lu,half,i*ld+i));
 
         if(
             mag!=mag
@@ -1299,7 +1379,7 @@ lis_mfamg_block_solve(
         x[i] =
             sum
             /
-            lu[i*ld+i];
+            lis_mfamg_block_lu_value(lu,half,i*ld+i);
 
 
         mag =
@@ -2001,6 +2081,7 @@ lis_mfamg_smoother_apply(
     LIS_SCALAR *av;
     LIS_SCALAR *diag;
     LIS_SCALAR *lu;
+    const uint16_t *half;
     LIS_SCALAR *work;
 
 
@@ -2110,7 +2191,7 @@ lis_mfamg_smoother_apply(
             ||
             level->block_count<=0
             ||
-            level->block_lu==NULL
+            (level->block_lu==NULL && level->block_lu_half==NULL)
             ||
             level->block_pivots==NULL
             ||
@@ -2193,14 +2274,22 @@ lis_mfamg_smoother_apply(
 
             if(level->block_valid[block])
             {
-                lu =
+                lu = level->block_lu ?
                     level->block_lu
                     +
                     (size_t)block
                     *
                     (size_t)level->block_size
                     *
-                    (size_t)level->block_size;
+                    (size_t)level->block_size : NULL;
+                half = level->block_lu_half ?
+                    level->block_lu_half
+                    +
+                    (size_t)block
+                    *
+                    (size_t)level->block_size
+                    *
+                    (size_t)level->block_size : NULL;
 
 
                 err =
@@ -2208,6 +2297,7 @@ lis_mfamg_smoother_apply(
                         width,
                         level->block_size,
                         lu,
+                        half,
                         level->block_pivots
                             +
                             block
@@ -13011,6 +13101,35 @@ lis_precon_mfamg_get_hierarchy_info(
  * Internal read-only diagnostics for MFAMG FP16 resident storage.
  * Report packed transfer levels and coefficients for regression tests.
  */
+
+LIS_INT
+lis_precon_mfamg_get_half_block_info(
+    LIS_PRECON precon, LIS_INT *packed_levels, LIS_INT *packed_coefficients)
+{
+    struct LIS_MFAMG_STRUCT *state;
+    struct LIS_MFAMG_LEVEL *level;
+    LIS_INT l;
+
+    if(precon==NULL || precon->precon_type!=LIS_PRECON_TYPE_MFAMG ||
+       precon->mfamg==NULL || packed_levels==NULL ||
+       packed_coefficients==NULL)
+        return LIS_ERR_ILL_ARG;
+    state=precon->mfamg;
+    *packed_levels=0;
+    *packed_coefficients=0;
+    for(l=0;l<state->nlevels-1;l++)
+    {
+        level=&state->levels[l];
+        if(level->block_lu_half)
+        {
+            ++*packed_levels;
+            *packed_coefficients+=level->block_count *
+                                 level->block_size * level->block_size;
+        }
+    }
+    return LIS_SUCCESS;
+}
+
 LIS_INT
 lis_precon_mfamg_get_half_storage_info(
     LIS_PRECON precon,
@@ -13871,6 +13990,7 @@ lis_precon_create_mfamg(
 
     state->half_mode = solver->precon_half_mode;
     lis_mfamg_compress_prolongation(state);
+    lis_mfamg_compress_block_factors(state);
 
     precon->A =
         A;
