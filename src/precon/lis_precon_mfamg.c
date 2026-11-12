@@ -227,7 +227,11 @@ lis_mfamg_compress_prolongation(struct LIS_MFAMG_STRUCT *state)
     struct LIS_MFAMG_LEVEL *level;
     uint16_t *packed;
     double original, decoded;
+    LIS_INT capability;
     if(state==NULL || state->half_mode==LIS_PRECON_HALF_OFF)
+        return;
+    capability=LIS_FALSE;
+    if(lis_half_get_capability(&capability)!=LIS_SUCCESS || !capability)
         return;
     for(l=0;l<state->nlevels-1;l++)
     {
@@ -13002,6 +13006,41 @@ lis_precon_mfamg_get_hierarchy_info(
     return LIS_SUCCESS;
 }
 
+
+/*
+ * Internal read-only diagnostics for MFAMG FP16 resident storage.
+ * Report packed transfer levels and coefficients for regression tests.
+ */
+LIS_INT
+lis_precon_mfamg_get_half_storage_info(
+    LIS_PRECON precon,
+    LIS_INT *packed_levels,
+    LIS_INT *packed_coefficients)
+{
+    struct LIS_MFAMG_STRUCT *state;
+    struct LIS_MFAMG_LEVEL *level;
+    LIS_INT l;
+
+    if(precon==NULL || precon->precon_type!=LIS_PRECON_TYPE_MFAMG ||
+       precon->mfamg==NULL || packed_levels==NULL ||
+       packed_coefficients==NULL)
+        return LIS_ERR_ILL_ARG;
+
+    state=precon->mfamg;
+    *packed_levels=0;
+    *packed_coefficients=0;
+    for(l=0;l<state->nlevels-1;l++)
+    {
+        level=&state->levels[l];
+        if(level->prolong_half)
+        {
+            ++*packed_levels;
+            *packed_coefficients+=level->prolong_row_ptr ?
+                level->prolong_row_ptr[level->n] : level->n;
+        }
+    }
+    return LIS_SUCCESS;
+}
 
 #undef __FUNC__
 #define __FUNC__ "lis_precon_create_mfamg"
