@@ -86,6 +86,7 @@ jobs:
       - name: Smoke-test optional 3D FP16 memory and Krylov benchmark
         if: matrix.mode == 'half'
         run: |
+          set -euo pipefail
           # Small smoke case and a representative >100k-DOF 3D problem.
           # Each mode runs in a fresh process for comparable RSS snapshots.
           for side in 12 48; do
