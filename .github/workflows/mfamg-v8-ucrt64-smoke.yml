@@ -1,0 +1,108 @@
+name: MFAMG v8 research replay on merged LIS develop
+
+on:
+  push:
+    branches:
+      - ci/pr47-research-rebase-validation-20261112
+      - experiment/mfamg-fgcrodr-replay-v8-20261108
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research-scripts:
+    name: Public research script smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run self-contained synthetic and mock smoke tests
+        run: |
+          set -euo pipefail
+          for s in test/mfamg_mode_audit_smoke.sh \
+                   test/mfamg_mode_ritz_selection_smoke.sh \
+                   test/mfamg_mode_ritz_leave_one_out_smoke.sh \
+                   test/mfamg_mode_auto_candidates_smoke.sh \
+                   test/mfamg_replay_v8_report_smoke.sh \
+                   test/mfamg_replay_v8_sweep_smoke.sh \
+                   test/mfamg_replay_v8_repeats_smoke.sh \
+                   test/mfamg_replay_v8_candidate_compare_smoke.sh \
+                   test/mfamg_v8_auto14_overlap_smoke.sh \
+                   test/mfamg_v8_solver_pair_compare_smoke.sh \
+                   test/mfamg_v8_newton_preflight_smoke.sh \
+                   test/mfamg_v8_ccx_capture_probe_smoke.sh \
+                   test/mfamg_v8_ccx_isolated_stage_smoke.sh \
+                   test/mfamg_v8_snapshot_sequence_smoke.sh; do
+            echo "==== $s ===="
+            bash -n "$s"
+            bash "$s"
+          done
+
+  linux-replay:
+    name: Linux research replay and upstream test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Configure and build against upstream develop
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi
+          make -j2
+          test -x test/mfamgreplay
+      - name: Run synthetic A1/A2/A3 cross-operator replay
+        run: |
+          bash test/mfamg_v8_cross_operator_smoke.sh "$PWD/test/mfamgreplay" "$PWD/v8-clean-cross-operator"
+      - name: Run native LIS tests
+        run: make -j2 check
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr47-clean-linux-logs
+          path: |
+            config.log
+            test/test-suite.log
+            v8-clean-cross-operator/*.log
+          if-no-files-found: ignore
+
+  windows-replay:
+    name: Windows UCRT64 research replay
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            autoconf automake libtool make mingw-w64-ucrt-x86_64-gcc
+      - name: Configure and build
+        run: |
+          autoreconf -fiv
+          ./configure CC=gcc --enable-test --disable-shared --enable-static \
+            --disable-fortran --disable-f90 --disable-saamg --disable-mpi
+          make -j2
+          test -x test/mfamgreplay.exe
+      - name: Synthetic cross-operator replay
+        run: |
+          bash test/mfamg_v8_cross_operator_smoke.sh "$PWD/test/mfamgreplay.exe" "$PWD/v8-clean-cross-operator-win"
+      - name: Archive diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr47-clean-windows-logs
+          path: |
+            config.log
+            test/test-suite.log
+            v8-clean-cross-operator-win/*.log
+          if-no-files-found: ignore
