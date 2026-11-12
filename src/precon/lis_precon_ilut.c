@@ -517,6 +517,16 @@ LIS_INT lis_precon_create_ilut(LIS_SOLVER solver, LIS_PRECON precon)
 
 	LIS_DEBUG_FUNC_IN;
 
+	if(solver->ilut_ras_overlap>=0 || solver->ilut_schur)
+	{
+		if(solver->ilut_ras_overlap<0) return LIS_ERR_ILL_ARG;
+		err=lis_precon_create_ilut_ras(solver,precon);
+		if(err) return err;
+		lis_psolve_xxx[LIS_PRECON_TYPE_ILUT]=lis_psolve_ilut_csr;
+		lis_psolveh_xxx[LIS_PRECON_TYPE_ILUT]=lis_psolveh_ilut_csr;
+		return LIS_SUCCESS;
+	}
+
 	if((solver->ilut_rcm || solver->ilut_row_scale) &&
 	   solver->A->matrix_type!=LIS_MATRIX_CSR)
 	{
@@ -1412,6 +1422,8 @@ lis_ilut_ordered_apply(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X,
 #define __FUNC__ "lis_psolve_ilut_csr"
 LIS_INT lis_psolve_ilut_csr(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
 {
+	if(solver && solver->precon && solver->precon->ilut_ras)
+		return lis_psolve_ilut_ras(solver,B,X);
 	if(solver && solver->precon && solver->precon->ilut_perm &&
 	   !solver->precon->ilut_apply_active)
 		return lis_ilut_ordered_apply(solver,B,X,0);
@@ -1652,6 +1664,12 @@ LIS_INT lis_psolve_ilut_csr(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
 #define __FUNC__ "lis_psolveh_ilut_csr"
 LIS_INT lis_psolveh_ilut_csr(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
 {
+	if(solver && solver->precon && solver->precon->ilut_ras)
+	{
+		LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+		    "ILUT RAS adjoint apply has not been implemented");
+		return LIS_ERR_NOT_IMPLEMENTED;
+	}
 	if(solver && solver->precon && solver->precon->ilut_perm &&
 	   !solver->precon->ilut_apply_active)
 		return lis_ilut_ordered_apply(solver,B,X,1);
