@@ -864,6 +864,55 @@ lis_ilut_ras_apply_local(struct LIS_ILUT_RAS_PART *part)
     return LIS_SUCCESS;
 }
 
+/* Diagnostic only: probe local inverse responses on the actual RHS.
+ * Reports the worst local ||M_d^-1 b_d||_2 / ||b_d||_2 and pivot.
+ * Never changes the preconditioner or silently regularizes factors.
+ */
+LIS_INT
+lis_precon_ilut_ras_probe(LIS_PRECON pc,LIS_VECTOR B,
+                         LIS_INT *worst_domain,LIS_REAL *max_ratio,
+                         LIS_REAL *min_pivot)
+{
+    struct LIS_ILUT_RAS_STRUCT *s;
+    LIS_INT d,i,err,nnzl=0,nnzu=0;
+    LIS_REAL bn=0.0,xn=0.0,pmin=0.0,pmax=0.0,ratio;
+    if(!pc || !pc->ilut_ras || !B ||
+       !worst_domain || !max_ratio || !min_pivot)
+        return LIS_ERR_ILL_ARG;
+    s=pc->ilut_ras;
+    if(B->n!=s->n || !B->value) return LIS_ERR_ILL_ARG;
+    *max_ratio=0.0;
+    *min_pivot=LIS_SCALAR_MAX;
+    *worst_domain=-1;
+    for(d=0;d<s->ndomains;d++)
+    {
+        struct LIS_ILUT_RAS_PART *p=&s->parts[d];
+        for(i=0;i<p->nlocal;i++)
+            p->b->value[i]=B->value[p->global[i]];
+        err=lis_vector_nrm2(p->b,&bn);
+        if(err) return err;
+        err=lis_precon_ilut_factor_stats(p->pc,
+                    &nnzl,&nnzu,&pmin,&pmax);
+        if(err) return err;
+        if(pmin<*min_pivot) *min_pivot=pmin;
+        if(!(bn>0.0)) continue;
+        err=lis_ilut_ras_apply_local(p);
+        if(err) return err;
+        err=lis_vector_nrm2(p->x,&xn);
+        if(err || !isfinite((double)xn))
+            return LIS_ERR_ILL_ARG;
+        ratio=xn/bn;
+        if(!isfinite((double)ratio))
+            return LIS_ERR_ILL_ARG;
+        if(ratio>*max_ratio)
+        {
+            *max_ratio=ratio;
+            *worst_domain=d;
+        }
+    }
+    return LIS_SUCCESS;
+}
+
 LIS_INT
 lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
 {
