@@ -547,3 +547,17 @@ jobs:
             test/test-suite.log
             test/*.log
           if-no-files-found: ignore
+
+  superlu-ablation-python:
+    name: SuperLU equilibration ablation (Python smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install optional SciPy dependencies
+        run: python -m pip install numpy scipy
+      - name: Verify four controlled SuperLU modes and RHS handling
+        run: python -m unittest discover -s tools -p 'test_compare_superlu_ilut_equil.py' -v
