@@ -71,6 +71,18 @@ jobs:
           grep -q '^baseline,' ablation/overlap0-rcm0.log
           grep -q '^ras,' ablation/overlap0-rcm0.log
           grep -q '^ras_schur,' ablation/overlap0-rcm0.log
+          set +e
+          timeout 600 ./test/testhalfilut --fea-ras \
+            "$matrix" 8 8 8 0.005 8 0 0 1 0 1 \
+            > ablation/overlap0-localrcm1.log 2>&1
+          result=$?
+          cat ablation/overlap0-localrcm1.log
+          echo "$result" > ablation/localrcm1-exit.txt
+          echo "local_rcm1_exit_status=$result"
+          set -e
+          grep -q '^baseline,' ablation/overlap0-localrcm1.log
+          grep -q '^ras,' ablation/overlap0-localrcm1.log
+          grep -q '^ras_schur,' ablation/overlap0-localrcm1.log
       - name: Publish full ablation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -78,6 +90,8 @@ jobs:
           name: ras-overlap0-ablation
           path: |
             ablation/overlap0-rcm0.log
+            ablation/overlap0-localrcm1.log
             ablation/benchmark-exit.txt
+            ablation/localrcm1-exit.txt
             ablation/matrix.txt
           if-no-files-found: warn
