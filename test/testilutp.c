@@ -527,6 +527,26 @@ static int check_hybrid_ilutp(void)
     solver->precon=pc;
     err=lis_psolve_hybrid(solver,b,x);
     if(err || !solution_close(x,truth))goto cleanup;
+
+    solver->precon=NULL;
+    lis_precon_destroy(pc);pc=NULL;
+
+    /* Half-storage policy must propagate to inner ILUTP and fail closed. */
+    err=lis_solver_set_precon_half(solver,LIS_PRECON_HALF_ON);
+    if(err)goto cleanup;
+    err=lis_precon_create(solver,&pc);
+    if(err!=LIS_ERR_NOT_IMPLEMENTED)goto cleanup;
+    pc=NULL; /* LIS destroyed the failed nested object */
+    err=lis_solver_set_precon_half(solver,LIS_PRECON_HALF_OFF);
+    if(err)goto cleanup;
+
+    /* An ILUTP request with a different Hybrid inner preconditioner
+     * must fail instead of silently ignoring the option. */
+    err=lis_solver_set_option("-hybrid_p none",solver);
+    if(err)goto cleanup;
+    err=lis_precon_create(solver,&pc);
+    if(err!=LIS_ERR_ILL_ARG)goto cleanup;
+    pc=NULL;
     failed=0;
 cleanup:
     if(failed)fprintf(stderr,"ILUTP Hybrid inner-LU failed err=%d\n",(int)err);
