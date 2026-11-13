@@ -297,6 +297,10 @@ lis_ilut_ras_make_subdomain(LIS_SOLVER outer, struct LIS_ILUT_RAS_STRUCT *s,
     /* Reuse opt-in ILUT row equilibration from upstream #224 for each
      * independently factored RAS subdomain. */
     p->solver->ilut_row_scale=outer->ilut_row_scale;
+    /* The separate opt-in -ilut_rcm policy orders each complete local
+     * owner+halo matrix before ILUT. Domain partition RCM is independent
+     * (-ilut_ras_rcm); both default to disabled. */
+    p->solver->ilut_rcm=outer->ilut_rcm;
     err=lis_solver_set_precon_half(p->solver,outer->precon_half_mode);
     if(err) goto done;
     err=lis_solver_set_matrix(p->A,p->solver);
