@@ -98,7 +98,7 @@ static int read_ccx_rhs(const char *filename,LIS_VECTOR b,LIS_INT n)
     return 0;
 }
 
-static int run_case(const char *name,LIS_MATRIX A,LIS_VECTOR b,
+static int run_case(FILE *csv,const char *name,LIS_MATRIX A,LIS_VECTOR b,
                     LIS_VECTOR x,LIS_VECTOR resid,double norm_b,
                     const BENCH_ARGS *args,int use_ilutp,double tau)
 {
@@ -170,11 +170,11 @@ static int run_case(const char *name,LIS_MATRIX A,LIS_VECTOR b,
 
 report:
     if(solver && iter==0)iter=solver->iter;
-    printf("%s,%d,%.6g,%s,%lld,%lld,%lld,%lld,%.8g,%.8g,%.15g,%d,%lld\n",
+    fprintf(csv,"%s,%d,%.6g,%s,%lld,%lld,%lld,%lld,%.8g,%.8g,%.15g,%d,%lld\n",
            name,use_ilutp,tau,status,(long long)iter,
            nnz_l,nnz_u,permuted,setup_s,solve_s,relative,
            (int)err,(long long)retcode);
-    fflush(stdout);
+    fflush(csv);
     if(solver)lis_solver_destroy(solver);
     return 0; /* Solver failure is measured, not a benchmark crash. */
 }
@@ -193,6 +193,8 @@ int main(int argc,char **argv)
     LIS_VECTOR b=NULL,x=NULL,resid=NULL;
     LIS_REAL bnorm;
     double t;
+    FILE *csv=stdout;
+    const char *csv_filename=NULL;
     int err=1,i;
     LIS_INT rc;
     if(argc<3)
@@ -200,7 +202,7 @@ int main(int argc,char **argv)
         fprintf(stderr,
             "Usage: %s A.mtx b.mtx [--maxiter N] [--restart N] "
             "[--rtol V] [--drop V] [--rate V] [--pivot-tol V] "
-            "[--rcm 0|1] [--row-scale 0|1]\n",argv[0]);
+            "[--rcm 0|1] [--row-scale 0|1] [--csv FILE]\n",argv[0]);
         return 2;
     }
     a.maxiter=1000;a.restart=120;
@@ -209,7 +211,17 @@ int main(int argc,char **argv)
     for(i=3;i<argc;i+=2)
     {
         double num;
-        if(i+1==argc || parse_num(argv[i+1],&num))
+        if(i+1==argc)
+        {
+            fprintf(stderr,"Missing argument for %s\n",argv[i]);
+            return 2;
+        }
+        if(strcmp(argv[i],"--csv")==0)
+        {
+            csv_filename=argv[i+1];
+            continue;
+        }
+        if(parse_num(argv[i+1],&num))
         {
             fprintf(stderr,"Invalid argument near %s\n",argv[i]);
             return 2;
@@ -262,14 +274,24 @@ int main(int argc,char **argv)
     rc=lis_vector_nrm2(b,&bnorm);
     if(rc || !(bnorm>0))goto cleanup;
 
-    printf("variant,ilutp,tau,status,iterations,nnz_L,nnz_U,"
+    if(csv_filename)
+    {
+        csv=fopen(csv_filename,"w");
+        if(!csv)
+        {
+            fprintf(stderr,"Cannot open CSV output: %s\n",csv_filename);
+            goto cleanup;
+        }
+    }
+    fprintf(csv,"variant,ilutp,tau,status,iterations,nnz_L,nnz_U,"
            "moved_columns,setup_cpu_s,solve_cpu_s,physical_relres,"
            "api_error,solver_status\n");
-    run_case("legacy_ilut",A,b,x,resid,(double)bnorm,&a,0,0);
-    run_case("ilutp_0p5",A,b,x,resid,(double)bnorm,&a,1,0.5);
-    run_case("ilutp_1p0",A,b,x,resid,(double)bnorm,&a,1,1.0);
+    run_case(csv,"legacy_ilut",A,b,x,resid,(double)bnorm,&a,0,0);
+    run_case(csv,"ilutp_0p5",A,b,x,resid,(double)bnorm,&a,1,0.5);
+    run_case(csv,"ilutp_1p0",A,b,x,resid,(double)bnorm,&a,1,1.0);
     err=0;
 cleanup:
+    if(csv && csv!=stdout)fclose(csv);
     if(resid)lis_vector_destroy(resid);
     if(x)lis_vector_destroy(x);
     if(b)lis_vector_destroy(b);
