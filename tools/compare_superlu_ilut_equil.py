@@ -8,11 +8,13 @@ an experiment, not a substitute for LIS's own ILUT implementation.
 import argparse
 import csv
 import json
+import platform
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
+import scipy
 from scipy import sparse
 from scipy.io import mmread
 from scipy.sparse.csgraph import reverse_cuthill_mckee
@@ -194,6 +196,8 @@ def main(argv=None):
     if args.json is not None:
         args.json.write_text(json.dumps({
             "method": "SciPy spilu + left-preconditioned GMRES; two-factor Equil/permc_spec ablation",
+            "versions": {"python": platform.python_version(), "numpy": np.__version__,
+                         "scipy": scipy.__version__},
             "fixed": {"rcm": args.rcm, "row_max_scale": args.row_max_scale,
                       "drop_tol": args.drop_tol, "fill_factor": args.fill_factor,
                       "diag_pivot_thresh": args.diag_pivot_thresh,
@@ -208,4 +212,8 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(2)
