@@ -104,6 +104,19 @@ jobs:
               assert float(r["physical_relres"]) < 1e-5, r
           PY
 
+      - name: Package source tree for isolated native SuperLU development
+        if: matrix.mode == 'serial'
+        run: |
+          git archive --format=tar HEAD | gzip -9 > lis-source.tar.gz
+
+      - name: Export source tree for isolated native SuperLU development
+        if: matrix.mode == 'serial'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lis-src-superlu-experiment
+          path: lis-source.tar.gz
+          retention-days: 2
+
       - name: Publish native ILUTP benchmark runner (no user snapshots)
         if: matrix.mode == 'serial'
         uses: actions/upload-artifact@v4
