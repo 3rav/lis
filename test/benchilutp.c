@@ -253,24 +253,44 @@ int main(int argc,char **argv)
             }
             continue;
         }
+        /* Convert integer options as integers, not via double: a large
+         * finite double may overflow LIS_INT or silently truncate. */
+        if(strcmp(argv[i],"--maxiter")==0 ||
+           strcmp(argv[i],"--restart")==0 ||
+           strcmp(argv[i],"--rcm")==0 ||
+           strcmp(argv[i],"--row-scale")==0 ||
+           strcmp(argv[i],"--full")==0 ||
+           strcmp(argv[i],"--only-full")==0)
+        {
+            LIS_INT value;
+            if(parse_nonnegative_lis_int(argv[i+1],&value) ||
+               ((strcmp(argv[i],"--rcm")==0 ||
+                 strcmp(argv[i],"--row-scale")==0 ||
+                 strcmp(argv[i],"--full")==0 ||
+                 strcmp(argv[i],"--only-full")==0) && value>1))
+            {
+                fprintf(stderr,"Invalid integer argument for %s: %s\n",
+                        argv[i],argv[i+1]);
+                return 2;
+            }
+            if(strcmp(argv[i],"--maxiter")==0)a.maxiter=value;
+            else if(strcmp(argv[i],"--restart")==0)a.restart=value;
+            else if(strcmp(argv[i],"--rcm")==0)a.rcm=value;
+            else if(strcmp(argv[i],"--row-scale")==0)a.row_scale=value;
+            else if(strcmp(argv[i],"--full")==0)a.full=value;
+            else a.only_full=value;
+            continue;
+        }
         if(parse_num(argv[i+1],&num))
         {
             fprintf(stderr,"Invalid argument near %s\n",argv[i]);
             return 2;
         }
-        if(strcmp(argv[i],"--maxiter")==0)
-            a.maxiter=(LIS_INT)num;
-        else if(strcmp(argv[i],"--restart")==0)
-            a.restart=(LIS_INT)num;
-        else if(strcmp(argv[i],"--rtol")==0)a.rtol=num;
+        if(strcmp(argv[i],"--rtol")==0)a.rtol=num;
         else if(strcmp(argv[i],"--drop")==0)a.drop=num;
         else if(strcmp(argv[i],"--rate")==0)a.rate=num;
         else if(strcmp(argv[i],"--pivot-tol")==0)a.pivot_tol=num;
-        else if(strcmp(argv[i],"--rcm")==0)a.rcm=(LIS_INT)num;
-        else if(strcmp(argv[i],"--row-scale")==0)a.row_scale=(LIS_INT)num;
         else if(strcmp(argv[i],"--full-tau")==0)a.full_tau=num;
-        else if(strcmp(argv[i],"--full")==0 && (num==0 || num==1))a.full=(LIS_INT)num;
-        else if(strcmp(argv[i],"--only-full")==0 && (num==0 || num==1))a.only_full=(LIS_INT)num;
         else
         {
             fprintf(stderr,"Unknown option %s\n",argv[i]);
