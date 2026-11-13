@@ -22,6 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <limits.h>
+#include <stdint.h>
+#include <errno.h>
 #include <time.h>
 
 #if defined(_COMPLEX) || defined(USE_COMPLEX)
@@ -33,8 +36,8 @@ int main(void)
 #else
 typedef struct
 {
-    LIS_INT maxiter,restart,rcm,row_scale;
-    double rtol,drop,rate,pivot_tol;
+    LIS_INT maxiter,restart,rcm,row_scale,full,only_full,full_limit;
+    double rtol,drop,rate,pivot_tol,full_tau;
 } BENCH_ARGS;
 
 static double cpu_seconds(void)
@@ -100,7 +103,7 @@ static int read_ccx_rhs(const char *filename,LIS_VECTOR b,LIS_INT n)
 
 static int run_case(FILE *csv,const char *name,LIS_MATRIX A,LIS_VECTOR b,
                     LIS_VECTOR x,LIS_VECTOR resid,double norm_b,
-                    const BENCH_ARGS *args,int use_ilutp,double tau)
+                    const BENCH_ARGS *args,int use_ilutp,double tau,int full)
 {
     LIS_SOLVER solver=NULL;
     LIS_PRECON pc=NULL;
@@ -118,11 +121,12 @@ static int run_case(FILE *csv,const char *name,LIS_MATRIX A,LIS_VECTOR b,
         "-tol %.16g -ilut_drop %.16g -ilut_rate %.16g "
         "-ilu_pivot_tol %.16g -omp_num_threads 1 "
         "-ilut_rcm %lld -ilut_row_scale %lld "
-        "-ilutp %d -ilutp_threshold %.16g",
+        "-ilutp %d -ilutp_threshold %.16g "
+        "-ilutp_full %d -ilutp_full_limit %lld",
         (long long)args->restart,(long long)args->maxiter,args->rtol,
         args->drop,args->rate,args->pivot_tol,
         (long long)args->rcm,(long long)args->row_scale,
-        use_ilutp,tau)>=(int)sizeof(opts))
+        use_ilutp,tau,full,full ? (long long)args->full_limit : 0LL)>=(int)sizeof(opts))
     {
         err=LIS_ERR_ILL_ARG;
         goto report;
@@ -182,6 +186,19 @@ report:
     return 0; /* Solver failure is measured, not a benchmark crash. */
 }
 
+/* Unlike floating conversion, this rejects fractional/overflow limits. */
+static int parse_nonnegative_lis_int(const char *s,LIS_INT *out)
+{
+    char *end=NULL;
+    unsigned long long v,maxval=(sizeof(LIS_INT)==4 ? INT32_MAX : INT64_MAX);
+    if(!s || !*s || *s=='-' || *s=='+')return 1;
+    errno=0;
+    v=strtoull(s,&end,10);
+    if(errno==ERANGE || end==s || *end || v>maxval)return 1;
+    *out=(LIS_INT)v;
+    return 0;
+}
+
 static int parse_num(const char *s,double *value)
 {
     char *end=NULL;
@@ -205,12 +222,15 @@ int main(int argc,char **argv)
         fprintf(stderr,
             "Usage: %s A.mtx b.mtx [--maxiter N] [--restart N] "
             "[--rtol V] [--drop V] [--rate V] [--pivot-tol V] "
-            "[--rcm 0|1] [--row-scale 0|1] [--csv FILE]\n",argv[0]);
+            "[--rcm 0|1] [--row-scale 0|1] "
+            "[--full 0|1] [--only-full 0|1] [--full-limit N] [--full-tau 0..1] "
+            "[--csv FILE]\n",argv[0]);
         return 2;
     }
     a.maxiter=1000;a.restart=120;
     a.rtol=1e-5;a.drop=0.005;a.rate=12.0;
     a.pivot_tol=1e-9;a.rcm=1;a.row_scale=1;
+    a.full=0;a.only_full=0;a.full_limit=0;a.full_tau=1.0;
     for(i=3;i<argc;i+=2)
     {
         double num;
@@ -222,6 +242,15 @@ int main(int argc,char **argv)
         if(strcmp(argv[i],"--csv")==0)
         {
             csv_filename=argv[i+1];
+            continue;
+        }
+        if(strcmp(argv[i],"--full-limit")==0)
+        {
+            if(parse_nonnegative_lis_int(argv[i+1],&a.full_limit))
+            {
+                fprintf(stderr,"Invalid nonnegative LIS_INT fill limit: %s\n",argv[i+1]);
+                return 2;
+            }
             continue;
         }
         if(parse_num(argv[i+1],&num))
@@ -239,6 +268,9 @@ int main(int argc,char **argv)
         else if(strcmp(argv[i],"--pivot-tol")==0)a.pivot_tol=num;
         else if(strcmp(argv[i],"--rcm")==0)a.rcm=(LIS_INT)num;
         else if(strcmp(argv[i],"--row-scale")==0)a.row_scale=(LIS_INT)num;
+        else if(strcmp(argv[i],"--full-tau")==0)a.full_tau=num;
+        else if(strcmp(argv[i],"--full")==0 && (num==0 || num==1))a.full=(LIS_INT)num;
+        else if(strcmp(argv[i],"--only-full")==0 && (num==0 || num==1))a.only_full=(LIS_INT)num;
         else
         {
             fprintf(stderr,"Unknown option %s\n",argv[i]);
@@ -248,7 +280,9 @@ int main(int argc,char **argv)
     if(a.maxiter<1 || a.restart<1 || a.rtol<=0 || a.drop<0 ||
        a.rate<0 || a.pivot_tol<0 ||
        (a.rcm!=0 && a.rcm!=1) ||
-       (a.row_scale!=0 && a.row_scale!=1))
+       (a.row_scale!=0 && a.row_scale!=1) ||
+       (a.only_full && !a.full) ||
+       a.full_tau<0.0 || a.full_tau>1.0)
         return 2;
 
     rc=lis_initialize(&argc,&argv);
@@ -289,9 +323,14 @@ int main(int argc,char **argv)
     fprintf(csv,"variant,ilutp,tau,status,iterations,nnz_L,nnz_U,"
            "moved_columns,setup_cpu_s,solve_cpu_s,physical_relres,"
            "api_error,solver_status\n");
-    run_case(csv,"legacy_ilut",A,b,x,resid,(double)bnorm,&a,0,0);
-    run_case(csv,"ilutp_0p5",A,b,x,resid,(double)bnorm,&a,1,0.5);
-    run_case(csv,"ilutp_1p0",A,b,x,resid,(double)bnorm,&a,1,1.0);
+    if(!a.only_full)
+    {
+        run_case(csv,"legacy_ilut",A,b,x,resid,(double)bnorm,&a,0,0,0);
+        run_case(csv,"ilutp_0p5",A,b,x,resid,(double)bnorm,&a,1,0.5,0);
+        run_case(csv,"ilutp_1p0",A,b,x,resid,(double)bnorm,&a,1,1.0,0);
+    }
+    if(a.full)
+        run_case(csv,"ilutp_full",A,b,x,resid,(double)bnorm,&a,1,a.full_tau,1);
     err=0;
 cleanup:
     if(csv && csv!=stdout)fclose(csv);
