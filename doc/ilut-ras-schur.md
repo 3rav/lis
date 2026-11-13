@@ -61,6 +61,29 @@ This branch is synchronized with the latest ILUT robustness changes from fork PR
 
 An entirely **separate, non-integrated** sparse CSR Schur feasibility experiment lives in fork Draft PR #64. It checks a synthetic interface larger than 256 DOF and documents OpenMP risks, but it is not a fix for the production limitations of the current dense Schur implementation.
 
+## OpenMP ThreadSanitizer and real structural-FEA findings (2026-11-13)
+
+The OpenMP RAS local-solve path no longer enters nested ILUT parallel regions. Local ILUT factorization and application now consistently use one thread; the sparse Schur-ILUT setup and apply do the same. The number of threads used by a factorization must not change between setup and application, since the legacy OpenMP ILUT algorithm partitions factor dependencies by thread.
+
+The dedicated **Clang/TSan + LLVM Archer** workflow passed on the branch with packed FP16 and row-scaled RAS smoke tests: [TSan run](https://github.com/3rav/lis/actions/runs/43392959868). Archer supplies OpenMP synchronization semantics through OMPT; earlier unsynchronized libomp/runtime reports were not assumed to certify application safety. The test covers parallel *application* of independent subdomains, **not** concurrent independent calls on the same preconditioner or parallel factor construction.
+
+A reproducible public structural-FEA benchmark was executed on **Boeing/bcsstk39**, a shuttle solid-rocket-booster stiffness matrix, with 46,772 DOF and 2,089,294 Matrix Market entries after import. It is **not** a contact-KKT system. All configurations below used FGMRES (maximum 500 iterations), 8 RAS domains, overlap 1, RCM-ranked partitions, and nominal ILUT fill rate 8.
+
+| Threads / row scale | Baseline true residual | RAS true residual | RAS+Schur true residual |
+|---|---:|---:|---:|
+| 4 / 0 | 0.0655766 | 0.999915 | 0.999895 |
+| 4 / 1 | 0.0498797 | 0.999959 | 0.999943 |
+| 8 / 0 | 0.00401523 | 0.999918 | 0.999896 |
+| 8 / 1 | 0.00506316 | 0.999958 | 0.999938 |
+
+**None of these cases converged to the target tolerance.** The baseline ILUT was numerically closer to convergence, and RAS/Schur was slower. At 4 threads without scaling, wall-clock setup+solve totals were approximately 5.73 s (ILUT), 9.37 s (RAS), and 11.62 s (RAS+Schur). RAS factor-entry proxy exceeded baseline by 8.3%; Schur exceeded baseline by 17.7%, so neither provides a fair-fill performance comparison at these settings. These are **negative numerical results**, not a demonstrated performance benefit.
+
+[Full public-FEA benchmark logs](https://github.com/3rav/lis/actions/runs/43392825905).
+
+The separate [Janna/Fault_639](https://sparse.tamu.edu/Janna/Fault_639) 3D penalty-contact matrix has not been benchmarked. No indefinite Lagrange-multiplier contact-Newton KKT snapshot has been tested here.
+
+**Keep the experimental PR Draft.** Before declaring Readiness, investigate a more robust block/interior interface correction and quantify convergence, peak memory and total time at comparable fill on multiple representative contact and structural systems. Passing test/sanitizer CI does not substitute for numerical effectiveness.
+
 ## Review scope and realistic validation
 
 This PR **depends on the ILUT RCM/equilibration PR**. The development
