@@ -1,0 +1,28 @@
+name: Experimental sparse Schur CSR proof of concept
+
+on:
+  push:
+    branches:
+      - experiment/sparse-schur-interface-poc
+  pull_request:
+    paths:
+      - test/experimental_sparse_schur.c
+      - doc/ilut-sparse-schur-poc.md
+      - .github/workflows/sparse-schur-poc.yml
+
+jobs:
+  sparse-schur-prototype:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run standalone sparse CSR Schur prototype
+        run: |
+          cc -std=c99 -O2 -Wall -Wextra -Werror -pedantic \
+            test/experimental_sparse_schur.c -lm -o /tmp/sparse-schur-poc
+          /tmp/sparse-schur-poc
+      - name: Run with address and undefined behavior sanitizers
+        run: |
+          cc -std=c99 -O1 -g -Wall -Wextra -Werror -pedantic \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            test/experimental_sparse_schur.c -lm -o /tmp/sparse-schur-poc-sanitize
+          /tmp/sparse-schur-poc-sanitize
