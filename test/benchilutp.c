@@ -98,7 +98,7 @@ static int read_ccx_rhs(const char *filename,LIS_VECTOR b,LIS_INT n)
     return 0;
 }
 
-static int run_case(FILE *csv,const char *name,LIS_MATRIX A,LIS_VECTOR b,
+static int run_case(FILE *csv,const char *name,LIS_MATRIX A,LIS_MATRIX factor_A,LIS_VECTOR b,
                     LIS_VECTOR x,LIS_VECTOR resid,double norm_b,
                     const BENCH_ARGS *args,int use_ilutp,double tau)
 {
@@ -132,7 +132,7 @@ static int run_case(FILE *csv,const char *name,LIS_MATRIX A,LIS_VECTOR b,
     err=lis_solver_set_sequence_policy(solver,LIS_SEQUENCE_POLICY_AUTO);
     if(err)goto report;
     t=cpu_seconds();
-    err=lis_solver_sequence_prepare_precon(A,solver,&pc);
+    err=lis_solver_sequence_prepare_precon(factor_A,solver,&pc);
     setup_s=cpu_seconds()-t;
     if(err || !pc)
     {
@@ -192,12 +192,14 @@ static int parse_num(const char *s,double *value)
 int main(int argc,char **argv)
 {
     BENCH_ARGS a;
-    LIS_MATRIX A=NULL;
+    LIS_MATRIX A=NULL,factor_A=NULL;
     LIS_VECTOR b=NULL,x=NULL,resid=NULL;
     LIS_REAL bnorm;
     double t;
     FILE *csv=stdout;
     const char *csv_filename=NULL;
+    const char *factor_filename=NULL;
+    int variant=0;
     int err=1,i;
     LIS_INT rc;
     if(argc<3)
@@ -205,7 +207,9 @@ int main(int argc,char **argv)
         fprintf(stderr,
             "Usage: %s A.mtx b.mtx [--maxiter N] [--restart N] "
             "[--rtol V] [--drop V] [--rate V] [--pivot-tol V] "
-            "[--rcm 0|1] [--row-scale 0|1] [--csv FILE]\n",argv[0]);
+            "[--rcm 0|1] [--row-scale 0|1] [--csv FILE] "
+            "[--factor-matrix A_FOR_FACTORS.mtx] "
+            "[--variant all|legacy|tau05|tau10]\n",argv[0]);
         return 2;
     }
     a.maxiter=1000;a.restart=120;
@@ -222,6 +226,25 @@ int main(int argc,char **argv)
         if(strcmp(argv[i],"--csv")==0)
         {
             csv_filename=argv[i+1];
+            continue;
+        }
+        if(strcmp(argv[i],"--factor-matrix")==0)
+        {
+            factor_filename=argv[i+1];
+            continue;
+        }
+        if(strcmp(argv[i],"--variant")==0)
+        {
+            const char *v=argv[i+1];
+            if(strcmp(v,"all")==0)variant=0;
+            else if(strcmp(v,"legacy")==0)variant=1;
+            else if(strcmp(v,"tau05")==0)variant=2;
+            else if(strcmp(v,"tau10")==0)variant=3;
+            else
+            {
+                fprintf(stderr,"Unknown variant %s\n",v);
+                return 2;
+            }
             continue;
         }
         if(parse_num(argv[i+1],&num))
@@ -267,6 +290,26 @@ int main(int argc,char **argv)
         fprintf(stderr,"Benchmark requires one MPI rank and serial CSR\n");
         goto cleanup;
     }
+    if(factor_filename)
+    {
+        rc=lis_matrix_create(LIS_COMM_WORLD,&factor_A);
+        if(rc)goto cleanup;
+        rc=lis_matrix_set_type(factor_A,LIS_MATRIX_CSR);
+        if(rc)goto cleanup;
+        rc=lis_input_matrix(factor_A,(char *)factor_filename);
+        if(rc)goto cleanup;
+        if(factor_A->n!=A->n || factor_A->nnz!=A->nnz ||
+           factor_A->nprocs!=1 || factor_A->matrix_type!=LIS_MATRIX_CSR)
+        {
+            fprintf(stderr,
+                "Factor matrix must have matching CSR dimension and nnz\n");
+            goto cleanup;
+        }
+        fprintf(stderr,
+            "BENCH_ILUTP_PRECON_MATRIX factor_data=%s (original A remains the Krylov operator)\n",
+            factor_filename);
+    }
+    else factor_A=A;
     rc=lis_vector_duplicate(A,&b);
     if(rc)goto cleanup;
     rc=lis_vector_duplicate(A,&x);
@@ -289,15 +332,19 @@ int main(int argc,char **argv)
     fprintf(csv,"variant,ilutp,tau,status,iterations,nnz_L,nnz_U,"
            "moved_columns,setup_cpu_s,solve_cpu_s,physical_relres,"
            "api_error,solver_status\n");
-    run_case(csv,"legacy_ilut",A,b,x,resid,(double)bnorm,&a,0,0);
-    run_case(csv,"ilutp_0p5",A,b,x,resid,(double)bnorm,&a,1,0.5);
-    run_case(csv,"ilutp_1p0",A,b,x,resid,(double)bnorm,&a,1,1.0);
+    if(variant==0 || variant==1)
+        run_case(csv,"legacy_ilut",A,factor_A,b,x,resid,(double)bnorm,&a,0,0);
+    if(variant==0 || variant==2)
+        run_case(csv,"ilutp_0p5",A,factor_A,b,x,resid,(double)bnorm,&a,1,0.5);
+    if(variant==0 || variant==3)
+        run_case(csv,"ilutp_1p0",A,factor_A,b,x,resid,(double)bnorm,&a,1,1.0);
     err=0;
 cleanup:
     if(csv && csv!=stdout)fclose(csv);
     if(resid)lis_vector_destroy(resid);
     if(x)lis_vector_destroy(x);
     if(b)lis_vector_destroy(b);
+    if(factor_A && factor_A!=A)lis_matrix_destroy(factor_A);
     if(A)lis_matrix_destroy(A);
     lis_finalize();
     return err;
