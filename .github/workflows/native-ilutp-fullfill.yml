@@ -42,6 +42,46 @@ jobs:
           weak, full = map(float, m.groups())
           assert weak > 1e-4 and full < 1e-11, (weak, full)
           PY
+      - name: Synthetic 60265 DOF benchmark and bounded factor fill
+        run: |
+          set -euo pipefail
+          python3 test/gen_ilutp_fullfill_case.py --n 60265 \
+            --matrix "$RUNNER_TEMP/native-A.mtx" \
+            --rhs "$RUNNER_TEMP/native-b.mtx"
+          ./test/benchilutp "$RUNNER_TEMP/native-A.mtx" "$RUNNER_TEMP/native-b.mtx" \
+            --maxiter 80 --restart 20 --drop 0.05 --rate 1 \
+            --rcm 0 --row-scale 1 --full 1 --full-limit 20000000 \
+            --csv native-fullfill-60265.csv
+          cat native-fullfill-60265.csv
+          ./test/benchilutp "$RUNNER_TEMP/native-A.mtx" "$RUNNER_TEMP/native-b.mtx" \
+            --full 1 --only-full 1 --full-limit 10000 \
+            --maxiter 40 --restart 20 --rcm 0 --row-scale 1 \
+            --csv native-fullfill-limit.csv
+          cat native-fullfill-limit.csv
+          python3 - <<'PY'
+          import csv
+          from pathlib import Path
+          rows = list(csv.DictReader(Path('native-fullfill-60265.csv').open()))
+          assert [r['variant'] for r in rows] == [
+              'legacy_ilut', 'ilutp_0p5', 'ilutp_1p0', 'ilutp_full'], rows
+          full = rows[-1]
+          assert all(r['status'] == 'converged' for r in rows), rows
+          assert int(full['iterations']) == 1, full
+          assert int(full['moved_columns']) > 0, full
+          assert int(full['nnz_L']) + int(full['nnz_U']) > (
+              int(rows[2]['nnz_L']) + int(rows[2]['nnz_U'])), rows
+          assert float(full['physical_relres']) < 1e-10, full
+          assert int(full['api_error']) == 0 and int(full['solver_status']) == 0, full
+          limit = list(csv.DictReader(Path('native-fullfill-limit.csv').open()))
+          assert len(limit) == 1 and limit[0]['variant'] == 'ilutp_full', limit
+          assert limit[0]['status'] == 'setup_failed' and int(limit[0]['api_error']) != 0, limit
+          print('LIS_NATIVE_FULLFILL_60265 PASS synthetic, residual, limit')
+          PY
+          if ./test/benchilutp "$RUNNER_TEMP/native-A.mtx" \
+            "$RUNNER_TEMP/native-b.mtx" --full-limit 1.5 >/dev/null 2>&1; then
+            echo 'Malformed fill limit was accepted' >&2
+            exit 1
+          fi
       - name: Confirm no SuperLU symbols or shared library
         run: |
           set -euo pipefail

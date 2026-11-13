@@ -52,3 +52,43 @@ unresolved/dynamic SuperLU dependencies.
 and 187-spring CCX systems have NOT been tested with this mode. Before
 claiming a fix, measure physical residual `||Ax-b||/||b||`, peak RSS,
 fill size and wall time on the *original* CCX snapshots.
+
+
+## Synthetic 60,265-DOF stress (NOT contact data)
+
+Use `test/gen_ilutp_fullfill_case.py` to generate nonsymmetric,
+ill-scaled banded A (tiny diagonals every 127th row; offsets ±1, -11,
++17) with manufactured RHS b=A*x. No SuperLU is involved. The original
+Ax=b operator is unchanged by the test.
+
+```sh
+python3 test/gen_ilutp_fullfill_case.py --n 60265 \
+  --matrix /tmp/native-A.mtx --rhs /tmp/native-b.mtx
+./test/benchilutp /tmp/native-A.mtx /tmp/native-b.mtx \
+  --full 1 --full-limit 20000000 --maxiter 80 --restart 20 \
+  --drop 0.05 --rate 1 --rcm 0 --row-scale 1 \
+  --csv /tmp/native-60265.csv
+```
+
+Local, one-thread measurement, 301,295 input nonzeros:
+
+| Mode | Iterations | L+U nonzeros | Original relative residual |
+| --- | ---: | ---: | ---: |
+| ILUT | 6 | 241030 | 1.20587e-6 |
+| ILUTP tau=0.5 | 3 | 241030 | 3.72596e-7 |
+| ILUTP tau=1 | 3 | 241032 | 3.72586e-7 |
+| Native full-fill ILUTP | 1 | 1687037 | 4.01561e-14 |
+
+The full mode permuted 951 column positions. A separate full-only run
+used ~0.113 CPU seconds for factor setup and peak RSS 57,392 KiB on
+this specific environment; these figures are not contact-model estimates.
+A deliberately insufficient limit of 10,000 factor nonzeros returned
+`setup_failed` rather than silently dropping coefficients.
+
+`--full 1` appends a fourth benchmark mode. Without it, the previous
+three modes remain unchanged. `--only-full 1 --full 1` runs only the full
+mode. `--full-limit N` checks a nonnegative integer within LIS_INT range.
+
+This regression demonstrates a 60,265-DOF sparse control, NOT the
+original 256-spring Newton system. Original CCX A,b are unavailable in
+this repository. Its fill, spectrum, memory and convergence may differ.
