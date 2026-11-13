@@ -1,6 +1,6 @@
 # Native LIS ILUTP validation on CCX contact Newton matrices
 
-**Status: mixed outcome for the *limited-fill* ILUTP mode; retain this negative-control benchmark.** These results are from an actual serial LIS executable built by GitHub Actions, not SciPy or SuperLU. A later independent complete-fill mode has additional validation; see the note at the end and [15-step native results](ilutp-native-contact-v2-15steps.md).
+**Status: mixed outcome for the *limited-fill* ILUTP mode; retain this negative-control benchmark.** These results are from an actual serial LIS executable built by GitHub Actions, not SciPy or SuperLU. The separately tested complete-fill 15-step series and its limitations are documented in the last section of this same report.
 
 ## Inputs and methodology
 
