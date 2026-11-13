@@ -1721,6 +1721,7 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     LIS_REAL minpivot=0.0,maxpivot=0.0,bn=0.0,rn=0.0,pn=0.0;
     double t0=0.0,t1=0.0,t2=0.0;
     char opts[512];
+    const char *stage="initial";
     const char *baseline_threads=getenv("LIS_FEA_BASELINE_THREADS");
     const char *baseline_rcm_env=getenv("LIS_FEA_BASELINE_RCM");
     LIS_INT baseline_rcm=(baseline_rcm_env &&
@@ -1791,6 +1792,7 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     err=lis_vector_set_all((LIS_SCALAR)0.0,x);
     if(err) goto done;
     t0=lis_wtime();
+    stage="precon_create";
     err=lis_precon_create(solver,&pc);
     t1=lis_wtime();
     out->setup_wall=t1-t0;
@@ -1798,6 +1800,7 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     solver->precon=pc;
     if(mode==0)
     {
+        stage="factor_stats";
         err=lis_precon_ilut_factor_stats(pc,&nl,&nu,
                                           &minpivot,&maxpivot);
         if(err) goto done;
@@ -1806,6 +1809,7 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     }
     else
     {
+        stage="ras_stats";
         err=lis_precon_ilut_ras_factor_entries(pc,&out->entries);
         if(err) goto done;
         err=lis_precon_ilut_ras_interface_size(pc,&out->ngamma);
@@ -1823,6 +1827,7 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
      */
     err=lis_vector_nrm2(b,&bn);
     if(err || !(bn>0.0)) { err=LIS_ERR_ILL_ARG; goto done; }
+    stage="initial_psolve";
     err=lis_psolve(solver,b,probe);
     if(err) goto done;
     err=lis_vector_nrm2(probe,&pn);
@@ -1836,6 +1841,7 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     if(err || !isfinite((double)rn)) { err=LIS_ERR_ILL_ARG; goto done; }
     out->probe_true_relres=rn/bn;
     t1=lis_wtime();
+    stage="solve_kernel";
     err=lis_solve_kernel(A,b,x,solver,pc);
     t2=lis_wtime();
     out->solve_wall=t2-t1;
@@ -1853,6 +1859,19 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
                     out->true_relres<=1.0e-8;
 done:
     out->err=err;
+    if(err)
+        fprintf(stderr,
+            "FEA_RAS_STAGE_ERROR mode=%d stage=%s rc=%ld "
+            "baseline_threads=%s baseline_rcm=%ld omp_max=%d\n",
+            mode,stage,(long)err,
+            baseline_threads ? baseline_threads : "(same as OMP)",
+            (long)baseline_rcm,
+#ifdef _OPENMP
+            omp_get_max_threads()
+#else
+            1
+#endif
+            );
     if(pc)
     {
         if(solver) solver->precon=NULL;
@@ -1878,7 +1897,7 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
     LIS_RAS_BENCH_RESULT m[3];
     double rates[3],gap;
     LIS_INT i,err=0;
-    int failed=1,mode;
+    int failed=1,mode,mode_count=getenv("LIS_FEA_ONLY_BASELINE") ? 1 : 3;
     const char *names[3]={"baseline","ras","ras_schur"};
     if(!file || !isfinite(base_rate) || !(base_rate>0.0) ||
        !isfinite(ras_rate) || !(ras_rate>0.0) ||
@@ -1910,7 +1929,7 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
         truth->value[i]=(LIS_SCALAR)(1.0+0.017*(double)((i*19)%29));
     err=lis_matvec(A,truth,b);
     if(err) goto done;
-    for(mode=0;mode<3;mode++)
+    for(mode=0;mode<mode_count;mode++)
         run_fea_ras_case(A,b,mode,rates[mode],drop,domains,
                          overlap,rcm,parallel,row_scale,local_rcm,&m[mode]);
     printf("FEA_RAS_MATRIX file=%s n=%ld nnz_A=%ld "
@@ -1930,7 +1949,7 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
            "fill_gap_vs_baseline,fair_fill,status,lis_error,"
            "probe_norm_ratio,probe_one_apply_true_relres,"
            "worst_domain,worst_local_inverse_ratio,min_local_pivot\n");
-    for(mode=0;mode<3;mode++)
+    for(mode=0;mode<mode_count;mode++)
     {
         gap=m[0].entries>0 && m[mode].entries>0 ?
             fabs((double)m[mode].entries-(double)m[0].entries)/
@@ -1953,7 +1972,7 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
                (double)m[mode].min_local_pivot);
     }
     failed=0;
-    for(mode=0;mode<3;mode++)
+    for(mode=0;mode<mode_count;mode++)
         if(m[mode].err || !m[mode].converged) failed=1;
 done:
     if(err) fprintf(stderr,"FEA_RAS_INPUT_ERROR file=%s rc=%ld\n",
