@@ -47,7 +47,7 @@ verifies the full-fill preconditioner against exact forward and transpose
 solutions, with/without RCM and row scaling.  It also compares L/U/D
 factors with legacy ILUT for `tau=0` (with/without RCM/row scaling),
 runs an end-to-end limited-fill FGMRES solve, checks preconditioner
-sequence reuse and pivot-threshold invalidation, and validates option parsing.
+sequence reuse, pivot-threshold invalidation, and frozen-pattern rebuild\nfallback, and validates option parsing. OpenMP builds additionally verify\nthat increasing the thread count after setup is explicitly rejected.
 Complex LIS builds skip this real-only regression.
 
 ## Development status
