@@ -25,8 +25,8 @@ jobs:
       - name: Compare none, row-only and two-sided scaling
         run: |
           set -euo pipefail
-          for amp in 30 100 300; do
-            for rate in 1 5; do
+          for amp in 5 10 20 30 50 100 300; do
+            for rate in 0.5 0.75 1 1.25 1.5 2 2.5 3 4 5; do
               echo "=== amplitude=$amp fill_rate=$rate ==="
               ./test/benchequil "$amp" "$rate" | tee -a "results.txt"
             done
