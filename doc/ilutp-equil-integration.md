@@ -73,7 +73,8 @@ Optional manufactured-solution benchmark:
 
 The output has five profiles (`ilut`, `equil`, `ilutp`,
 `ilutp_equil`, `row_only`) and reports the status, FGMRES iteration
-count, **true original-system residual**, actual L+U fill, and effective
+count, **true original-system residual**, actual L+U fill, dynamic
+column-pivot swap count, solver wall/setup/solve times and effective
 drop/rate settings. It uses a synthetic 12x12 nonsymmetric
 convection-diffusion stencil with alternating unknown units, **not**
 a matrix extracted from production CalculiX or PETSc.
@@ -82,3 +83,25 @@ Do not infer a general convergence or wall-time improvement from green
 unit tests. Before considering an upstream merge, compare true residual,
 total setup+solve wall time, LU fill, pivot counts, and peak memory on a
 larger public matrix and on contact snapshots; include negative controls.
+
+## Initial native LIS five-profile example
+
+The full Linux serial regression suite passed 110/110 tests and a prior
+smoke benchmark completed successfully at amplitudes 5, 10 and 30:
+https://github.com/3rav/lis/actions/runs/43489051029
+
+At amplitude=30, drop=0.005, rate=5, all profiles reached the same
+1e-6 solver tolerance on the **original**, unscaled A:
+
+| Profile | FGMRES iterations | L+U nnz | True relative residual |
+|---|---:|---:|---:|
+| ILUT | 3 | 703 | 3.8142e-7 |
+| Equil only | 3 | 1282 | 1.9900e-8 |
+| ILUTP only | 11 | 907 | 4.4162e-7 |
+| ILUTP + Equil | 3 | 1282 | 1.9900e-8 |
+| Row-only ILUT | 3 | 703 | 3.8142e-7 |
+
+This shows compatibility, **not unique synergy**: Equil alone also
+converged in 3 iterations, and both Equil cases needed more fill. This
+small manufactured matrix is primarily a numerical regression example.
+
