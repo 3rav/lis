@@ -1,0 +1,85 @@
+name: Refined fair-fill serial ILUT and local-RCM RAS
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/ras-schur-scalable
+    paths:
+      - .github/workflows/ras-fair-fill-refine.yml
+
+permissions:
+  contents: read
+
+jobs:
+  structural-fair-fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '8'
+      OMP_DYNAMIC: 'FALSE'
+      LIS_FEA_BASELINE_THREADS: '1'
+      LIS_FEA_BASELINE_RCM: '0'
+      LIS_FEA_SKIP_SCHUR: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin unzip
+      - name: Build OpenMP LIS and benchmark
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --enable-omp --disable-fortran --disable-f90 \
+            --disable-saamg --disable-mpi
+          make -j2
+          make -C test testhalfilut
+      - name: Download public Boeing structural stiffness matrix
+        run: |
+          set -euo pipefail
+          mkdir -p refined
+          curl --fail --location --retry 3 --max-time 180 \
+            https://nrvis.com/download/data/misc/bcsstk39.zip \
+            -o refined/bcsstk39.zip
+          unzip -o -q refined/bcsstk39.zip -d refined
+          find refined -type f -iname '*.mtx' -exec chmod u+r {} +
+          mtx="$(find refined -type f -iname '*.mtx' | head -1)"
+          test -n "$mtx"
+          grep -qiE '^%%MatrixMarket matrix coordinate real' <(head -n 1 "$mtx")
+          echo "$mtx" > refined/matrix.txt
+      - name: Sweep near measured equal-factor-entry fill
+        run: |
+          set -uo pipefail
+          set +e
+          mtx="$(cat refined/matrix.txt)"
+          # Single-thread ILUT with fill rate 16 converged to 9.78e-9
+          # in 84 iterations at 18,980,706 entries. Adjust baseline to
+          # 13/14 and RAS fill rate 24/32 in search of <=5% gap.
+          for spec in '14 24' '14 32' '13 24' '13 32'; do
+            read -r br rr <<< "$spec"
+            label="baseline-${br}-ras-${rr}"
+            timeout 600 ./test/testhalfilut --fea-ras \
+              "$mtx" "$br" "$rr" 8 0.0001 8 1 0 1 1 1 \
+              > "refined/${label}.log" 2>&1
+            status=$?
+            cat "refined/${label}.log"
+            printf '%s\n' "$status" > "refined/${label}.status"
+            echo "bench_status=$status"
+          done
+          set -e
+          for spec in '14 24' '14 32' '13 24' '13 32'; do
+            read -r br rr <<< "$spec"
+            log="refined/baseline-${br}-ras-${rr}.log"
+            grep -q '^baseline,' "$log"
+            grep -q '^ras,' "$log"
+          done
+      - name: Upload evidence, including non-converged runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: equal-fill-structural-serial-ILUT-vs-RAS
+          path: |
+            refined/*.log
+            refined/*.status
+            refined/matrix.txt
+          if-no-files-found: warn
