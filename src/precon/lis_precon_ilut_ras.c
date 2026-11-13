@@ -10,6 +10,7 @@
 #endif
 #include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include "lislib.h"
 
@@ -50,6 +51,11 @@ struct LIS_ILUT_RAS_STRUCT {
     LIS_INT *gamma,*gamma_of,*pivots;
     LIS_INT ngamma;
     LIS_SCALAR *diag_inv,*schur_lu,*schur_rhs,*schur_delta;
+    LIS_INT schur_sparse;
+    LIS_MATRIX schur_A;
+    LIS_SOLVER schur_solver;
+    LIS_PRECON schur_pc;
+    LIS_VECTOR schur_b,schur_x;
     LIS_VECTOR residual;
 };
 
@@ -81,6 +87,15 @@ void lis_precon_ilut_ras_destroy(struct LIS_ILUT_RAS_STRUCT *s)
     lis_free(s->schur_lu);
     lis_free(s->schur_rhs);
     lis_free(s->schur_delta);
+    if(s->schur_pc)
+    {
+        if(s->schur_solver) s->schur_solver->precon=NULL;
+        lis_precon_destroy(s->schur_pc);
+    }
+    if(s->schur_solver) lis_solver_destroy(s->schur_solver);
+    if(s->schur_b) lis_vector_destroy(s->schur_b);
+    if(s->schur_x) lis_vector_destroy(s->schur_x);
+    if(s->schur_A) lis_matrix_destroy(s->schur_A);
     if(s->residual) lis_vector_destroy(s->residual);
     lis_free(s);
 }
@@ -172,14 +187,176 @@ done:
     return err;
 }
 
+/*
+ * Sparse CSR path for interfaces larger than the historical dense limit.
+ * The row accumulator is O(ngamma) workspace, and the assembled operator
+ * has a hard fill budget of 4 * nnz(A). This is still a diagonal-approximate
+ * Schur operator; sparse storage alone does not fix indefinite KKT pivots.
+ */
+static int
+lis_ilut_ras_int_cmp(const void *a,const void *b)
+{
+    LIS_INT x=*(const LIS_INT *)a,y=*(const LIS_INT *)b;
+    return (x>y)-(x<y);
+}
+
+static LIS_INT
+lis_ilut_ras_make_sparse_schur(LIS_SOLVER outer,
+                              struct LIS_ILUT_RAS_STRUCT *s)
+{
+    LIS_MATRIX A=s->A;
+    LIS_INT ng=s->ngamma,g,i,k,j,q,t,col,count,h,err=LIS_SUCCESS;
+    LIS_INT *marks=NULL,*touched=NULL;
+    LIS_SCALAR *work=NULL;
+    LIS_REAL row_max,mag,drop;
+    size_t max_entries,nnz=0;
+
+    if(A->nnz<0 || (size_t)A->nnz>SIZE_MAX/4 ||
+       (size_t)ng>SIZE_MAX/sizeof(LIS_SCALAR) ||
+       (size_t)ng>SIZE_MAX/sizeof(LIS_INT))
+        return LIS_ERR_ILL_ARG;
+    max_entries=(size_t)A->nnz*4;
+    drop=fabs(outer->params[LIS_PARAMS_DROP-LIS_OPTIONS_LEN]);
+    if(!isfinite((double)drop) || drop>=1.0) return LIS_ERR_ILL_ARG;
+    if(drop<1.0e-4) drop=1.0e-4;
+
+    marks=(LIS_INT *)lis_malloc((size_t)ng*sizeof(LIS_INT),
+                               "RAS sparse Schur markers");
+    touched=(LIS_INT *)lis_malloc((size_t)ng*sizeof(LIS_INT),
+                                 "RAS sparse Schur touched");
+    work=(LIS_SCALAR *)lis_malloc((size_t)ng*sizeof(LIS_SCALAR),
+                                 "RAS sparse Schur accumulator");
+    if(!marks || !touched || !work)
+    {
+        err=LIS_OUT_OF_MEMORY;
+        goto done;
+    }
+    for(g=0;g<ng;g++) marks[g]=-1;
+
+    err=lis_matrix_create(LIS_COMM_WORLD,&s->schur_A);
+    if(err) goto done;
+    err=lis_matrix_set_size(s->schur_A,0,ng);
+    if(err) goto done;
+    err=lis_matrix_set_type(s->schur_A,LIS_MATRIX_CSR);
+    if(err) goto done;
+
+    for(g=0;g<ng;g++)
+    {
+        i=s->gamma[g];
+        count=0;
+        for(k=A->ptr[i];k<A->ptr[i+1];k++)
+        {
+            j=A->index[k];
+            if(j<0 || j>=s->n) { err=LIS_ERR_ILL_ARG; goto done; }
+            col=s->gamma_of[j];
+            if(col>=0)
+            {
+                if(marks[col]!=g)
+                {
+                    marks[col]=g;
+                    touched[count++]=col;
+                    work[col]=0.0;
+                }
+                work[col]+=A->value[k];
+                if(!isfinite((double)work[col]))
+                { err=LIS_ERR_ILL_ARG; goto done; }
+            }
+            else
+            {
+                LIS_SCALAR coeff=-A->value[k]*s->diag_inv[j];
+                if(!isfinite((double)coeff))
+                { err=LIS_ERR_ILL_ARG; goto done; }
+                for(q=A->ptr[j];q<A->ptr[j+1];q++)
+                {
+                    t=A->index[q];
+                    if(t<0 || t>=s->n) { err=LIS_ERR_ILL_ARG; goto done; }
+                    col=s->gamma_of[t];
+                    if(col<0) continue;
+                    if(marks[col]!=g)
+                    {
+                        marks[col]=g;
+                        touched[count++]=col;
+                        work[col]=0.0;
+                    }
+                    work[col]+=coeff*A->value[q];
+                    if(!isfinite((double)work[col]))
+                    { err=LIS_ERR_ILL_ARG; goto done; }
+                }
+            }
+        }
+        row_max=0.0;
+        for(h=0;h<count;h++)
+        {
+            mag=fabs(work[touched[h]]);
+            if(mag>row_max) row_max=mag;
+        }
+        qsort(touched,(size_t)count,sizeof(LIS_INT),lis_ilut_ras_int_cmp);
+        for(h=0;h<count;h++)
+        {
+            col=touched[h];
+            mag=fabs(work[col]);
+            /* Preserve the diagonal even if below the rowwise drop bound. */
+            if(col!=g && (mag==0.0 || mag<drop*row_max)) continue;
+            if(nnz>=max_entries)
+            {
+                LIS_SETERR(LIS_ERR_ILL_ARG,
+                    "RAS sparse Schur fill exceeds 4*nnz(A) budget");
+                err=LIS_ERR_ILL_ARG;
+                goto done;
+            }
+            err=lis_matrix_set_value(LIS_INS_VALUE,g,col,
+                                     work[col],s->schur_A);
+            if(err) goto done;
+            nnz++;
+        }
+    }
+    err=lis_matrix_assemble(s->schur_A);
+    if(err) goto done;
+
+    err=lis_solver_create(&s->schur_solver);
+    if(err) goto done;
+    err=lis_solver_set_option(
+        "-i gmres -p ilut -scale none -print none",s->schur_solver);
+    if(err) goto done;
+    s->schur_solver->params[LIS_PARAMS_DROP-LIS_OPTIONS_LEN] =
+        outer->params[LIS_PARAMS_DROP-LIS_OPTIONS_LEN];
+    s->schur_solver->params[LIS_PARAMS_RATE-LIS_OPTIONS_LEN] =
+        outer->params[LIS_PARAMS_RATE-LIS_OPTIONS_LEN];
+    s->schur_solver->params[LIS_PARAMS_GAMMA-LIS_OPTIONS_LEN] =
+        outer->params[LIS_PARAMS_GAMMA-LIS_OPTIONS_LEN];
+    s->schur_solver->params[LIS_PARAMS_ILU_PIVOT_TOL-LIS_OPTIONS_LEN] =
+        outer->params[LIS_PARAMS_ILU_PIVOT_TOL-LIS_OPTIONS_LEN];
+    /* Reuse serial ordering/scaling path already validated in PR #224. */
+    s->schur_solver->ilut_row_scale=1;
+    s->schur_solver->ilut_rcm=outer->ilut_rcm;
+    err=lis_solver_set_precon_half(s->schur_solver,
+                                   outer->precon_half_mode);
+    if(err) goto done;
+    err=lis_solver_set_matrix(s->schur_A,s->schur_solver);
+    if(err) goto done;
+    err=lis_precon_create(s->schur_solver,&s->schur_pc);
+    if(err) { s->schur_pc=NULL; goto done; }
+    s->schur_solver->precon=s->schur_pc;
+    err=lis_vector_duplicate(s->schur_A,&s->schur_b);
+    if(err) goto done;
+    err=lis_vector_duplicate(s->schur_A,&s->schur_x);
+    if(err) goto done;
+    s->schur_sparse=1;
+done:
+    lis_free(marks);
+    lis_free(touched);
+    lis_free(work);
+    return err;
+}
+
 /* Build S~=A_GG - A_GI diag(A_II)^-1 A_IG, a documented
  * approximate block Schur complement, never the exact Schur matrix.
  */
 static LIS_INT
-lis_ilut_ras_make_schur(struct LIS_ILUT_RAS_STRUCT *s)
+lis_ilut_ras_make_schur(LIS_SOLVER outer,struct LIS_ILUT_RAS_STRUCT *s)
 {
     LIS_MATRIX A=s->A;
-    LIS_INT i,j,k,g,q,t,p,best,ng=0,promoted=0;
+    LIS_INT i,j,k,g,q,t,p,best,ng=0,promoted=0,err;
     LIS_REAL val,peak,schur_norm=0.0;
     LIS_SCALAR tmp;
     size_t entries;
@@ -237,12 +414,6 @@ lis_ilut_ras_make_schur(struct LIS_ILUT_RAS_STRUCT *s)
     }
     for(i=0;i<s->n;i++) if(s->gamma_of[i]>=0) ++ng;
     if(ng==0) return LIS_SUCCESS;
-    if(ng>LIS_ILUT_RAS_SCHUR_LIMIT)
-    {
-        LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
-            "ILUT RAS Schur interface exceeds 256 rows");
-        return LIS_ERR_NOT_IMPLEMENTED;
-    }
     s->ngamma=ng;
     s->gamma=(LIS_INT *)lis_malloc((size_t)ng*sizeof(LIS_INT),"RAS gamma rows");
     s->pivots=(LIS_INT *)lis_malloc((size_t)ng*sizeof(LIS_INT),"RAS pivot perm");
@@ -250,12 +421,18 @@ lis_ilut_ras_make_schur(struct LIS_ILUT_RAS_STRUCT *s)
                                           "RAS schur rhs");
     s->schur_delta=(LIS_SCALAR *)lis_malloc((size_t)ng*sizeof(LIS_SCALAR),
                                             "RAS schur solution");
-    entries=(size_t)ng*(size_t)ng;
-    s->schur_lu=(LIS_SCALAR *)lis_malloc(entries*sizeof(LIS_SCALAR),
-                                        "RAS Schur LU");
+    if(ng<=LIS_ILUT_RAS_SCHUR_LIMIT)
+    {
+        entries=(size_t)ng*(size_t)ng;
+        s->schur_lu=(LIS_SCALAR *)lis_malloc(entries*sizeof(LIS_SCALAR),
+                                            "RAS Schur LU");
+    }
     if(!s->gamma || !s->pivots || !s->schur_rhs ||
-       !s->schur_delta || !s->schur_lu) return LIS_OUT_OF_MEMORY;
-    memset(s->schur_lu,0,entries*sizeof(LIS_SCALAR));
+       !s->schur_delta ||
+       (ng<=LIS_ILUT_RAS_SCHUR_LIMIT && !s->schur_lu))
+        return LIS_OUT_OF_MEMORY;
+    if(s->schur_lu)
+        memset(s->schur_lu,0,entries*sizeof(LIS_SCALAR));
 
     ng=0;
     for(i=0;i<s->n;i++)
@@ -303,6 +480,13 @@ lis_ilut_ras_make_schur(struct LIS_ILUT_RAS_STRUCT *s)
                 return LIS_ERR_ILL_ARG;
             }
         }
+    }
+
+    if(s->ngamma>LIS_ILUT_RAS_SCHUR_LIMIT)
+    {
+        err=lis_ilut_ras_make_sparse_schur(outer,s);
+        if(err) return err;
+        return lis_vector_duplicate(A,&s->residual);
     }
 
     for(g=0;g<s->ngamma;g++)
@@ -434,7 +618,7 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
     }
     if(solver->ilut_schur)
     {
-        err=lis_ilut_ras_make_schur(s);
+        err=lis_ilut_ras_make_schur(solver,s);
         if(err) return err;
     }
     return LIS_SUCCESS;
@@ -491,21 +675,39 @@ lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
         s->schur_rhs[i] =
             B->value[s->gamma[s->pivots[i]]] -
             s->residual->value[s->gamma[s->pivots[i]]];
-    /* Solve factored approximate Schur via pivoted forward/backward solve. */
-    for(i=0;i<ng;i++)
+    if(s->schur_sparse)
     {
-        val=s->schur_rhs[i];
-        for(k=0;k<i;k++) val-=s->schur_lu[(size_t)i*ng+k]*
-                              s->schur_rhs[k];
-        s->schur_rhs[i]=val;
+        /* One ILUT application to the sparse approximate interface RHS,
+         * not an iterative or exact Schur solve. */
+        for(i=0;i<ng;i++) s->schur_b->value[i]=s->schur_rhs[i];
+        err=lis_psolve(s->schur_solver,s->schur_b,s->schur_x);
+        if(err) return err;
+        for(i=0;i<ng;i++)
+        {
+            s->schur_delta[i]=s->schur_x->value[i];
+            if(!isfinite((double)s->schur_delta[i]))
+                return LIS_ERR_ILL_ARG;
+        }
     }
-    for(i=ng-1;i>=0;i--)
+    else
     {
-        val=s->schur_rhs[i];
-        for(k=i+1;k<ng;k++) val-=s->schur_lu[(size_t)i*ng+k]*
-                              s->schur_delta[k];
-        s->schur_delta[i]=val/s->schur_lu[(size_t)i*ng+i];
-        if(!isfinite((double)s->schur_delta[i])) return LIS_ERR_ILL_ARG;
+        /* Small interfaces retain the existing pivoted dense LU path. */
+        for(i=0;i<ng;i++)
+        {
+            val=s->schur_rhs[i];
+            for(k=0;k<i;k++) val-=s->schur_lu[(size_t)i*ng+k]*
+                                  s->schur_rhs[k];
+            s->schur_rhs[i]=val;
+        }
+        for(i=ng-1;i>=0;i--)
+        {
+            val=s->schur_rhs[i];
+            for(k=i+1;k<ng;k++) val-=s->schur_lu[(size_t)i*ng+k]*
+                                  s->schur_delta[k];
+            s->schur_delta[i]=val/s->schur_lu[(size_t)i*ng+i];
+            if(!isfinite((double)s->schur_delta[i]))
+                return LIS_ERR_ILL_ARG;
+        }
     }
     for(i=0;i<ng;i++) X->value[s->gamma[i]]+=s->schur_delta[i];
     /* Diagonal-approximate interior back substitution. */
