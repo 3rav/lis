@@ -92,18 +92,18 @@ jobs:
           grep -q '^baseline,' ilut-fea-bench.log
           grep -q '^rcm_scaled,' ilut-fea-bench.log
 
-      - name: Smoke-test sparse Schur on synthetic 3D interface
+      - name: Smoke-test RAS-only on synthetic 3D stencil
         if: matrix.mode == 'half'
         run: |
           set -euo pipefail
-          ./test/testhalfilut --sparse-schur-smoke | tee ilut-sparse-schur.log
-          grep -q '^ILUT_RAS_SPARSE_SCHUR_PASSED' ilut-sparse-schur.log
+          ./test/testhalfilut --ras-3d-smoke | tee ilut-ras-3d.log
+          grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-3d.log
           ./test/testhalfilut --ras-rcm-smoke | tee ilut-ras-rcm.log
-          grep -q '^ILUT_RAS_SPARSE_SCHUR_PASSED' ilut-ras-rcm.log
+          grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-rcm.log
           ./test/testhalfilut --ras-half-smoke | tee ilut-ras-half.log
-          grep -q '^ILUT_RAS_SPARSE_SCHUR_PASSED' ilut-ras-half.log
+          grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-half.log
           ./test/testhalfilut --ras-local-rcm-smoke | tee ilut-ras-local-rcm.log
-          grep -q '^ILUT_RAS_SPARSE_SCHUR_PASSED' ilut-ras-local-rcm.log
+          grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-local-rcm.log
 
       - name: Smoke-test 3-way Matrix Market RAS benchmarking
         if: matrix.mode == 'half'
@@ -113,7 +113,6 @@ jobs:
           grep -q '^FEA_RAS_MATRIX ' ilut-fea-ras.csv
           grep -q '^baseline,' ilut-fea-ras.csv
           grep -q '^ras,' ilut-fea-ras.csv
-          grep -q '^ras_schur,' ilut-fea-ras.csv
 
 
       - name: Smoke-test optional 3D FP16 memory and Krylov benchmark
@@ -390,7 +389,7 @@ jobs:
           ./test/testfgcrodrintra
           ./test/testfgcrodr
 
-      - name: Validate ILUT RCM, RAS, Schur and contact KKT under sanitizers
+      - name: Validate ILUT RCM, RAS and contact KKT under sanitizers
         run: |
           make -C test testhalfilut
           ./test/testhalfilut
