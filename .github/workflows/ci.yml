@@ -97,6 +97,16 @@ jobs:
             -o testsuperlu_direct
           ./testsuperlu_direct | tee superlu-direct-smoke.log
           grep -q '^SUPERLU_PLUGIN_TEST ' superlu-direct-smoke.log
+          cc -std=c99 -Wall -Wextra -Werror -O2 \
+            -DHAVE_CONFIG_H -I./include -I./contrib/superlu_direct \
+            contrib/superlu_direct/benchsuperlu.c \
+            contrib/superlu_direct/lis_superlu_direct.c \
+            src/.libs/liblis.a \
+            $(pkg-config --cflags --libs superlu) -lblas -lm \
+            -o benchsuperlu
+          ./benchsuperlu test/testmat2.mtx test/benchilutp_rhs_100.mtx \
+            | tee superlu-direct-bench.log
+          grep -q '^SUPERLU_LIS_NATIVE n=100 .*iter=1 status=0 ' superlu-direct-bench.log
 
       - name: Smoke-test native ILUTP Matrix Market comparison
         if: matrix.mode == 'serial'
