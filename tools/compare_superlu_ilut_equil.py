@@ -92,16 +92,14 @@ def run_case(a, b, work, rhs, perm, args, equil, ordering, rhs_source):
         # With it enabled, Equil=True adds *only* column equilibration.
         # Without it, Equil=True computes both R and C explicitly.
         factor_a = work
-        factor_rhs = rhs
+        r = np.ones(work.shape[0], dtype=np.float64)
         if equil and not args.row_max_scale:
             row_max = np.abs(work).max(axis=1).toarray().reshape(-1)
-            r = np.ones(work.shape[0], dtype=np.float64)
             mask = row_max > 0
             r[mask] = 1.0 / row_max[mask]
             if not np.all(np.isfinite(r)):
                 raise ValueError("row equilibration scale overflowed")
             factor_a = (sparse.diags(r, format="csc") @ work).tocsc()
-            factor_rhs = r * rhs
 
         c = np.ones(factor_a.shape[1], dtype=np.float64)
         if equil:
@@ -130,7 +128,13 @@ def run_case(a, b, work, rhs, perm, args, equil, ordering, rhs_source):
         result["row_perm_moved"] = int(np.count_nonzero(
             ilu.perm_r != np.arange(a.shape[0])
         ))
-        precon = LinearOperator(factor_a.shape, matvec=ilu.solve, dtype=factor_a.dtype)
+        # The solver operator and RHS remain unchanged between the two
+        # settings; ONLY the preconditioner varies. This applies
+        # M^{-1} = C * ILU(R*A*C)^{-1} * R (or the pre-scaled analogue).
+        precon = LinearOperator(
+            work.shape, matvec=lambda v: c * ilu.solve(r * v),
+            dtype=work.dtype,
+        )
         iteration_count = [0]
 
         def record_iteration(_):
@@ -138,7 +142,7 @@ def run_case(a, b, work, rhs, perm, args, equil, ordering, rhs_source):
 
         t0 = time.perf_counter()
         x_perm, info = gmres(
-            factor_a, factor_rhs, M=precon, atol=args.atol, rtol=args.rtol,
+            work, rhs, M=precon, atol=args.atol, rtol=args.rtol,
             restart=args.restart, maxiter=args.maxiter,
             callback=record_iteration, callback_type="pr_norm",
         )
@@ -146,7 +150,7 @@ def run_case(a, b, work, rhs, perm, args, equil, ordering, rhs_source):
         result["iterations"] = iteration_count[0]
         result["info"] = int(info)
         x = np.empty_like(x_perm)
-        x[perm] = c * x_perm
+        x[perm] = x_perm
         rel_res = np.linalg.norm(b - a @ x) / np.linalg.norm(b)
         result["rel_residual"] = float(rel_res)
         result["status"] = "converged" if info == 0 and np.isfinite(rel_res) and rel_res <= args.rtol * args.residual_allowance else "not_converged"
