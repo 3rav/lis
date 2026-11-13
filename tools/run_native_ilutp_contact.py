@@ -138,6 +138,7 @@ def run_one(args: argparse.Namespace, name: str, matrix: Path, rhs: Path,
     command = [str(args.bench), str(matrix), str(rhs),
                '--full', '1', '--only-full', '0' if args.compare else '1',
                '--full-limit', str(args.full_limit),
+               '--full-tau', str(args.full_tau),
                '--maxiter', str(args.maxiter), '--restart', str(args.restart),
                '--rtol', str(args.rtol), '--drop', str(args.drop),
                '--rate', str(args.rate), '--rcm', str(args.rcm),
@@ -231,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--compare', action='store_true',
                         help='also record three incomplete ILUT/P controls')
     parser.add_argument('--full-limit', type=integer_nonnegative, default=20000000)
+    parser.add_argument('--full-tau', type=nonnegative_number, default=1.0,
+                        help='native complete-fill ILUTP pivot threshold [0,1]')
     parser.add_argument('--rtol', type=positive_number, default=1e-6)
     parser.add_argument('--accept-residual', type=positive_number, default=1e-5)
     parser.add_argument('--maxiter', type=int, default=300)
@@ -246,6 +249,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--max-vmem-mib', type=int, default=None,
                         help='POSIX RLIMIT_AS hard virtual-memory cap per process')
     args = parser.parse_args(argv)
+    if args.full_tau > 1.0:
+        parser.error('--full-tau must be <= 1')
     if args.maxiter <= 0 or args.restart <= 0:
         parser.error('--maxiter and --restart must be positive')
     if args.max_vmem_mib is not None and args.max_vmem_mib <= 0:

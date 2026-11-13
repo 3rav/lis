@@ -128,7 +128,8 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
     if(full)
     {
         /* No dropping or diagonal perturbation. Pivot against the
-         * strongest surviving Schur-complement column in every row.
+         * surviving Schur-complement column when the requested
+         * -ilutp_threshold deems the current pivot insufficient.
          * A*Q=L*U in exact arithmetic; Q is carried by LIS ILUTP.
          * Factor nnz is bounded independently of sparse pivot fill. */
         uint64_t imax=sizeof(LIS_INT)==4 ? INT32_MAX : INT64_MAX;
@@ -140,7 +141,9 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
             (uint64_t)solver->ilutp_full_limit : auto_limit;
         drop=0.0;
         pivot_tol=0.0;
-        tau=1.0;
+        /* Respect -ilutp_threshold also in complete-fill mode.
+         * A strongest-column pivot at every row can introduce
+         * unnecessary permutations and sparse factor fill. */
         cap=n-1;
     }
 
@@ -351,7 +354,8 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
             entries[m].magnitude=fabs(w[col]);
             m++;
         }
-        qsort(entries,(size_t)m,sizeof(entries[0]),lis_ilutp_compare_desc);
+        if(!full)
+            qsort(entries,(size_t)m,sizeof(entries[0]),lis_ilutp_compare_desc);
         kept=m<cap?m:cap;
         L->nnz[i]=kept;
         if(kept)
@@ -381,7 +385,8 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
             entries[m].magnitude=fabs(w[col]);
             m++;
         }
-        qsort(entries,(size_t)m,sizeof(entries[0]),lis_ilutp_compare_desc);
+        if(!full)
+            qsort(entries,(size_t)m,sizeof(entries[0]),lis_ilutp_compare_desc);
         kept=m<cap?m:cap;
         U->nnz[i]=kept;
         if(kept)

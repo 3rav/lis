@@ -7,14 +7,17 @@ SuperLU plugin. The normal incomplete ILUTP algorithm remains the default.
 ## Usage
 
 ```text
--i fgmres -p ilut -ilutp 1 -ilutp_full 1 -ilutp_full_limit 20000000 \
--ilut_rcm 1 -ilut_row_scale 1 -scale none -omp_num_threads 1
+-i fgmres -p ilut -ilutp 1 -ilutp_full 1 -ilutp_full_limit 60000000 \
+-ilutp_threshold 0.1 -ilut_rcm 1 -ilut_row_scale 1 \
+-scale none -omp_num_threads 1
 ```
 
 - `-ilutp_full 0` (default) preserves existing behavior.
 - `-ilutp_full 1` disables dropping and diagonal perturbation, retains
-  all elimination fill and uses strongest-available column pivoting (`tau=1`).
-  Only the preconditioner is changed; Krylov solves the **original** A x = b.
+  all elimination fill and respects `-ilutp_threshold` for column
+  pivot acceptance (instead of always forcing the largest-column pivot).
+  The full mode also skips magnitude sorting, which is unnecessary when
+  no factors are dropped. Krylov solves the **original** A x = b.
 - `-ilutp_full_limit N` controls the maximum total number of stored
   off-diagonal L+U entries. A value of zero (default) sets an automatic
   budget `max(20*nnz(A), 4*n)`. When the budget is exceeded, setup returns
@@ -48,10 +51,12 @@ Run `./test/testilutp` after building LIS. The experimental GitHub Actions
 workflow also checks that neither `liblis.a` nor the test executable has
 unresolved/dynamic SuperLU dependencies.
 
-**Contact matrices are not in this repository.** The 60,265-DOF 256-spring
-and 187-spring CCX systems have NOT been tested with this mode. Before
-claiming a fix, measure physical residual `||Ax-b||/||b||`, peak RSS,
-fill size and wall time on the *original* CCX snapshots.
+**Original contact matrices are not committed to this repository.**
+A separately uploaded 15-step CCX Newton series `pivot1e9_test2`
+(60,265 DOF) was tested with native LIS, as documented in
+`doc/ilutp-native-contact-v2-15steps.md`. The archive did not establish
+whether it corresponds to the separately named 187-spring or 256-spring
+benchmark; do not conflate these cases.
 
 
 ## Synthetic 60,265-DOF stress (NOT contact data)
@@ -94,7 +99,7 @@ original 256-spring Newton system. Original CCX A,b are unavailable in
 this repository. Its fill, spectrum, memory and convergence may differ.
 
 
-## Run on original CCX Newton snapshots (not yet available here)
+## Run on original CCX Newton snapshots (private inputs, not committed)
 
 Build this branch with serial real-double LIS, then point the **native**
 benchmark at each original Matrix Market matrix and its original RHS.
@@ -108,9 +113,10 @@ python3 tools/run_native_ilutp_contact.py \
   --case 187-springs /path/187_A.mtx /path/187_b.mtx \
   --report /tmp/lis-ccx-contact-audit.json \
   --csv /tmp/lis-ccx-contact-audit.csv \
-  --full-limit 20000000 --rtol 1e-6 --accept-residual 1e-5 \
-  --max-rss-mib 3072 --max-vmem-mib 4096 \
-  --timeout 600
+  --full-limit 60000000 --full-tau 0.1 \
+  --rcm 1 --row-scale 1 --rtol 1e-6 --accept-residual 1e-5 \
+  --max-rss-mib 3072 --max-vmem-mib 3584 \
+  --timeout 150
 ```
 
 The script records SHA-256 of both input files before and after each
@@ -131,3 +137,8 @@ in-library `--full-limit` bound on factor nonzero counts.
 The synthetic 60,265-DOF GitHub regression checks a successful audit
 and two negative controls (too little fill and unacceptable physical
 residual). It remains **not** evidence for the real CCX matrices.
+
+The native benchmark accepts `--full-tau N` in `[0,1]` (default `1.0`
+for backwards-compatible benchmark output), and passes it as
+`-ilutp_threshold N`. The audit script passes `--full-tau` through.
+

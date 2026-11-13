@@ -120,6 +120,32 @@ jobs:
             echo 'Unmet physical residual was unexpectedly accepted' >&2
             exit 1
           fi
+      - name: Native complete-fill threshold with symmetric RCM
+        run: |
+          set -euo pipefail
+          ./test/benchilutp "$RUNNER_TEMP/native-A.mtx" "$RUNNER_TEMP/native-b.mtx" \
+            --full 1 --only-full 1 --full-limit 20000000 --full-tau 0.1 \
+            --maxiter 80 --restart 20 --rcm 1 --row-scale 1 \
+            --csv native-fullfill-rcm-threshold.csv
+          cat native-fullfill-rcm-threshold.csv
+          python3 - <<'PY'
+          import csv
+          from pathlib import Path
+          rows = list(csv.DictReader(Path('native-fullfill-rcm-threshold.csv').open()))
+          assert len(rows) == 1 and rows[0]['variant'] == 'ilutp_full', rows
+          r = rows[0]
+          assert r['status'] == 'converged' and int(r['iterations']) == 1, r
+          assert abs(float(r['tau']) - 0.1) < 1e-12, r
+          assert float(r['physical_relres']) < 1e-10, r
+          assert int(r['api_error']) == int(r['solver_status']) == 0, r
+          assert 0 < int(r['nnz_L']) + int(r['nnz_U']) < 20000000, r
+          print('LIS_NATIVE_FULLFILL_RCM_TAU PASS')
+          PY
+          if ./test/benchilutp "$RUNNER_TEMP/native-A.mtx" "$RUNNER_TEMP/native-b.mtx" \
+            --full 1 --full-tau 2 >/dev/null 2>&1; then
+            echo 'Invalid pivot threshold was accepted' >&2
+            exit 1
+          fi
       - name: Confirm no SuperLU symbols or shared library
         run: |
           set -euo pipefail

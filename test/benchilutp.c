@@ -37,7 +37,7 @@ int main(void)
 typedef struct
 {
     LIS_INT maxiter,restart,rcm,row_scale,full,only_full,full_limit;
-    double rtol,drop,rate,pivot_tol;
+    double rtol,drop,rate,pivot_tol,full_tau;
 } BENCH_ARGS;
 
 static double cpu_seconds(void)
@@ -223,14 +223,14 @@ int main(int argc,char **argv)
             "Usage: %s A.mtx b.mtx [--maxiter N] [--restart N] "
             "[--rtol V] [--drop V] [--rate V] [--pivot-tol V] "
             "[--rcm 0|1] [--row-scale 0|1] "
-            "[--full 0|1] [--only-full 0|1] [--full-limit N] "
+            "[--full 0|1] [--only-full 0|1] [--full-limit N] [--full-tau 0..1] "
             "[--csv FILE]\n",argv[0]);
         return 2;
     }
     a.maxiter=1000;a.restart=120;
     a.rtol=1e-5;a.drop=0.005;a.rate=12.0;
     a.pivot_tol=1e-9;a.rcm=1;a.row_scale=1;
-    a.full=0;a.only_full=0;a.full_limit=0;
+    a.full=0;a.only_full=0;a.full_limit=0;a.full_tau=1.0;
     for(i=3;i<argc;i+=2)
     {
         double num;
@@ -268,6 +268,7 @@ int main(int argc,char **argv)
         else if(strcmp(argv[i],"--pivot-tol")==0)a.pivot_tol=num;
         else if(strcmp(argv[i],"--rcm")==0)a.rcm=(LIS_INT)num;
         else if(strcmp(argv[i],"--row-scale")==0)a.row_scale=(LIS_INT)num;
+        else if(strcmp(argv[i],"--full-tau")==0)a.full_tau=num;
         else if(strcmp(argv[i],"--full")==0 && (num==0 || num==1))a.full=(LIS_INT)num;
         else if(strcmp(argv[i],"--only-full")==0 && (num==0 || num==1))a.only_full=(LIS_INT)num;
         else
@@ -280,7 +281,8 @@ int main(int argc,char **argv)
        a.rate<0 || a.pivot_tol<0 ||
        (a.rcm!=0 && a.rcm!=1) ||
        (a.row_scale!=0 && a.row_scale!=1) ||
-       (a.only_full && !a.full))
+       (a.only_full && !a.full) ||
+       a.full_tau<0.0 || a.full_tau>1.0)
         return 2;
 
     rc=lis_initialize(&argc,&argv);
@@ -328,7 +330,7 @@ int main(int argc,char **argv)
         run_case(csv,"ilutp_1p0",A,b,x,resid,(double)bnorm,&a,1,1.0,0);
     }
     if(a.full)
-        run_case(csv,"ilutp_full",A,b,x,resid,(double)bnorm,&a,1,1.0,1);
+        run_case(csv,"ilutp_full",A,b,x,resid,(double)bnorm,&a,1,a.full_tau,1);
     err=0;
 cleanup:
     if(csv && csv!=stdout)fclose(csv);
