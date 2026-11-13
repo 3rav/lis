@@ -903,6 +903,8 @@ struct LIS_PRECON_STRUCT
 	LIS_INT ilut_apply_active;
 	/* ILUTP: factor-space column position -> original factor-space col. */
 	LIS_INT *ilutp_colperm;
+	/* Two-sided equilibration: C diagonal in pre-pivot factor coordinates. */
+	LIS_SCALAR *ilut_col_scale;
 };
 typedef struct LIS_PRECON_STRUCT *LIS_PRECON;
 
@@ -1113,6 +1115,9 @@ struct LIS_SOLVER_STRUCT
 	LIS_REAL ilutp_threshold;
 	LIS_INT sequence_precon_ilutp_enabled;
 	LIS_REAL sequence_precon_ilutp_threshold;
+	/* Independent opt-in row+column normalization. */
+	LIS_INT ilut_equil;
+	LIS_INT sequence_precon_ilut_equil;
 };
 typedef struct LIS_SOLVER_STRUCT *LIS_SOLVER;
 
