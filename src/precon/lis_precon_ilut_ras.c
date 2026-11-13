@@ -180,7 +180,7 @@ lis_ilut_ras_make_schur(struct LIS_ILUT_RAS_STRUCT *s)
 {
     LIS_MATRIX A=s->A;
     LIS_INT i,j,k,g,q,t,p,best,ng=0;
-    LIS_REAL val,peak;
+    LIS_REAL val,peak,schur_norm=0.0;
     LIS_SCALAR tmp;
     size_t entries;
 
@@ -234,9 +234,39 @@ lis_ilut_ras_make_schur(struct LIS_ILUT_RAS_STRUCT *s)
         }
         else
         {
+            /*
+             * diag(A_II)^-1 is meaningful only when every interior row
+             * has a usable diagonal relative to its own coefficient
+             * scale. Quietly dropping a zero/tiny KKT multiplier pivot
+             * would create a misleading approximate Schur operator.
+             */
+            LIS_REAL row_max=0.0,diag_abs=0.0;
+            LIS_SCALAR diag=0.0;
             for(k=A->ptr[i];k<A->ptr[i+1];k++)
-            if(A->index[k]==i && A->value[k]!=0.0)
-            { s->diag_inv[i]=1.0/A->value[k]; break; }
+            {
+                LIS_REAL mag=fabs(A->value[k]);
+                if(!isfinite((double)mag))
+                {
+                    LIS_SETERR(LIS_ERR_ILL_ARG,
+                        "ILUT RAS Schur interior contains nonfinite entry");
+                    return LIS_ERR_ILL_ARG;
+                }
+                if(mag>row_max) row_max=mag;
+                if(A->index[k]==i) { diag=A->value[k]; diag_abs=mag; }
+            }
+            if(!(row_max>0.0) || !(diag_abs>1.0e-10*row_max))
+            {
+                LIS_SETERR(LIS_ERR_ILL_ARG,
+                    "ILUT RAS Schur interior has missing/weak diagonal");
+                return LIS_ERR_ILL_ARG;
+            }
+            s->diag_inv[i]=1.0/diag;
+            if(!isfinite((double)s->diag_inv[i]))
+            {
+                LIS_SETERR(LIS_ERR_ILL_ARG,
+                    "ILUT RAS Schur interior reciprocal overflows");
+                return LIS_ERR_ILL_ARG;
+            }
         }
     }
 
@@ -258,6 +288,29 @@ lis_ilut_ras_make_schur(struct LIS_ILUT_RAS_STRUCT *s)
                 }
         }
     }
+    /*
+     * Reject nonfinite or dangerously small pivots relative to the
+     * overall approximate Schur scale, not a hard-coded absolute unit.
+     * This is a safety gate, NOT a convergence/conditioning guarantee.
+     */
+    for(i=0;i<s->ngamma*s->ngamma;i++)
+    {
+        val=fabs(s->schur_lu[i]);
+        if(!isfinite((double)val))
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "ILUT RAS approximate Schur has nonfinite coefficients");
+            return LIS_ERR_ILL_ARG;
+        }
+        if(val>schur_norm) schur_norm=val;
+    }
+    if(!(schur_norm>0.0))
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "ILUT RAS approximate Schur is zero");
+        return LIS_ERR_ILL_ARG;
+    }
+
     /* Partial-pivot LU: preserve row-permutation for each RHS. */
     for(k=0;k<s->ngamma;k++)
     {
@@ -267,7 +320,7 @@ lis_ilut_ras_make_schur(struct LIS_ILUT_RAS_STRUCT *s)
             val=fabs(s->schur_lu[(size_t)i*s->ngamma+k]);
             if(val>peak) { best=i;peak=val; }
         }
-        if(!isfinite((double)peak) || peak<=1.0e-14)
+        if(!isfinite((double)peak) || peak<=1.0e-12*schur_norm)
         {
             LIS_SETERR(LIS_ERR_ILL_ARG,
                 "ILUT RAS approximate Schur complement has singular pivot");
