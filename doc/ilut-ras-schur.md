@@ -27,6 +27,8 @@ and uses a small pivoted dense LU factorization to correct the interface residua
 
 - **Experimental and serial-only**: ordinary real double-precision CSR, with row indices local to the single process. MPI, USER/OPERATOR and quad-precision input are explicitly rejected when the option is used; the default ILUT remains unchanged.
 - Maximum interface size for the dense Schur option is 256 DOF. A larger interface or singular approximate Schur leads to an explicit error rather than an undocumented silent fallback.
+- The diagonal approximation explicitly rejects interior rows with missing or weak diagonals (relative to their largest coefficient, threshold `1e-10`) and nonfinite reciprocals. The dense Schur factorization rejects pivots smaller than `1e-12` of the initial Schur maximum coefficient. These guards prevent silent invalid arithmetic; they **do not guarantee a well-conditioned or effective contact preconditioner**.
+- The regression also checks that a deliberately weak interior diagonal is rejected. These tests are algebraic safeguards, not a production FEA validation.
 - The nested ILUT setup may be costly in memory and time; there is currently no automatic partitioner or communication overlap.
 - The adjoint/transpose RAS application is explicitly **not implemented**. Requiring an adjoint raises an error rather than returning an incorrect result.
 - Domain parts own their matrices, factors and work vectors; the outer preconditioner destroys them deterministically.
