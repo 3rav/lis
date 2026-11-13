@@ -56,3 +56,7 @@ Complex LIS builds skip this real-only regression.
 Column pivoting is not equivalent to SuperLU's partial *row* pivoting, and
 cannot resolve every row-rank deficiency or guarantee improved convergence.
 Check actual residuals and compare with the existing serial ILUT baseline.
+
+## Native contact snapshot validation
+
+Real 60,265-DOF CCX contact benchmarks show a strong improvement at 187 springs, but an early BREAKDOWN and larger fill at 256 springs. See [native ILUTP versus ILUT contact benchmark](ilutp_contact_ccx_v2_benchmarks.md) for full physical residuals, factor fill, timing and reproduction. Keep this option experimental.
