@@ -162,7 +162,19 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
         if(err) return err;
         perm=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),
                                     "ILUTP identity permutation");
-        if(!perm) return LIS_OUT_OF_MEMORY;
+        if(!perm)
+        {
+            /* Legacy ILUT succeeded but the identity-permutation
+             * allocation failed. Do not expose incomplete setup state. */
+            lis_matrix_ilu_destroy(precon->L);
+            lis_matrix_ilu_destroy(precon->U);
+            lis_vector_destroy(precon->D);
+            precon->L=NULL;
+            precon->U=NULL;
+            precon->D=NULL;
+            LIS_SETERR_MEM((size_t)n*sizeof(LIS_INT));
+            return LIS_OUT_OF_MEMORY;
+        }
         for(i=0;i<n;i++) perm[i]=i;
         precon->ilutp_colperm=perm;
         return LIS_SUCCESS;
@@ -241,6 +253,9 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
         while(nlo>0)
         {
             j=lis_ilutp_heap_pop(lower,&nlo);
+            /* Explicit CSR zeros and exact cancellation must not
+             * propagate zero multipliers or introduce fake fill. */
+            if(w[j]==0.0) continue;
             finished[processed++]=j;
             fact=w[j]*D->value[j];
             if(!isfinite((double)fact))
@@ -261,6 +276,7 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
                     err=LIS_BREAKDOWN;
                     goto cleanup;
                 }
+                if(delta==0.0) continue;
                 if(seen[col]!=stamp)
                 {
                     if(fabs(delta)<tolnorm) continue;
