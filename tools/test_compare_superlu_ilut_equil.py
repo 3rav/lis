@@ -26,9 +26,12 @@ class TestSuperLUAblation(unittest.TestCase):
         n = 40
         a = sparse.diags(
             [-0.2 * np.ones(n - 1), 4.0 * np.ones(n),
-             -0.4 * np.ones(n - 1)], [-1, 0, 1], format="csc"
+             -0.4 * np.ones(n - 1)], [-1, 0, 1], format="lil"
         )
-        a = sparse.diags(np.logspace(-4, 4, n)) @ a
+        # A genuine nontrivial column correction is required so a no-op
+        # SuperLU Equil option cannot accidentally pass this regression.
+        a[4, 5] = 12.0
+        a = sparse.diags(np.logspace(-4, 4, n)) @ a.tocsc()
         self.a = self.directory / "snapshot_A.mtx"
         self.b = self.directory / "snapshot_b.mtx"
         mmwrite(self.a, a)
@@ -57,6 +60,11 @@ class TestSuperLUAblation(unittest.TestCase):
             self.assertLess(float(row["rel_residual"]), 1e-8)
             self.assertEqual(row["rhs_source"], str(self.b))
             self.assertEqual(row["row_max_scale"], "True")
+            if row["equil"] == "True":
+                self.assertGreater(int(row["col_scaled_count"]), 0, row)
+                self.assertGreater(float(row["col_scale_max"]), 1.0, row)
+            else:
+                self.assertEqual(int(row["col_scaled_count"]), 0, row)
 
     def test_missing_rhs_requires_explicit_manufacturing(self):
         self.b.unlink()
