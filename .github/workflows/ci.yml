@@ -83,6 +83,21 @@ jobs:
       - name: Run Automake test suite
         run: make -j2 check
 
+      - name: Compile and test optional SuperLU Direct preconditioner
+        if: matrix.mode == 'serial'
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y libsuperlu-dev libblas-dev
+          cc -std=c99 -Wall -Wextra -Werror -O2 \
+            -DHAVE_CONFIG_H -I./include -I./contrib/superlu_direct \
+            contrib/superlu_direct/testsuperlu_direct.c \
+            contrib/superlu_direct/lis_superlu_direct.c \
+            src/.libs/liblis.a \
+            $(pkg-config --cflags --libs superlu) -lblas -lm \
+            -o testsuperlu_direct
+          ./testsuperlu_direct | tee superlu-direct-smoke.log
+          grep -q '^SUPERLU_PLUGIN_TEST ' superlu-direct-smoke.log
+
       - name: Smoke-test native ILUTP Matrix Market comparison
         if: matrix.mode == 'serial'
         run: |
