@@ -10,7 +10,7 @@ LIS ILUT now has a **separate opt-in** serial restricted additive Schwarz (RAS) 
 ```
 
 - `-ilut_ras_overlap 0|1|2` turns on RAS (default: off). Overlap is the number of sparsity-graph edges added beyond each core partition.
-- `-ilut_ras_domains 2..16` selects the count of deterministic, contiguous partitions (default: 2). Each subdomain uses the normal LIS ILUT factorization on its extracted local matrix, including the outer `-precon_half` policy.
+- `-ilut_ras_domains 2..64` selects the count of deterministic, contiguous partitions (default: 2). Each subdomain uses the normal LIS ILUT factorization on its extracted local matrix, including the outer `-precon_half` policy.
 - `-ilut_schur 0|1` adds an optional **diagonal-approximate interface Schur correction** (default: off). The interface is rows coupled across the original nonoverlapping partitions.
 
 RAS applies the local factor solve on each overlapping subdomain but injects corrections into that subdomain's **nonoverlapping core** only. For the Schur variant, LIS computes
@@ -18,6 +18,16 @@ RAS applies the local factor solve on each overlapping subdomain but injects cor
 \[\widetilde S=A_{\Gamma\Gamma}-A_{\Gamma I}\operatorname{diag}(A_{II})^{-1}A_{I\Gamma}\]
 
 and uses a small pivoted dense LU factorization to correct the interface residual. It then applies diagonal-approximate interior back-substitution. This is a **one-step approximate Schur correction**, not hypre's distributed GMRES-on-Schur algorithm and not a general-purpose exact Schur complement.
+
+## Scalability experiments (not yet production-ready)
+
+The experimental successor branch `experiment/ras-schur-scalable` extends the serial implementation with:
+
+- `-ilut_ras_domains 2..64` (previously 2..16).
+- `-ilut_ras_parallel 1`: explicitly opt-in OpenMP parallelism of independent **local preconditioner applications only**. Setup/factorization remains serial because LIS currently mutates shared global dispatch and error-reporting state during construction. Serial builds execute the same loop sequentially. Per-domain errors are collected and returned after the OpenMP join.
+- Bounded weak-diagonal promotion from the interior to the Schur interface before factorization, with a cap of 20% of the matrix dimension. This is not sufficient to guarantee a well-conditioned Schur operator. A larger or singular interface still fails safely.
+
+These changes are not a claim of automatic near-linear scaling, and do not yet remove the dense Schur 256-DOF limit. A separate sparse Schur CSR proof of concept exists in [3rav/lis#64](https://github.com/3rav/lis/pull/64), but is not integrated. RCM-first partitioning also remains a proposed improvement rather than an established separator minimizer. No production FEA performance comparison is available.
 
 ## Synthetic contact-KKT regression
 
