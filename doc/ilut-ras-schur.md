@@ -37,6 +37,20 @@ These changes are not a claim of automatic near-linear scaling. **The current ex
 
 The smoke test constructs a **512-unknown scalar 3D seven-point stencil** with four contiguous partitions and an expected 384 interface DOF. It checks that sparse Schur setup succeeds, reports true residuals after one preconditioner application, and compares results with `-ilut_ras_parallel 0` and `1`. It does **not** represent three-dimensional vector elasticity, a Newton/contact KKT matrix, or a measured performance advantage. CI includes it in the Linux FP16 job.
 
+## RCM-ranked partitioning and reproducible Matrix Market comparison
+
+`-ilut_ras_rcm 1` optionally partitions domains along the deterministic symmetric-graph RCM ordering shared with ILUT from upstream #224. The input matrix and global variable numbering are not changed. Core injection still uses disjoint owner indices, even when they are no longer contiguous. The default remains `0` (original index ordering) to preserve prior behavior. RCM is a bandwidth-reduction heuristic, **not a guaranteed minimum-separator partitioner**; interface size and timing must be measured for each FEA mesh.
+
+The optional extended Matrix Market benchmark compares baseline ILUT, RAS, and RAS+Schur using the same original `Ax=b` and manufactured known solution:
+
+```sh
+OMP_NUM_THREADS=8 ./test/testhalfilut --fea-ras contact.mtx 8 8 8 0.005 8 1 1 1
+```
+
+The arguments after the file are: baseline fill rate, RAS fill rate, RAS+Schur fill rate, common drop tolerance, domain count, overlap depth, RCM-ranked partitions (0/1), and OpenMP local apply (0/1). The output includes **wall-clock** setup/solve/total times, FGMRES iterations, true original-system relative residual, interface DOFs and a stored-entry proxy. Each case prints `fair_fill` only when its proxy differs by at most 5% from baseline ILUT. Because factors, sparse CSR, indices, and workspaces have different costs, the stored-entry proxy is **not peak resident memory**: measure peak RSS independently before drawing performance conclusions. If a case fails, its status and LIS error are printed rather than inventing convergence results.
+
+The benchmark is intended for **external real FEA snapshots**. The synthetic 512-DOF stencil test is only a correctness regression and is not substituted for a 50k–200k DOF contact elasticity experiment. No production FEA speedup is claimed.
+
 ## Synthetic contact-KKT regression
 
 `testhalfilut` now assembles an indefinite **48×48 stabilized saddle-point system** with a 36×36 spring-stiffness block, twelve displacement-difference constraints, and a negative 0.1 multiplier diagonal. It compares the legacy ILUT control with the opt-in variant, requiring convergence to a **true relative residual below 1e-7** and printing Krylov iterations and residuals. This is an algebraic contact-style regression, **not** a production nonlinear FEA benchmark and not evidence of a speedup.
