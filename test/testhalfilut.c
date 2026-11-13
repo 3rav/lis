@@ -1529,10 +1529,9 @@ done:
 
 /* Optional, externally supplied Matrix Market comparison.
  *
- * ./test/testhalfilut --fea-ras A.mtx 8 8 8 0.005 8 1 1 1
+ * ./test/testhalfilut --fea-ras A.mtx 8 8 0.005 8 1 1 1
  *
- * Base and RAS rates are independent. The unused third rate argument
- * is retained only for compatibility with the research CLI. The last four numbers
+ * Base and RAS fill rates are independent. The last four numbers
  * specify RAS domains, overlap, RCM-ranked partition, OpenMP local
  * apply. The benchmark measures wall time, NOT process CPU time.
  * Fill entries are a storage proxy, not peak RSS; tune rates until
@@ -1746,7 +1745,7 @@ done:
 
 static int
 run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
-                    double schur_rate,double drop,LIS_INT domains,
+                    double drop,LIS_INT domains,
                     LIS_INT overlap,LIS_INT rcm,LIS_INT parallel,LIS_INT row_scale,
                     LIS_INT local_rcm)
 {
@@ -1761,7 +1760,6 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
     const char *names[2]={"baseline","ras"};
     if(!file || !isfinite(base_rate) || !(base_rate>0.0) ||
        !isfinite(ras_rate) || !(ras_rate>0.0) ||
-       !isfinite(schur_rate) || !(schur_rate>0.0) ||
        !isfinite(drop) || drop<0.0 || drop>=1.0 ||
        domains<2 || domains>64 || overlap<0 || overlap>2 ||
        (rcm!=0 && rcm!=1) || (parallel!=0 && parallel!=1) ||
@@ -1901,26 +1899,25 @@ main(
 		return failed ? 1 : 0;
 	}
 
-	if((argc==11 || argc==12 || argc==13) && strcmp(argv[1],"--fea-ras")==0)
+	if((argc==10 || argc==11 || argc==12) && strcmp(argv[1],"--fea-ras")==0)
 	{
-		char *end[10],*value[10];
-		double br,rr,sr,drop;
+		char *end[9],*value[9];
+		double br,rr,drop;
 		long domains,overlap,rcm,parallel,row_scale=0,local_rcm=0;
 		int j,valid=1;
 		for(j=0;j<argc-3;j++) { value[j]=argv[j+3]; end[j]=NULL; }
 		br=strtod(value[0],&end[0]);
 		rr=strtod(value[1],&end[1]);
-		sr=strtod(value[2],&end[2]);
-		drop=strtod(value[3],&end[3]);
-		domains=strtol(value[4],&end[4],10);
-		overlap=strtol(value[5],&end[5],10);
-		rcm=strtol(value[6],&end[6],10);
-		parallel=strtol(value[7],&end[7],10);
-		if(argc>=12) row_scale=strtol(value[8],&end[8],10);
-		if(argc==13) local_rcm=strtol(value[9],&end[9],10);
+		drop=strtod(value[2],&end[2]);
+		domains=strtol(value[3],&end[3],10);
+		overlap=strtol(value[4],&end[4],10);
+		rcm=strtol(value[5],&end[5],10);
+		parallel=strtol(value[6],&end[6],10);
+		if(argc>=11) row_scale=strtol(value[7],&end[7],10);
+		if(argc==12) local_rcm=strtol(value[8],&end[8],10);
 		for(j=0;j<argc-3;j++)
 		    if(end[j]==value[j] || *end[j]!='\0') valid=0;
-		failed=valid ? run_fea_ras_compare(argv[2],br,rr,sr,drop,
+		failed=valid ? run_fea_ras_compare(argv[2],br,rr,drop,
                     (LIS_INT)domains,(LIS_INT)overlap,
                     (LIS_INT)rcm,(LIS_INT)parallel,(LIS_INT)row_scale,
                     (LIS_INT)local_rcm) : 1;

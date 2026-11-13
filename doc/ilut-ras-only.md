@@ -65,3 +65,13 @@ Source logs and archived artifact: https://github.com/3rav/lis/actions/runs/4340
 - The removed Schur option must not be registered or linked in the RAS-only code or tests.
 - Preserve default ILUT behavior, OOM cleanup, local FP16 and row-scaled RCM test coverage.
 - Keep this PR **Draft** until the branch CI and numerical-safety review are completed; even then, "Ready for review" is an invitation to review, not a guarantee of merge or improved FEA performance.
+
+### RAS-only Matrix Market benchmark CLI
+
+```sh
+# BASE_RATE RAS_RATE DROP DOMAINS OVERLAP DOMAIN_RCM PARALLEL [ROW_SCALE] [LOCAL_RCM]
+LIS_FEA_BASELINE_THREADS=1 OMP_NUM_THREADS=8 \\
+  ./test/testhalfilut --fea-ras bcsstk39.mtx 16 24 0.0001 8 1 0 1 1 1
+```
+
+The optional environment variable `LIS_FEA_RAS_DROP` controls the RAS-only drop threshold independently of the baseline; `LIS_FEA_FILL_ONLY=1` performs factor-entry calibration without invoking a Krylov solver. `LIS_FEA_ONLY_BASELINE=1` isolates the baseline. The benchmark never treats `LIS_FEA_FILL_ONLY` as a numerical convergence test.

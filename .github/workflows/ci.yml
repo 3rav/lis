@@ -109,7 +109,7 @@ jobs:
         if: matrix.mode == 'half'
         run: |
           set -euo pipefail
-          ./test/testhalfilut --fea-ras test/testmat0.mtx 8 8 8 0.005 4 1 1 1 | tee ilut-fea-ras.csv
+          ./test/testhalfilut --fea-ras test/testmat0.mtx 8 8 0.005 4 1 1 1 | tee ilut-fea-ras.csv
           grep -q '^FEA_RAS_MATRIX ' ilut-fea-ras.csv
           grep -q '^baseline,' ilut-fea-ras.csv
           grep -q '^ras,' ilut-fea-ras.csv
