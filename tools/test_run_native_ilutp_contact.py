@@ -24,7 +24,10 @@ class NativeContactAuditTest(unittest.TestCase):
 
     def test_integer_limit_rejects_fraction_and_overflow(self):
         self.assertEqual(integer_nonnegative('20000000'), 20000000)
-        for item in ('-1', '+1', '1.2', '1e3', 'nan', '', '2147483648'):
+        self.assertEqual(integer_nonnegative('2147483648'), 2147483648)
+        self.assertEqual(integer_nonnegative('9223372036854775807'), 2**63 - 1)
+        for item in ('-1', '+1', '1.2', '1e3', 'nan', '',
+                     '9223372036854775808'):
             with self.assertRaises(argparse.ArgumentTypeError):
                 integer_nonnegative(item)
 
