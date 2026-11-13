@@ -83,7 +83,7 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
     LIS_SCALAR *w=NULL,fact,delta,pivot,swapval;
     LIS_ILUTP_ENTRY *entries=NULL;
     LIS_REAL drop,rate,tau,pivot_tol,rowmax,rowsum,tolnorm,maxval,v;
-    LIS_INT swapcol;
+    LIS_INT swapcol,swaps=0;
 #ifdef _OPENMP
     /* Existing ILU triangular kernels partition factors by OpenMP rank. */
     if(omp_get_max_threads()!=1)
@@ -274,6 +274,7 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
             swapval=w[i];
             w[i]=w[best];
             w[best]=swapval;
+            ++swaps;
         }
 
         pivot=w[i];
@@ -365,6 +366,7 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
     precon->U=U; U=NULL;
     precon->D=D; D=NULL;
     precon->ilutp_colperm=perm; perm=NULL;
+    precon->ilutp_swap_count=swaps;
 
 cleanup:
     lis_matrix_ilu_destroy(L);
