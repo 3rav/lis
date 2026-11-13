@@ -67,10 +67,13 @@ For the exact 256-spring input:
   (true relative residual ~1.059). ILUTP still BREAKDOWNs.
   Thus lower fill merely trades breakdown for stagnation in this state.
 
-**Engineering conclusion:** the hard case needs a *numerically different
-preconditioner*, e.g. stable row pivoting, matching-based ordering / scaling,
-or a contact-aware block preconditioner; merely changing the column pivot
-threshold, fill budget, or scaling FGMRES output does not suffice.
+**Bounded conclusion:** limited-fill ILUTP with *pivot regularization
+1e-9* and the stated drop/fill settings failed. The observed
+`max(abs(D))=1e9` is consistent with a pivot being limited by the
+1e-9 regularization floor; this observation is not proof of the cause.
+The effects of removing diagonal perturbation versus removing dropping
+have **not been isolated**. Do not infer from these runs alone that a
+different factorization family is required.
 
 ## Reproduce
 
@@ -87,32 +90,110 @@ Change snapshot 05 to 03 for the 256-spring experiment. The CLI reports setup/so
 
 ## Recommendation
 
-**Keep upstream PR Draft and ILUTP opt-in**; the 187-spring success is strong evidence for value on some contact systems, but the harder 256-spring case is still a breakdown with significant extra fill. Before promotion: diagnose early FGMRES/preconditioner breakdown, measure pivot growth and memory, and benchmark against matching-based ordering (such as MC64) and SuperLU row pivoting.
+**Keep upstream PR Draft and ILUTP opt-in.** The 187-spring
+limited-fill success is useful, but the separately labelled 256-spring
+case remains a negative control **for the measured settings**.
+Before asserting a root cause, run the two-case unregularized-pivot
+experiment below. End-to-end CCX behavior and a baseline comparison
+against the application's production solver are still unmeasured.
 
 These are direct linear-solver snapshots, not a nonlinear CCX increment acceptance test. No claim is made that the overall CCX nonlinear analysis now converges.
 
 
-## Follow-up: native complete-fill mode on a separate 15-step series
+## Unresolved 256-spring attribution: next required experiment
 
-After the limited-fill measurements above, LIS gained **optional native
-complete-fill ILUTP**, which retains all elimination fill and respects
-a configurable column-pivot threshold without linking to SuperLU.
+**Not yet performed on the original 256-spring snapshot 03**. The
+available archive named `lis_snapshots(1).7z` instead contains ten
+`drop001` matrices (roughly 3.46–3.48M stored entries), not the original
+`lis_snapshots_v2.7z` with snapshot 03 (3,639,839 entries). Do not
+substitute a same-numbered or similarly sized matrix.
 
-On a *separately supplied* archive with 15 original 60,265-DOF Newton
-matrix/RHS pairs (prefix `pivot1e9_test2`), `-ilutp_full 1`,
-`-ilutp_threshold 0.1`, RCM, row scaling and a 60-million factor-nonzero
-limit passed **15/15** linear systems. All obtained a physical relative
-residual below 2.84e-12 and used one FGMRES iteration. Largest observed
-stored L+U fill was 51,108,311 nonzeros; maximum observed peak RSS was
-799,024 KiB (~780 MiB). The most expensive setup cost 65.04 CPU seconds.
-The archive's spring counts are **not independently identified**; these
-15 cases are not claimed to be the separately named 187/256-spring inputs.
+After building this PR, use the actual snapshot 03 *A and b* to compare,
+holding RCM, row scaling, solver tolerance and other settings fixed:
 
-This does **not** invalidate the limited-fill ILUTP failure above.
-It identifies a more expensive, numerically different optional mode
-that succeeded on the supplied series. Full CCX nonlinear analysis,
-memory exhaustion handling across all matrices, and reuse across changing
-Newton matrices are still untested.
+```sh
+A=/path/to/snapshot03_256_A.mtx
+B=/path/to/snapshot03_256_b.mtx
+OMP_NUM_THREADS=1 ./test/benchilutp "$A" "$B" \
+  --maxiter 240 --restart 120 --rtol 1e-5 \
+  --drop 0.005 --rate 12 --pivot-tol 0 \
+  --rcm 1 --row-scale 1 --csv limited-pivot0.csv
 
-Details, exact commands, true residuals and limitations:
-[15-step native LIS Newton-series report](ilutp-native-contact-v2-15steps.md).
+OMP_NUM_THREADS=1 ./test/benchilutp "$A" "$B" \
+  --maxiter 240 --restart 120 --rtol 1e-5 \
+  --drop 0.005 --rate 12 --pivot-tol 0 \
+  --rcm 1 --row-scale 1 --full 1 --only-full 1 \
+  --full-tau 0.1 --full-limit 60000000 --csv full-pivot0.csv
+```
+
+The limited mode emits both `tau=0.5` and `tau=1.0`; the full
+mode's threshold here is `0.1`, matching the existing full-fill
+contact run. **The threshold is a remaining difference** between the
+two; use `--full-tau 0.5` as an optional, matching-threshold control
+before attributing success specifically to fill.
+Evaluate original-system residuals, setup/solve CPU, factor NNZ,
+and peak RSS; a successful solver status alone is insufficient.
+
+If limited-fill with `--pivot-tol 0` succeeds, a full-fill rescue
+cannot be attributed to fill alone. If only full fill succeeds, that
+supports an important role for fill/dropping under these settings but
+does not isolate the threshold or guarantee end-to-end CCX convergence.
+
+## Separate 15-step complete-fill Newton series (private)
+
+A separately uploaded private archive `lis_snapshots_v2(1).7z`
+with prefix `pivot1e9_test2` contained **15 A/b pairs but only 12
+distinct matrix A hashes** (steps 1, 4, 6 and 12 share A).
+Its spring count is unknown; **this is not evidence that the separately
+labelled 256-spring snapshot 03 has been solved**.
+
+With native column-pivoted full fill, RCM=1, row-max scaling,
+threshold=0.1 and a cap of 60 million stored L+U off-diagonal
+entries, all 15 RHS were solved independently with one FGMRES
+iteration per case. Original-system residuals were in
+[4.631e-15, 2.837e-12]. Each run refactorized independently,
+including repeated matrices; hashes of the source inputs were
+checked before and after execution. This is **15 solves,
+12 distinct matrices**, not 15 independent numerical problems.
+
+| Step | Factor CPU s | L+U nnz | Peak RSS KiB | True relative residual |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 9.59 | 23533512 | 431836 | 4.631e-15 |
+| 2 | 38.30 | 39107753 | 638232 | 2.028e-14 |
+| 3 | 65.04 | 51108311 | 799024 | 1.664e-12 |
+| 4 | 9.11 | 23533512 | 431868 | 4.631e-15 |
+| 5 | 28.61 | 33338232 | 561388 | 3.816e-14 |
+| 6 | 9.79 | 23533512 | 431704 | 4.631e-15 |
+| 7 | 12.99 | 26710622 | 473212 | 4.943e-14 |
+| 8 | 12.13 | 26021990 | 464356 | 5.722e-14 |
+| 9 | 10.55 | 24611888 | 444312 | 2.837e-12 |
+| 10 | 10.32 | 24756200 | 446168 | 5.145e-14 |
+| 11 | 11.31 | 25737599 | 459092 | 5.952e-13 |
+| 12 | 9.50 | 23533512 | 431676 | 4.631e-15 |
+| 13 | 10.88 | 24986252 | 449248 | 8.641e-14 |
+| 14 | 10.29 | 24786986 | 446804 | 4.747e-13 |
+| 15 | 10.10 | 24440936 | 442352 | 1.513e-13 |
+
+The maximum L+U fill was **51,108,311 entries** (step 3),
+peak RSS **799,024 KiB**, and longest factor setup **65.04 CPU s**.
+Step 3 needed a 150-second rather than the initial 45-second timeout.
+The 60-million fill cap leaves approximately **17% headroom relative
+to the 51.1-million observed fill**, not a guaranteed memory bound.
+
+Earlier full-fill attempts with RCM=0 and tau=1 were **resource-limited**:
+they exceeded the configured fill budget or timed out; they do not
+establish numerical breakdown. The subsequent successful setup changed
+RCM and pivot threshold together, so neither effect can be assigned
+causally from those measurements.
+
+Reproduction on *that* private series (once available) is through
+`tools/run_native_ilutp_contact.py`, with `--full-limit 60000000
+--full-tau 0.1 --rcm 1 --row-scale 1 --restart 40 --rtol 1e-6
+--accept-residual 1e-5 --timeout 150`.
+
+**Important limitations:** this is only an offline linear-system
+test on one private FEA model, not a CCX nonlinear simulation,
+not a test of the original 256-spring failure, and not a comparison
+to the production CCX solver. A production sparse direct solver
+with AMD/METIS may be faster; no measurement here establishes that.
+The limit counts stored factor coefficients, not total RSS.
