@@ -258,9 +258,11 @@ LIS_INT lis_solver_init(LIS_SOLVER solver)
 	solver->ilut_ras_overlap = -1;
 	solver->ilut_ras_domains = 2;
 	solver->ilut_schur = 0;
+	solver->ilut_ras_parallel = 0;
 	solver->sequence_precon_ilut_ras_overlap = -1;
 	solver->sequence_precon_ilut_ras_domains = 2;
 	solver->sequence_precon_ilut_schur = 0;
+	solver->sequence_precon_ilut_ras_parallel = 0;
 	solver->sequence_precon_half_mode = LIS_PRECON_HALF_OFF;
 	solver->sequence_initial_residual = 0.0;
 	solver->sequence_rhs_norm = 0.0;
@@ -2637,7 +2639,8 @@ static LIS_INT lis_solver_sequence_precon_config_matches(
 
 	if(solver->sequence_precon_ilut_ras_overlap!=solver->ilut_ras_overlap ||
 	   solver->sequence_precon_ilut_ras_domains!=solver->ilut_ras_domains ||
-	   solver->sequence_precon_ilut_schur!=solver->ilut_schur)
+	   solver->sequence_precon_ilut_schur!=solver->ilut_schur ||
+	   solver->sequence_precon_ilut_ras_parallel!=solver->ilut_ras_parallel)
 		return LIS_FALSE;
 
 	if( solver->sequence_precon_half_mode!=
@@ -2669,6 +2672,7 @@ static void lis_solver_sequence_precon_snapshot(
 	solver->sequence_precon_ilut_ras_overlap = solver->ilut_ras_overlap;
 	solver->sequence_precon_ilut_ras_domains = solver->ilut_ras_domains;
 	solver->sequence_precon_ilut_schur = solver->ilut_schur;
+	solver->sequence_precon_ilut_ras_parallel = solver->ilut_ras_parallel;
 }
 
 #undef __FUNC__
@@ -5435,22 +5439,25 @@ LIS_INT lis_solver_set_option2(char* arg1, char *arg2, LIS_SOLVER solver)
 	/* Opt-in serial overlapping restricted additive Schwarz and Schur. */
 	if(strcmp(arg1,"-ilut_ras_overlap")==0 ||
 	   strcmp(arg1,"-ilut_ras_domains")==0 ||
-	   strcmp(arg1,"-ilut_schur")==0)
+	   strcmp(arg1,"-ilut_schur")==0 ||
+	   strcmp(arg1,"-ilut_ras_parallel")==0)
 	{
 		int value=0;
 		char extra;
 		if(arg2==NULL || sscanf(arg2,"%d %c",&value,&extra)!=1 ||
 		   (strcmp(arg1,"-ilut_ras_overlap")==0 && (value<0 || value>2)) ||
-		   (strcmp(arg1,"-ilut_ras_domains")==0 && (value<2 || value>16)) ||
-		   (strcmp(arg1,"-ilut_schur")==0 && (value<0 || value>1)))
+		   (strcmp(arg1,"-ilut_ras_domains")==0 && (value<2 || value>64)) ||
+		   (strcmp(arg1,"-ilut_schur")==0 && (value<0 || value>1)) ||
+		   (strcmp(arg1,"-ilut_ras_parallel")==0 && (value<0 || value>1)))
 		{
 			LIS_SETERR(LIS_ERR_ILL_ARG,
-			   "invalid ILUT RAS option (overlap 0..2, domains 2..16, schur 0/1)");
+			   "invalid ILUT RAS option (overlap 0..2, domains 2..64, schur/parallel 0/1)");
 			LIS_DEBUG_FUNC_OUT;
 			return LIS_ERR_ILL_ARG;
 		}
 		if(strcmp(arg1,"-ilut_ras_overlap")==0) solver->ilut_ras_overlap=value;
 		else if(strcmp(arg1,"-ilut_ras_domains")==0) solver->ilut_ras_domains=value;
+		else if(strcmp(arg1,"-ilut_ras_parallel")==0) solver->ilut_ras_parallel=value;
 		else solver->ilut_schur=value;
 		LIS_DEBUG_FUNC_OUT;
 		return LIS_SUCCESS;
