@@ -301,6 +301,34 @@ static int check_fgmres_sequence(void)
        fabs(solver->sequence_precon_ilutp_threshold-0.25)>1e-12)
         goto cleanup;
 
+    /*
+     * Fixed matrix graph, new numerical values, frozen-pattern policy:
+     * ILUTP must reject the incompatible in-place frozen refactorization,
+     * and the sequence manager must fall back to a fresh pivoted build.
+     */
+    err=lis_solver_set_sequence_precon_refresh_policy(
+        solver,LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN);
+    if(err)goto cleanup;
+    {
+        LIS_INT k,found=0;
+        for(k=A->ptr[10];k<A->ptr[11];k++)
+            if(A->index[k]==10)
+            {
+                A->value[k] *= (LIS_SCALAR)1.15;
+                found=1;
+                break;
+            }
+        if(!found)goto cleanup;
+    }
+    err=lis_matrix_mark_values_changed(A);if(err)goto cleanup;
+    err=lis_matvec(A,truth,b);if(err)goto cleanup;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,x);if(err)goto cleanup;
+    err=lis_solve_sequence(A,b,x,solver);if(err)goto cleanup;
+    if(solver->retcode!=LIS_SUCCESS || !solution_close(x,truth) ||
+       solver->sequence_precon==NULL ||
+       solver->sequence_precon->ilutp_colperm==NULL)
+        goto cleanup;
+
     failed=0;
 cleanup:
     if(failed)fprintf(stderr,
