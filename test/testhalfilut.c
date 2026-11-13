@@ -906,7 +906,7 @@ cleanup:
  */
 
 /* Gross-gain negative control: each 16x16 owner block is upper bidiagonal.
- * Its exact inverse on a unit impulse has magnitude potentially ~10^45. This verifies
+ * Its last row has a 1e-15 pivot while the row norm is much larger. This verifies
  * explicit RAS guard rejection, not an estimate of condition number.
  */
 static int
@@ -929,7 +929,8 @@ check_ilut_ras_gross_growth_guard(void)
     if(A->nprocs!=1) { failed=0; goto done; }
     for(i=0;i<32;i++)
     {
-        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)1.0,A);
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
+                                 i==31 ? (LIS_SCALAR)1.0e-15 : (LIS_SCALAR)1.0,A);
         if(err) goto done;
         if(i<31)
         {
@@ -953,7 +954,7 @@ check_ilut_ras_gross_growth_guard(void)
         if(err) goto done;
         snprintf(opts,sizeof(opts),
             "-i fgmres -p ilut -scale none -print none "
-            "-ilut_drop 0 -ilut_rate 32 -ilu_pivot_tol 1e-10 "
+            "-ilut_drop 0 -ilut_rate 32 -ilu_pivot_tol 1e-18 "
             "-ilut_ras_domains 2 -ilut_ras_overlap 0 "
             "-ilut_ras_parallel 0 -ilut_ras_guard %ld",
             (long)guard);
