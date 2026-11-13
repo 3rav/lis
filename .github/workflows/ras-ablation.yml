@@ -7,6 +7,7 @@ on:
       - experiment/ras-schur-scalable
     paths:
       - .github/workflows/ras-ablation.yml
+      - test/testhalfilut.c
 
 permissions:
   contents: read
@@ -65,6 +66,7 @@ jobs:
           # global thread partition and independently extracted local
           # matrices may use different fill budgets or factor ordering.
           # Compare actual iteration counts, residuals and factor counts.
+          set -e
           grep -q '^FEA_RAS_MATRIX ' ablation/overlap0-rcm0.log
           grep -q '^baseline,' ablation/overlap0-rcm0.log
           grep -q '^ras,' ablation/overlap0-rcm0.log
