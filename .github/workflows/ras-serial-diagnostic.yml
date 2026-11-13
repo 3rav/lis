@@ -1,0 +1,76 @@
+name: Serial ILUT numerical sensitivity diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/ras-schur-scalable
+    paths:
+      - .github/workflows/ras-serial-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  serial-ilut:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      OMP_NUM_THREADS: '8'
+      OMP_DYNAMIC: 'FALSE'
+      LIS_FEA_BASELINE_THREADS: '1'
+      LIS_FEA_ONLY_BASELINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin unzip
+      - name: Build serial-reference benchmark from OpenMP LIS
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --enable-omp --disable-fortran --disable-f90 \
+            --disable-saamg --disable-mpi
+          make -j2
+          make -C test testhalfilut
+      - name: Fetch public stiffness matrix
+        run: |
+          set -euo pipefail
+          mkdir -p serial-diagnostic
+          curl --fail --location --retry 3 --max-time 180 \
+            https://nrvis.com/download/data/misc/bcsstk39.zip \
+            -o serial-diagnostic/bcsstk39.zip
+          unzip -o -q serial-diagnostic/bcsstk39.zip -d serial-diagnostic
+          find serial-diagnostic -type f -iname '*.mtx' -exec chmod u+r {} +
+          find serial-diagnostic -type f -iname '*.mtx' | head -1 > serial-diagnostic/matrix.txt
+          test -s serial-diagnostic/matrix.txt
+      - name: Diagnose factorization or solve errors over bounded parameter grid
+        run: |
+          set -uo pipefail
+          set +e
+          matrix="$(cat serial-diagnostic/matrix.txt)"
+          for config in "0 0 8 0.005" "1 0 8 0.005" "1 1 8 0.005" "1 1 16 0.0001" "0 1 16 0.0001"; do
+            read -r rcm scale rate drop <<< "$config"
+            export LIS_FEA_BASELINE_RCM="$rcm"
+            label="rcm-${rcm}-scale-${scale}-rate-${rate}-drop-${drop}"
+            echo "### serial baseline $label"
+            timeout 330 ./test/testhalfilut --fea-ras \
+              "$matrix" "$rate" 8 8 "$drop" 8 1 0 1 "$scale" 1 \
+              > "serial-diagnostic/${label}.log" 2>&1
+            rc=$?
+            cat "serial-diagnostic/${label}.log"
+            echo "benchmark_exit_status=$rc"
+            printf '%s\n' "$rc" > "serial-diagnostic/${label}.status"
+          done
+          set -e
+          grep -l '^FEA_RAS_MATRIX ' serial-diagnostic/*.log
+      - name: Publish complete diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serial-ilut-bcsstk39-diagnostics
+          path: |
+            serial-diagnostic/*.log
+            serial-diagnostic/*.status
+            serial-diagnostic/matrix.txt
+          if-no-files-found: warn

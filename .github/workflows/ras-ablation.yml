@@ -1,0 +1,97 @@
+name: RAS zero-overlap ablation (public structural FEM)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/ras-schur-scalable
+    paths:
+      - .github/workflows/ras-ablation.yml
+      - test/testhalfilut.c
+
+permissions:
+  contents: read
+
+jobs:
+  bcsstk39-overlap0:
+    name: 8-domain overlap=0 RCM=0 vs 8-thread ILUT
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      OMP_NUM_THREADS: '8'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin unzip
+      - name: Build LIS with OpenMP
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --enable-omp --disable-fortran --disable-f90 \
+            --disable-saamg --disable-mpi
+          make -j2
+          make -C test testhalfilut
+      - name: Fetch and validate public structural stiffness matrix
+        run: |
+          set -euo pipefail
+          mkdir -p ablation
+          curl --fail --location --retry 3 --max-time 180 \
+            https://nrvis.com/download/data/misc/bcsstk39.zip \
+            -o ablation/bcsstk39.zip
+          unzip -o -q ablation/bcsstk39.zip -d ablation
+          find ablation -type f -iname '*.mtx' -exec chmod u+r {} +
+          mtx="$(find ablation -type f -iname '*.mtx' | head -1)"
+          test -n "$mtx"
+          grep -qiE '^%%MatrixMarket matrix coordinate real' <(head -n 1 "$mtx")
+          echo "$mtx" > ablation/matrix.txt
+      - name: Zero overlap and raw-ordering ablation (no Schur, no row scale)
+        run: |
+          set -uo pipefail
+          set +e
+          matrix="$(cat ablation/matrix.txt)"
+          # Baseline ILUT, zero-overlap RAS and RAS+Schur share the same
+          # original system and fill controls. The third variant is
+          # retained as a diagnostic, not as the main ablation.
+          # Failures to converge are recorded, not suppressed in the data.
+          timeout 600 ./test/testhalfilut --fea-ras \
+            "$matrix" 8 8 8 0.005 8 0 0 1 0 \
+            > ablation/overlap0-rcm0.log 2>&1
+          result=$?
+          cat ablation/overlap0-rcm0.log
+          echo "$result" > ablation/benchmark-exit.txt
+          echo "benchmark_exit_status=$result"
+          # Do not assert mathematical identity of ILUT factorization:
+          # global thread partition and independently extracted local
+          # matrices may use different fill budgets or factor ordering.
+          # Compare actual iteration counts, residuals and factor counts.
+          set -e
+          grep -q '^FEA_RAS_MATRIX ' ablation/overlap0-rcm0.log
+          grep -q '^baseline,' ablation/overlap0-rcm0.log
+          grep -q '^ras,' ablation/overlap0-rcm0.log
+          grep -q '^ras_schur,' ablation/overlap0-rcm0.log
+          set +e
+          timeout 600 ./test/testhalfilut --fea-ras \
+            "$matrix" 8 8 8 0.005 8 0 0 1 0 1 \
+            > ablation/overlap0-localrcm1.log 2>&1
+          result=$?
+          cat ablation/overlap0-localrcm1.log
+          echo "$result" > ablation/localrcm1-exit.txt
+          echo "local_rcm1_exit_status=$result"
+          set -e
+          grep -q '^baseline,' ablation/overlap0-localrcm1.log
+          grep -q '^ras,' ablation/overlap0-localrcm1.log
+          grep -q '^ras_schur,' ablation/overlap0-localrcm1.log
+      - name: Publish full ablation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ras-overlap0-ablation
+          path: |
+            ablation/overlap0-rcm0.log
+            ablation/overlap0-localrcm1.log
+            ablation/benchmark-exit.txt
+            ablation/localrcm1-exit.txt
+            ablation/matrix.txt
+          if-no-files-found: warn
