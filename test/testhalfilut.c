@@ -1019,7 +1019,7 @@ check_ilut_ras_unsafe_interior(void)
     for(i=0;i<8;i++)
     {
         err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
-             i==1 ? (LIS_SCALAR)1.0e-20 : (LIS_SCALAR)3.0,A);
+             (i==1 || i==2) ? (LIS_SCALAR)1.0e-20 : (LIS_SCALAR)3.0,A);
         if(err) goto done;
         if(i>0)
         {
@@ -1064,6 +1064,83 @@ done:
     return failed;
 }
 
+
+
+/*
+ * A single weak interior diagonal is promoted to Gamma. This tests only
+ * finite, successful setup and application: promotion does not guarantee
+ * convergence for indefinite KKT systems or large 3D interfaces.
+ */
+static int
+check_ilut_ras_promoted_interior(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_VECTOR b=NULL,x=NULL;
+    LIS_INT i,err=0;
+    int failed=1;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,8);
+    if(err) goto done;
+    if(A->nprocs!=1) { failed=0; goto done; }
+    for(i=0;i<8;i++)
+    {
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
+               i==1 ? (LIS_SCALAR)1.0e-20 : (LIS_SCALAR)3.0,A);
+        if(err) goto done;
+        if(i>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,
+                                     (LIS_SCALAR)-0.4,A);
+            if(err) goto done;
+        }
+        if(i<7)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
+                                     (LIS_SCALAR)-0.4,A);
+            if(err) goto done;
+        }
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    err=lis_solver_create(&solver);
+    if(err) goto done;
+    err=lis_solver_set_option(
+        "-i fgmres -p ilut -scale none -print none "
+        "-iluc_drop 0 -iluc_rate 8 -ilu_pivot_tol 1e-9 "
+        "-ilut_ras_domains 2 -ilut_ras_overlap 1 -ilut_schur 1",
+        solver);
+    if(err) goto done;
+    err=lis_solver_set_matrix(A,solver);
+    if(err) goto done;
+    err=lis_precon_create(solver,&pc);
+    if(err || !pc || !pc->ilut_ras) goto done;
+    solver->precon=pc;
+    if(lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x))
+        goto done;
+    lis_vector_set_all((LIS_SCALAR)1.0,b);
+    err=lis_psolve(solver,b,x);
+    if(err) goto done;
+    for(i=0;i<8;i++)
+        if(!isfinite((double)x->value[i])) goto done;
+    printf("ILUT_RAS_WEAK_DIAG_PROMOTED\n");
+    failed=0;
+done:
+    if(failed)
+        fprintf(stderr,"ILUT_RAS_WEAK_DIAG_PROMOTION_FAILED rc=%ld\n",
+                (long)err);
+    if(solver) solver->precon=NULL;
+    if(pc) lis_precon_destroy(pc);
+    if(solver) lis_solver_destroy(solver);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(A) lis_matrix_destroy(A);
+    return failed;
+}
 
 /*
  * High-unit-contrast 48x48 contact-KKT algebraic regression:
@@ -1496,6 +1573,7 @@ main(
 	failed |= check_ilut_kkt_unit_contrast();
 	failed |= check_ilut_ras_schur(A);
 	failed |= check_ilut_ras_unsafe_interior();
+	failed |= check_ilut_ras_promoted_interior();
 	failed |= check_ilut_ras_contact_kkt();
 
 	failed |=
