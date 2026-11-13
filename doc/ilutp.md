@@ -1,38 +1,70 @@
-# Experimental ILUTP for difficult contact systems
+# Native ILUTP and bounded complete-fill LU (experimental)
 
-This branch provides an opt-in, **serial real-double CSR** variant of ILUT with
-**dynamic column pivoting**. It is a separate numerical implementation; normal
-`-p ilut` remains unchanged unless `-ilutp 1` is specified.
+## What this PR delivers
 
-## Example
+An **optional, native LIS preconditioner** for serial real-double CSR
+systems. The existing `-p ilut` factorization remains the default
+when `-ilutp 0` (the default). No SuperLU library or plugin is needed.
 
-```text
--i fgmres -restart 120 -p ilut -ilutp 1 -ilutp_threshold 0.5 -ilut_rcm 1 -ilut_row_scale 1 -ilut_drop 0.005 -ilut_rate 12 -ilu_pivot_tol 1e-9 -omp_num_threads 1 -maxiter 1000 -scale none
+- `-ilutp 1`: incomplete LU with **dynamic column pivoting** and
+  `-ilutp_threshold` in `[0,1]` (default `0.5`).
+- `-ilutp_full 1`: **bounded complete-fill LU**, without dropping
+  **or diagonal pivot regularization**, using the same column-pivot
+  selection logic. This changes both numerical policies at once.
+- `-ilutp_full_limit N`: cap on stored off-diagonal L+U entries
+  (not resident memory). A value of 0 uses
+  `max(20*nnz(A), 4*n)`; exceeding the cap fails setup.
+- `-ilut_rcm 1` and `-ilut_row_scale 1`: optional ordering and
+  max-entry row scaling inside the preconditioner; GMRES still
+  solves the **original** `Ax=b`.
+
+### Example: complete-fill mode
+
+```sh
+-i fgmres -p ilut -ilutp 1 -ilutp_full 1 \
+-ilutp_threshold 0.1 -ilut_rcm 1 -ilut_row_scale 1 \
+-ilutp_full_limit 60000000 -omp_num_threads 1 -scale none
 ```
 
-- `-ilutp 0|1`: enable dynamic column pivoting (default 0).
-- `-ilutp_threshold <number>`: pivot when `abs(diagonal) < threshold * max(abs(uneliminated row))`.
-  Range [0,1], default 0.5 (pivot only when the diagonal is less than half the largest remaining entry).
-- `-ilu_pivot_tol`: existing *diagonal regularization*, applied **after**
-  column selection. It is not itself pivoting.
-- `-ilut_rcm` and `-ilut_row_scale`: optional existing preprocessors, applied
-  before ILUTP.
+This is **column** pivoting, not row-pivoted or supernodal LU.
+Supported scope is serial real-double CSR with one active
+OpenMP thread. MPI, complex and half precision are unsupported.
+Frozen-pattern factor updates and factor reuse across different
+Newton matrices are not validated.
 
-The factorization approximates `D_row P A P^T Q = L U`, where
-`Q` is the dynamically selected column permutation. Both forward and
-Hermitian-transpose preconditioner application account for `Q`.
-No row permutations, MPI, complex scalars, FP16, or parallel factorization
-are provided in this initial version. OpenMP builds require one active solver
-thread (`-omp_num_threads 1`).
+## What has been demonstrated
 
-The factorization follows the existing ILUT rule of dropping new fill contributions below the row-average-based threshold before insertion, and uses the existing per-row L/U fill budget.  It does not apply an extra post-accumulation or final-factor drop.  A min-heap handles dynamically discovered lower entries in O(log n) per insertion/removal rather than quadratic selection scans.  With `-ilutp_threshold 0`, ILUTP delegates numerical factorization to the existing ILUT implementation and retains an identity column permutation, providing an exact no-pivot baseline. New upper column indices are kept in original factor-space numbering
-during elimination, then converted to final positions once all pivots have
-been selected. ILUTP intentionally disables the frozen-pattern update path:
-reusing a pattern from a different column permutation is not valid.
+| Result | Observed |
+| --- | --- |
+| Real CCX Newton linear systems | **15/15** right-hand sides solved |
+| Independent matrices in that set | **12** (four steps share one A) |
+| FGMRES iterations | **1 per solve** |
+| True original-system relative residual | **4.63e-15 to 2.84e-12** |
+| Largest stored L+U | **51,108,311** off-diagonal entries |
+| Peak observed process RSS | **799,024 KiB (~780 MiB)** |
+| Longest factor setup | **65.04 CPU seconds** |
 
-## Regression test
+Configuration: RCM, row-max scaling, full fill, threshold 0.1,
+60M factor-entry cap, FGMRES(40), serial double precision.
+Every reported right-hand side was the **original** exported RHS,
+and factorization was recomputed for every case. The private input
+series is one FEA model with **unknown spring count**.
 
-Run after regenerating Autotools files:
+See [results, reproducibility and remaining evidence gap](ilutp_contact_ccx_v2_benchmarks.md).
+
+## What is not yet demonstrated
+
+The data do **not** establish success on the separately identified
+**256-spring snapshot 03**, full end-to-end CalculiX convergence,
+or an advantage over the production CCX solver. In particular,
+the successful complete-fill configuration disables both dropping
+and diagonal regularization; their contributions have not been
+separated. A controlled test with `--pivot-tol 0` on the original
+256-spring A/b pair remains outstanding.
+
+A stored-factor limit is **not** a total process memory guarantee.
+
+## Tests and compatibility
 
 ```sh
 autoreconf -fiv
@@ -42,85 +74,18 @@ make -j2
 make -j2 check
 ```
 
-`testilutp` checks a nonsymmetric 4x4 matrix requiring column pivoting and
-verifies the full-fill preconditioner against exact forward and transpose
-solutions, with/without RCM and row scaling.  It also compares L/U/D
-factors with legacy ILUT for `tau=0` (with/without RCM/row scaling),
-runs an end-to-end limited-fill FGMRES solve, checks preconditioner
-sequence reuse, pivot-threshold invalidation, and frozen-pattern rebuild
-fallback, and validates option parsing. OpenMP builds additionally verify
-that increasing the thread count after setup is explicitly rejected.
-Complex LIS builds skip this real-only regression.
+`testilutp` covers column permutations, forward/transpose solves,
+RCM/scale, fill limits, invalid configurations and sequence behavior.
+A dedicated ASan/LSan CI job exercises **RCM+scale with a failed
+full-fill limit**; it passed on commit `14ab1eb`.
 
-## Development status
+**Legacy compatibility note:** while legacy ILUT's default
+factorization is unchanged, this PR makes
+`lis_solver_set_option_replace` and
+`lis_solver_set_option_replace_if_changed` also propagate/compare
+the existing `ilut_rcm` and `ilut_row_scale` settings. That can
+affect legacy ILUT when options are replaced on an existing solver.
 
-**Experimental.** Both the original limited-fill ILUTP and the newer native complete-fill option have been benchmarked on real 60,265-DOF CCX contact snapshots. See the distinct datasets and configurations below.
-Column pivoting is not equivalent to SuperLU's partial *row* pivoting, and
-cannot resolve every row-rank deficiency or guarantee improved convergence.
-Check actual residuals and compare with the existing serial ILUT baseline.
-
-## Optional native bounded complete-fill LU
-
-```text
--i fgmres -p ilut -ilutp 1 -ilutp_full 1 \
--ilutp_threshold 0.1 -ilut_rcm 1 -ilut_row_scale 1 \
--ilutp_full_limit 60000000 -omp_num_threads 1 -scale none
-```
-
-- `-ilutp_full 0` is default. The opt-in full mode retains all
-  elimination fill, disables dropping and *also disables diagonal
-  regularization* (`pivot_tol=0` internally). It does not isolate
-  any one of these changes, and is **not** equivalent to SuperLU's
-  row-pivoted or supernodal factorization.
-- `-ilutp_full_limit N` bounds the total stored **off-diagonal**
-  L+U nonzeros, not process RSS. The default `0` uses the automatic
-  budget `max(20*nnz(A), 4*n)`. Exhaustion fails setup rather than
-  silently dropping fill.
-- The full mode uses the existing column selection threshold but
-  skips magnitude sorting of factors, which is unnecessary without
-  dropping. It supports serial real-double CSR only, with one active
-  OpenMP thread. MPI, complex and half precision are unsupported.
-- Both RCM and row scaling are **internal to the preconditioner**;
-  the Krylov operator and physical residual check still use the
-  original matrix and RHS.
-- Frozen-pattern numeric refresh is not supported for changing
-  pivot permutations. There is no automatic nonlinear CCX fallback
-  or validated factor-cache reuse across Newton steps.
-
-**Compatibility clarification:** while the default `-p ilut`
-factorization remains the legacy implementation when `-ilutp 0`,
-this PR also updates `lis_solver_set_option_replace` and
-`lis_solver_set_option_replace_if_changed` so the existing
-`ilut_rcm` and `ilut_row_scale` options (as well as new
-ILUTP options) are copied and compared on option replacement.
-That change **also affects legacy ILUT's option lifecycle**.
-Do not describe all legacy ILUT option behavior as byte-for-byte
-unchanged. This change is necessary to avoid stale settings in
-reused solver objects, and requires independent regression review.
-
-## Validation and limitations
-
-`./test/testilutp` exercises forward and transpose solves,
-pivot-threshold behavior, limited versus complete fill, fill-limit
-failure, and algorithm compatibility checks. A 32×32 nonsymmetric
-regression reduced original relative residual from roughly
-`8.54e-2` with deliberately weak limited fill to `2.45e-16`
-with complete fill, without changing the physical operator.
-A separate *synthetic*, not CCX, 60,265-DOF test from
-`test/gen_ilutp_fullfill_case.py` tests factor fill and physical
-residual; neither establishes general nonlinear convergence.
-
-The **only contact benchmark report** is
-[contact outcomes, negative controls and the 15-step series](ilutp_contact_ccx_v2_benchmarks.md).
-It includes the separately labelled 187- and 256-spring limited-fill
-results, the 15-run/12-distinct-matrix complete-fill series,
-the controlled experiment still needed to isolate pivot
-regularization, and command lines for reproduction.
-
-Existing results do **not** establish that complete fill rather
-than disabled regularization was the cause of improved behavior.
-They do not compare against the CCX production solver, establish
-end-to-end nonlinear convergence or guarantee bounded memory on
-arbitrary problems. The default-off implementation remains
-experimental and is not proposed as a general replacement for a
-production direct solver.
+**Upstream readiness:** keep the PR **Draft** until current-head
+generic CI is green, the 256-spring comparison is done, and the
+option lifecycle / allocation cleanup paths are reviewed.
