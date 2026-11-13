@@ -107,6 +107,17 @@ jobs:
           ./benchsuperlu test/testmat2.mtx test/benchilutp_rhs_100.mtx \
             | tee superlu-direct-bench.log
           grep -q '^SUPERLU_LIS_NATIVE n=100 .*iter=1 status=0 ' superlu-direct-bench.log
+          cc -std=c99 -Wall -Wextra -Werror -O1 -g \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DHAVE_CONFIG_H -I./include -I./contrib/superlu_direct \
+            contrib/superlu_direct/testsuperlu_singular.c \
+            contrib/superlu_direct/lis_superlu_direct.c \
+            src/.libs/liblis.a \
+            $(pkg-config --cflags --libs superlu) -lblas -lm \
+            -o testsuperlu_singular_asan
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+            ./testsuperlu_singular_asan | tee superlu-singular-smoke.log
+          grep -q '^SUPERLU_SINGULAR ' superlu-singular-smoke.log
 
       - name: Smoke-test native ILUTP Matrix Market comparison
         if: matrix.mode == 'serial'
@@ -128,19 +139,6 @@ jobs:
               assert int(r["iterations"]) >= 1
               assert float(r["physical_relres"]) < 1e-5, r
           PY
-
-      - name: Package source tree for isolated native SuperLU development
-        if: matrix.mode == 'serial'
-        run: |
-          git archive --format=tar HEAD | gzip -9 > lis-source.tar.gz
-
-      - name: Export source tree for isolated native SuperLU development
-        if: matrix.mode == 'serial'
-        uses: actions/upload-artifact@v4
-        with:
-          name: lis-src-superlu-experiment
-          path: lis-source.tar.gz
-          retention-days: 2
 
       - name: Publish native ILUTP benchmark runner (no user snapshots)
         if: matrix.mode == 'serial'
