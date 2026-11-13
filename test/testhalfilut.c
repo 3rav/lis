@@ -1361,7 +1361,7 @@ done:
  * on a larger-than-dense-limit synthetic interface.
  */
 static int
-check_ilut_sparse_schur_smoke(int scrambled,int half_storage)
+check_ilut_sparse_schur_smoke(int scrambled,int half_storage,int row_scale)
 {
     const LIS_INT side=8,n=512;
     LIS_MATRIX A=NULL;
@@ -1452,8 +1452,9 @@ check_ilut_sparse_schur_smoke(int scrambled,int half_storage)
                  "-i fgmres -p ilut -scale none -print none "
                  "-ilut_drop 0.001 -ilut_rate 8 -ilu_pivot_tol 1e-12 "
                  "-ilut_ras_domains 4 -ilut_ras_overlap 1 -ilut_schur 1 "
-                 "-ilut_ras_parallel %d -ilut_ras_rcm %d",
-                 (int)parallel,(int)rcm);
+                 "-ilut_ras_parallel %d -ilut_ras_rcm %d "
+                 "-ilut_row_scale %d",
+                 (int)parallel,(int)rcm,row_scale);
         err=lis_solver_set_option(options,solver);
         if(err) goto done;
         if(half_storage)
@@ -1920,11 +1921,14 @@ main(
 
 	if(argc==2 && (strcmp(argv[1],"--sparse-schur-smoke")==0 ||
 	               strcmp(argv[1],"--ras-rcm-smoke")==0 ||
-	               strcmp(argv[1],"--ras-half-smoke")==0))
+	               strcmp(argv[1],"--ras-half-smoke")==0 ||
+	               strcmp(argv[1],"--ras-row-scale-smoke")==0))
 	{
 		failed=check_ilut_sparse_schur_smoke(
 		    strcmp(argv[1],"--ras-rcm-smoke")==0,
-		    strcmp(argv[1],"--ras-half-smoke")==0);
+		    strcmp(argv[1],"--ras-half-smoke")==0,
+		    strcmp(argv[1],"--ras-half-smoke")==0 ||
+		    strcmp(argv[1],"--ras-row-scale-smoke")==0);
 		lis_finalize();
 		return failed ? 1 : 0;
 	}
