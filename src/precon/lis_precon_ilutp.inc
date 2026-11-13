@@ -32,6 +32,39 @@ lis_ilutp_compare_desc(const void *va,const void *vb)
     return 0;
 }
 
+/* A min-heap avoids O(lower_fill^2) selection scans. Lower column fill
+ * may appear during elimination, so a fixed initial sort is insufficient. */
+static void lis_ilutp_heap_push(LIS_INT *a,LIS_INT *count,LIS_INT col)
+{
+    size_t i=(size_t)(*count);
+    (*count)++;
+    while(i>0 && a[(i-1)/2]>col)
+    {
+        a[i]=a[(i-1)/2];
+        i=(i-1)/2;
+    }
+    a[i]=col;
+}
+static LIS_INT lis_ilutp_heap_pop(LIS_INT *a,LIS_INT *count)
+{
+    LIS_INT first=a[0],last;
+    size_t i=0,n,c;
+    (*count)--;
+    if(*count==0) return first;
+    last=a[*count];
+    n=(size_t)(*count);
+    while(2*i+1<n)
+    {
+        c=2*i+1;
+        if(c+1<n && a[c+1]<a[c]) c++;
+        if(last<=a[c]) break;
+        a[i]=a[c];
+        i=c;
+    }
+    a[i]=last;
+    return first;
+}
+
 #undef __FUNC__
 #define __FUNC__ "lis_precon_create_ilutp_csr"
 static LIS_INT
@@ -45,8 +78,8 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
     LIS_MATRIX_ILU L=NULL,U=NULL;
     LIS_VECTOR D=NULL;
     LIS_INT n=A->n,i,j,k,orig,stamp,nlo,nup,processed;
-    LIS_INT best,t,at,col,cap,nnz,m,err=LIS_SUCCESS,kept;
-    LIS_INT *perm=NULL,*inv=NULL,*seen=NULL,*lower=NULL,*upper=NULL;
+    LIS_INT best,t,col,cap,nnz,m,err=LIS_SUCCESS,kept;
+    LIS_INT *perm=NULL,*inv=NULL,*seen=NULL,*lower=NULL,*finished=NULL,*upper=NULL;
     LIS_SCALAR *w=NULL,fact,delta,pivot,swapval;
     LIS_ILUTP_ENTRY *entries=NULL;
     LIS_REAL drop,rate,tau,pivot_tol,rowmax,rowsum,tolnorm,maxval,v;
@@ -91,6 +124,26 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
         cap=(budget>=(double)(n-1)) ? n-1 : (LIS_INT)budget;
     }
 
+    /* Never overwrite live factor/permutation pointers on a reused object. */
+    if(precon->L || precon->U || precon->D ||
+       precon->ilutp_colperm || precon->ilut_perm)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,"ILUTP requires a fresh preconditioner");
+        return LIS_ERR_ILL_ARG;
+    }
+    /* The no-pivot case is precisely legacy ILUT, including drop/fill
+     * selection and floating-point evaluation order. */
+    if(tau==0.0)
+    {
+        err=lis_precon_create_ilut_csr(solver,precon);
+        if(err) return err;
+        perm=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),
+                                    "ILUTP identity permutation");
+        if(!perm) return LIS_OUT_OF_MEMORY;
+        for(i=0;i<n;i++) perm[i]=i;
+        precon->ilutp_colperm=perm;
+        return LIS_SUCCESS;
+    }
     perm=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),
                                "ILUTP column permutation");
     inv=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),
@@ -98,14 +151,17 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
     seen=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),
                                "ILUTP sparse row markers");
     lower=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),
-                                "ILUTP lower queue");
+                                "ILUTP lower min-heap");
+    finished=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),
+                                   "ILUTP processed lower entries");
     upper=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),
                                 "ILUTP upper queue");
     w=(LIS_SCALAR *)lis_malloc((size_t)n*sizeof(LIS_SCALAR),
                                "ILUTP row coefficients");
     entries=(LIS_ILUTP_ENTRY *)lis_malloc(
         (size_t)n*sizeof(LIS_ILUTP_ENTRY),"ILUTP fill ranking");
-    if(!perm || !inv || !seen || !lower || !upper || !w || !entries)
+    if(!perm || !inv || !seen || !lower || !finished || !upper ||
+       !w || !entries)
     {
         err=LIS_OUT_OF_MEMORY;
         goto cleanup;
@@ -127,7 +183,7 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
     for(i=0;i<n;i++)
     {
         stamp=i+1;
-        nlo=nup=0;
+        nlo=nup=processed=0;
         rowmax=rowsum=0.0;
         nnz=A->ptr[i+1]-A->ptr[i];
         seen[i]=stamp;
@@ -147,7 +203,7 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
             {
                 seen[col]=stamp;
                 w[col]=(LIS_SCALAR)0.0;
-                if(col<i) lower[nlo++]=col;
+                if(col<i) lis_ilutp_heap_push(lower,&nlo,col);
                 else if(col>i) upper[nup++]=col;
             }
             w[col]+=A->value[k];
@@ -157,15 +213,12 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
         }
         tolnorm=nnz>0 ? drop*rowsum/(LIS_REAL)nnz : 0.0;
 
-        /* Eliminate previously chosen pivot columns in ascending order. */
-        for(processed=0;processed<nlo;processed++)
+        /* Lower fill enters the min-heap as it is discovered; pop the
+         * smallest remaining column each time. */
+        while(nlo>0)
         {
-            at=processed;
-            for(t=processed+1;t<nlo;t++)
-                if(lower[t]<lower[at]) at=t;
-            j=lower[at];
-            lower[at]=lower[processed];
-            lower[processed]=j;
+            j=lis_ilutp_heap_pop(lower,&nlo);
+            finished[processed++]=j;
             fact=w[j]*D->value[j];
             if(!isfinite((double)fact))
             {
@@ -190,7 +243,7 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
                     if(fabs(delta)<tolnorm) continue;
                     seen[col]=stamp;
                     w[col]=(LIS_SCALAR)0.0;
-                    if(col<i) lower[nlo++]=col;
+                    if(col<i) lis_ilutp_heap_push(lower,&nlo,col);
                     else if(col>i) upper[nup++]=col;
                 }
                 w[col]+=delta;
@@ -237,9 +290,9 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
 
         /* Keep the largest lower multipliers (existing ILUT fill budget). */
         m=0;
-        for(t=0;t<nlo;t++)
+        for(t=0;t<processed;t++)
         {
-            col=lower[t];
+            col=finished[t];
             if(w[col]==0.0) continue;
             entries[m].col=col;
             entries[m].value=w[col];
@@ -321,6 +374,7 @@ cleanup:
     lis_free(inv);
     lis_free(seen);
     lis_free(lower);
+    lis_free(finished);
     lis_free(upper);
     lis_free(w);
     lis_free(entries);
