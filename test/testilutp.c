@@ -356,6 +356,61 @@ cleanup:
     return failed;
 }
 
+/* tau>0 must exercise the new elimination kernel even when no
+ * permutation is needed. Retain an explicit structural CSR zero to
+ * cover the zero-multiplier / zero-fill short-circuit. */
+static int check_no_swap_kernel(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_VECTOR truth=NULL,b=NULL,x=NULL;
+    LIS_INT err=0,i,k;
+    int failed=1,found=0;
+
+    err=make_sparse_matrix(&A,0);if(err)goto cleanup;
+    for(k=A->ptr[10];k<A->ptr[11];k++)
+        if(A->index[k]==9)
+        {
+            A->value[k]=0.0; /* deliberate stored CSR zero */
+            found=1;
+            break;
+        }
+    if(!found)goto cleanup;
+    err=lis_vector_duplicate(A,&truth);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&b);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&x);if(err)goto cleanup;
+    for(i=0;i<REG_N;i++)truth->value[i]=(LIS_SCALAR)(1.0+0.02*i);
+    err=lis_matvec(A,truth,b);if(err)goto cleanup;
+    err=lis_solver_create(&solver);if(err)goto cleanup;
+    solver->A=A;
+    err=lis_solver_set_option(
+        "-p ilut -ilutp 1 -ilutp_threshold 1e-6 "
+        "-ilut_rcm 0 -ilut_row_scale 0 "
+        "-ilut_drop 0 -ilut_rate 100 -ilu_pivot_tol 0 "
+        "-scale none -omp_num_threads 1",solver);
+    if(err)goto cleanup;
+    err=lis_precon_create(solver,&pc);if(err){pc=NULL;goto cleanup;}
+    if(!pc->ilutp_colperm)goto cleanup;
+    for(i=0;i<REG_N;i++)
+        if(pc->ilutp_colperm[i]!=i)goto cleanup;
+    solver->precon=pc;
+    err=lis_psolve_ilut_csr(solver,b,x);if(err)goto cleanup;
+    if(!solution_close(x,truth))goto cleanup;
+    failed=0;
+cleanup:
+    if(failed)fprintf(stderr,
+        "ILUTP nonswapping positive-tau kernel failed err=%d\n",(int)err);
+    if(solver)solver->precon=NULL;
+    if(pc)lis_precon_destroy(pc);
+    if(solver)lis_solver_destroy(solver);
+    if(x)lis_vector_destroy(x);
+    if(b)lis_vector_destroy(b);
+    if(truth)lis_vector_destroy(truth);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
 /* The option-profile replacement helpers must distinguish identical
  * profiles from changed preconditioner options, and must release the
  * sequence preconditioner only for a changed profile. */
@@ -548,6 +603,7 @@ int main(int argc,char **argv)
     failed|=check_tau_zero(0,1);
     failed|=check_tau_zero(1,1);
     failed|=check_fgmres_sequence();
+    failed|=check_no_swap_kernel();
     failed|=check_option_replace();
     failed|=check_full_fill();
     err=lis_solver_create(&solver);
