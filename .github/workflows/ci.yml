@@ -102,6 +102,8 @@ jobs:
           grep -q '^ILUT_RAS_SPARSE_SCHUR_PASSED' ilut-ras-rcm.log
           ./test/testhalfilut --ras-half-smoke | tee ilut-ras-half.log
           grep -q '^ILUT_RAS_SPARSE_SCHUR_PASSED' ilut-ras-half.log
+          ./test/testhalfilut --ras-local-rcm-smoke | tee ilut-ras-local-rcm.log
+          grep -q '^ILUT_RAS_SPARSE_SCHUR_PASSED' ilut-ras-local-rcm.log
 
       - name: Smoke-test 3-way Matrix Market RAS benchmarking
         if: matrix.mode == 'half'
