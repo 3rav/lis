@@ -895,6 +895,13 @@ struct LIS_PRECON_STRUCT
 	 * Kept at the end of LIS_PRECON_STRUCT.
 	 */
 	LIS_HALF_ILU half;
+	struct LIS_ILUT_RAS_STRUCT *ilut_ras;
+
+	/* Optional serial ILUT symmetric RCM ordering and row equilibration. */
+	LIS_INT *ilut_perm;          /* new index -> original index */
+	LIS_SCALAR *ilut_row_scale; /* factor-space row weights */
+	LIS_VECTOR ilut_work_b, ilut_work_x;
+	LIS_INT ilut_apply_active;
 };
 typedef struct LIS_PRECON_STRUCT *LIS_PRECON;
 
@@ -1094,6 +1101,22 @@ struct LIS_SOLVER_STRUCT
 	LIS_INT sequence_precon_half_mode;
 	/* Appended to preserve the offsets of all preexisting solver fields. */
 	LIS_INT mfamg_deep_sibling_merge;
+
+	/* Opt-in ILUT local reordering / row equilibration, off by default. */
+	LIS_INT ilut_rcm;
+	LIS_INT ilut_row_scale;
+	LIS_INT sequence_precon_ilut_rcm;
+	LIS_INT sequence_precon_ilut_row_scale;
+	LIS_INT ilut_ras_overlap;
+	LIS_INT ilut_ras_domains;
+	LIS_INT ilut_ras_parallel;
+	LIS_INT ilut_ras_guard;
+	LIS_INT ilut_ras_rcm;
+	LIS_INT sequence_precon_ilut_ras_overlap;
+	LIS_INT sequence_precon_ilut_ras_domains;
+	LIS_INT sequence_precon_ilut_ras_parallel;
+	LIS_INT sequence_precon_ilut_ras_guard;
+	LIS_INT sequence_precon_ilut_ras_rcm;
 };
 typedef struct LIS_SOLVER_STRUCT *LIS_SOLVER;
 

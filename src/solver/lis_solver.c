@@ -251,6 +251,20 @@ LIS_INT lis_solver_init(LIS_SOLVER solver)
 	solver->sequence_precon_max_age = 0;
 	solver->sequence_precon_age = 0;
 	solver->precon_half_mode = LIS_PRECON_HALF_OFF;
+	solver->ilut_rcm = 0;
+	solver->ilut_row_scale = 0;
+	solver->sequence_precon_ilut_rcm = 0;
+	solver->sequence_precon_ilut_row_scale = 0;
+	solver->ilut_ras_overlap = -1;
+	solver->ilut_ras_domains = 2;
+	solver->ilut_ras_parallel = 0;
+	solver->ilut_ras_guard = 1;
+	solver->ilut_ras_rcm = 0;
+	solver->sequence_precon_ilut_ras_overlap = -1;
+	solver->sequence_precon_ilut_ras_domains = 2;
+	solver->sequence_precon_ilut_ras_parallel = 0;
+	solver->sequence_precon_ilut_ras_guard = 1;
+	solver->sequence_precon_ilut_ras_rcm = 0;
 	solver->sequence_precon_half_mode = LIS_PRECON_HALF_OFF;
 	solver->sequence_initial_residual = 0.0;
 	solver->sequence_rhs_norm = 0.0;
@@ -2619,6 +2633,19 @@ static LIS_INT lis_solver_sequence_precon_config_matches(
 		return LIS_FALSE;
 	}
 
+	if(solver->sequence_precon_ilut_rcm!=solver->ilut_rcm ||
+	   solver->sequence_precon_ilut_row_scale!=solver->ilut_row_scale)
+	{
+		return LIS_FALSE;
+	}
+
+	if(solver->sequence_precon_ilut_ras_overlap!=solver->ilut_ras_overlap ||
+	   solver->sequence_precon_ilut_ras_domains!=solver->ilut_ras_domains ||
+	   solver->sequence_precon_ilut_ras_parallel!=solver->ilut_ras_parallel ||
+	   solver->sequence_precon_ilut_ras_guard!=solver->ilut_ras_guard ||
+	   solver->sequence_precon_ilut_ras_rcm!=solver->ilut_ras_rcm)
+		return LIS_FALSE;
+
 	if( solver->sequence_precon_half_mode!=
 		solver->precon_half_mode )
 	{
@@ -2643,6 +2670,13 @@ static void lis_solver_sequence_precon_snapshot(
 
 	solver->sequence_precon_half_mode =
 		solver->precon_half_mode;
+	solver->sequence_precon_ilut_rcm = solver->ilut_rcm;
+	solver->sequence_precon_ilut_row_scale = solver->ilut_row_scale;
+	solver->sequence_precon_ilut_ras_overlap = solver->ilut_ras_overlap;
+	solver->sequence_precon_ilut_ras_domains = solver->ilut_ras_domains;
+	solver->sequence_precon_ilut_ras_parallel = solver->ilut_ras_parallel;
+	solver->sequence_precon_ilut_ras_guard = solver->ilut_ras_guard;
+	solver->sequence_precon_ilut_ras_rcm = solver->ilut_ras_rcm;
 }
 
 #undef __FUNC__
@@ -5406,6 +5440,58 @@ LIS_INT lis_solver_set_option2(char* arg1, char *arg2, LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 
+	/* Opt-in serial restricted additive Schwarz with OpenMP apply. */
+	if(strcmp(arg1,"-ilut_ras_overlap")==0 ||
+	   strcmp(arg1,"-ilut_ras_domains")==0 ||
+	   strcmp(arg1,"-ilut_ras_parallel")==0 ||
+	   strcmp(arg1,"-ilut_ras_guard")==0 ||
+	   strcmp(arg1,"-ilut_ras_rcm")==0)
+	{
+		int value=0;
+		char extra;
+		if(arg2==NULL || sscanf(arg2,"%d %c",&value,&extra)!=1 ||
+		   (strcmp(arg1,"-ilut_ras_overlap")==0 && (value<0 || value>2)) ||
+		   (strcmp(arg1,"-ilut_ras_domains")==0 && (value<2 || value>64)) ||
+		   (strcmp(arg1,"-ilut_ras_parallel")==0 && (value<0 || value>1)) ||
+		   (strcmp(arg1,"-ilut_ras_guard")==0 && (value<0 || value>1)) ||
+		   (strcmp(arg1,"-ilut_ras_rcm")==0 && (value<0 || value>1)))
+		{
+			LIS_SETERR(LIS_ERR_ILL_ARG,
+			   "invalid ILUT RAS option (overlap 0..2, domains 2..64, parallel/guard/rcm 0/1)");
+			LIS_DEBUG_FUNC_OUT;
+			return LIS_ERR_ILL_ARG;
+		}
+		if(strcmp(arg1,"-ilut_ras_overlap")==0) solver->ilut_ras_overlap=value;
+		else if(strcmp(arg1,"-ilut_ras_domains")==0) solver->ilut_ras_domains=value;
+		else if(strcmp(arg1,"-ilut_ras_parallel")==0) solver->ilut_ras_parallel=value;
+		else if(strcmp(arg1,"-ilut_ras_guard")==0) solver->ilut_ras_guard=value;
+		else if(strcmp(arg1,"-ilut_ras_rcm")==0) solver->ilut_ras_rcm=value;
+		LIS_DEBUG_FUNC_OUT;
+		return LIS_SUCCESS;
+	}
+
+	/* ILUT setup policies are intentionally per-solver, not global. */
+	if(strcmp(arg1,"-ilut_rcm")==0 ||
+	   strcmp(arg1,"-ilut_row_scale")==0)
+	{
+		LIS_INT on;
+		if(arg2!=NULL && (strcmp(arg2,"1")==0 ||
+		   strcmp(arg2,"rcm")==0)) on=1;
+		else if(arg2!=NULL && (strcmp(arg2,"0")==0 ||
+		   strcmp(arg2,"none")==0)) on=0;
+		else
+		{
+			LIS_SETERR(LIS_ERR_ILL_ARG,
+			    "ILUT option expects 0/1 or none/rcm\n");
+			LIS_DEBUG_FUNC_OUT;
+			return LIS_ERR_ILL_ARG;
+		}
+		if(strcmp(arg1,"-ilut_rcm")==0) solver->ilut_rcm=on;
+		else solver->ilut_row_scale=on;
+		LIS_DEBUG_FUNC_OUT;
+		return LIS_SUCCESS;
+	}
+
 	if( strcmp(arg1,"-precon_half")==0 )
 	{
 		LIS_INT value;
@@ -5508,6 +5594,10 @@ LIS_INT lis_solver_set_option2(char* arg1, char *arg2, LIS_SOLVER solver)
 		LIS_DEBUG_FUNC_OUT;
 		return LIS_SUCCESS;
 	}
+
+	/* Explicit ILUT spellings retain the established ILUC parameter IDs. */
+	if(strcmp(arg1,"-ilut_drop")==0) arg1="-iluc_drop";
+	else if(strcmp(arg1,"-ilut_rate")==0) arg1="-iluc_rate";
 
 	err = 0;
 

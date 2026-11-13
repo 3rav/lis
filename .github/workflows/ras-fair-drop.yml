@@ -1,0 +1,137 @@
+name: Experimental RAS-only fair-fill comparison to serial ILUT
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/ras-only-review
+    paths:
+      - .github/workflows/ras-fair-drop.yml
+      - src/precon/lis_precon_ilut_ras.c
+      - src/solver/lis_solver.c
+      - include/lis.h
+      - test/testhalfilut.c
+
+permissions:
+  contents: read
+
+jobs:
+  tuned-ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '8'
+      OMP_DYNAMIC: 'FALSE'
+      LIS_FEA_BASELINE_THREADS: '1'
+      LIS_FEA_BASELINE_RCM: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin unzip python3
+      - name: Build benchmark
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --enable-omp --disable-fortran --disable-f90 \
+            --disable-saamg --disable-mpi
+          make -j2
+          make -C test testhalfilut
+      - name: Fetch public Boeing structural FEM stiffness matrix
+        run: |
+          set -euo pipefail
+          mkdir -p fair-drop
+          curl --fail --location --retry 3 --max-time 180 \
+            https://nrvis.com/download/data/misc/bcsstk39.zip \
+            -o fair-drop/bcsstk39.zip
+          unzip -o -q fair-drop/bcsstk39.zip -d fair-drop
+          find fair-drop -type f -iname '*.mtx' -exec chmod u+r {} +
+          mtx="$(find fair-drop -type f -iname '*.mtx' | head -1)"
+          test -n "$mtx"
+          grep -qiE '^%%MatrixMarket matrix coordinate real' <(head -n 1 "$mtx")
+          printf '%s\n' "$mtx" > fair-drop/matrix.txt
+      - name: Calibration only, no Krylov convergence claims
+        run: |
+          set -uo pipefail
+          set +e
+          export LIS_FEA_FILL_ONLY=1
+          mtx="$(cat fair-drop/matrix.txt)"
+          for ras_drop in 0.00005 0.00002 0.00001 0; do
+            export LIS_FEA_RAS_DROP="$ras_drop"
+            label="ras-drop-${ras_drop}"
+            timeout 300 ./test/testhalfilut --fea-ras \
+              "$mtx" 16 24 0.0001 8 1 0 1 1 1 \
+              > "fair-drop/${label}.log" 2>&1
+            status=$?
+            cat "fair-drop/${label}.log"
+            echo "$status" > "fair-drop/${label}.status"
+          done
+          set -e
+          grep -q '^baseline,' fair-drop/ras-drop-0.00005.log
+      - name: Select closest valid RAS fill and run the real 500-iteration comparison
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee fair-drop/selection.txt
+          from pathlib import Path
+          options = []
+          for f in sorted(Path("fair-drop").glob("ras-drop-*.log")):
+              rows = {}
+              for line in f.read_text().splitlines():
+                  if line.startswith("baseline,") or line.startswith("ras,"):
+                      parts = line.split(",")
+                      rows[parts[0]] = (int(parts[2]), parts[11], parts[12])
+              if "baseline" not in rows or "ras" not in rows:
+                  continue
+              b, bs, be = rows["baseline"]
+              r, rs, re = rows["ras"]
+              if b <= 0 or r <= 0 or be != "0" or re != "0":
+                  continue
+              gap = abs(r - b) / b
+              drop = f.stem.removeprefix("ras-drop-")
+              options.append((gap, drop, b, r))
+              print(f"CALIBRATION drop={drop} baseline_entries={b} ras_entries={r} gap={gap:.6%}")
+          valid = sorted(options)
+          if not valid:
+              print("NO_VALID_CALIBRATION")
+          else:
+              gap, drop, b, r = valid[0]
+              print(f"BEST drop={drop} gap={gap:.6%}")
+              if gap <= .05:
+                  Path("fair-drop/selected-drop.txt").write_text(drop)
+                  print(f"FAIR_FILL_SELECTED={drop}")
+              else:
+                  print("NO_FILL_MATCH_WITHIN_5_PERCENT")
+          PY
+          if [ -f fair-drop/selected-drop.txt ]; then
+            mtx="$(cat fair-drop/matrix.txt)"
+            drop="$(cat fair-drop/selected-drop.txt)"
+            export LIS_FEA_RAS_DROP="$drop"
+            unset LIS_FEA_FILL_ONLY
+            set +e
+            timeout 600 ./test/testhalfilut --fea-ras \
+              "$mtx" 16 24 0.0001 8 1 0 1 1 1 \
+              > fair-drop/final-fair-fill.log 2>&1
+            rc=$?
+            set -e
+            cat fair-drop/final-fair-fill.log
+            printf '%s\n' "$rc" > fair-drop/final-status.txt
+            echo "full_benchmark_status=$rc"
+            grep -q '^baseline,' fair-drop/final-fair-fill.log
+            grep -q '^ras,' fair-drop/final-fair-fill.log
+          else
+            echo "No +/-5% fill pair in the bounded calibration grid; no full benchmark claim."
+          fi
+      - name: Publish complete reproducibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serial-ILUT-vs-RAS-calibrated-storage
+          path: |
+            fair-drop/ras-drop-*.log
+            fair-drop/ras-drop-*.status
+            fair-drop/selection.txt
+            fair-drop/selected-drop.txt
+            fair-drop/final-fair-fill.log
+            fair-drop/final-status.txt
+            fair-drop/matrix.txt
+          if-no-files-found: warn

@@ -83,6 +83,40 @@ jobs:
       - name: Run Automake test suite
         run: make -j2 check
 
+      - name: Smoke-test fill-reporting ILUT Matrix Market benchmark
+        if: matrix.mode == 'half'
+        run: |
+          set -euo pipefail
+          ./test/testhalfilut --fea-matrix test/testmat0.mtx 8 8 0.005 | tee ilut-fea-bench.log
+          grep -q '^ILUT_FEA_MATRIX ' ilut-fea-bench.log
+          grep -q '^baseline,' ilut-fea-bench.log
+          grep -q '^rcm_scaled,' ilut-fea-bench.log
+
+      - name: Smoke-test RAS-only on synthetic 3D stencil
+        if: matrix.mode == 'half'
+        run: |
+          set -euo pipefail
+          ./test/testhalfilut --ras-3d-smoke | tee ilut-ras-3d.log
+          grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-3d.log
+          ./test/testhalfilut --ras-rcm-smoke | tee ilut-ras-rcm.log
+          grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-rcm.log
+          ./test/testhalfilut --ras-half-smoke | tee ilut-ras-half.log
+          grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-half.log
+          ./test/testhalfilut --ras-guard-smoke | tee ilut-ras-guard.log
+          grep -q '^ILUT_RAS_GROSS_GROWTH_GUARD_PASSED' ilut-ras-guard.log
+          ./test/testhalfilut --ras-local-rcm-smoke | tee ilut-ras-local-rcm.log
+          grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-local-rcm.log
+
+      - name: Smoke-test 3-way Matrix Market RAS benchmarking
+        if: matrix.mode == 'half'
+        run: |
+          set -euo pipefail
+          ./test/testhalfilut --fea-ras test/testmat0.mtx 8 8 0.005 4 1 1 1 | tee ilut-fea-ras.csv
+          grep -q '^FEA_RAS_MATRIX ' ilut-fea-ras.csv
+          grep -q '^baseline,' ilut-fea-ras.csv
+          grep -q '^ras,' ilut-fea-ras.csv
+
+
       - name: Smoke-test optional 3D FP16 memory and Krylov benchmark
         if: matrix.mode == 'half'
         run: |
@@ -344,7 +378,7 @@ jobs:
         run: |
           autoreconf -fiv
           ./configure --enable-test --disable-fortran --disable-f90 \
-            --disable-saamg --disable-mpi --disable-omp \
+            --disable-saamg --disable-mpi --disable-omp --enable-half \
             CC=gcc \
             CFLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all" \
             LDFLAGS="-fsanitize=address,undefined"
@@ -356,6 +390,11 @@ jobs:
           ./test/testfgcrodrmaxiter
           ./test/testfgcrodrintra
           ./test/testfgcrodr
+
+      - name: Validate ILUT RCM, RAS and contact KKT under sanitizers
+        run: |
+          make -C test testhalfilut
+          ./test/testhalfilut
       - name: Upload sanitizer logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
