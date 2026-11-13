@@ -14,7 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      OMP_NUM_THREADS: '4'
+      OMP_NUM_THREADS: '1'
+      LIS_RAS_TSAN: '1'
       OMP_DYNAMIC: 'FALSE'
       TSAN_OPTIONS: 'halt_on_error=1:exitcode=66'
     steps:
