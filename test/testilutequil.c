@@ -17,8 +17,10 @@ static const LIS_REAL core[N][N]={
     {0.,0.,1.,10.,1.},
     {2.,0.,0.,1.,6.}
 };
-static const LIS_REAL row_factor[N]={1.e-6,1.e4,1.e-2,100.,1.e3};
-static const LIS_REAL col_factor[N]={1.e4,1.e-3,100.,1.e-2,1.e5};
+/* Condition number ~2e10: ill-scaled without placing exact-solve tests
+ * at the ~1e16 double-precision limit of the initial stress fixture. */
+static const LIS_REAL row_factor[N]={1.e-4,1.e3,1.e-1,10.,1.e2};
+static const LIS_REAL col_factor[N]={1.e3,1.e-2,10.,1.e-1,1.e3};
 static const LIS_REAL truth[N]={0.5,-1.,2.,0.25,-0.75};
 
 static LIS_REAL entry(LIS_INT i,LIS_INT j)
