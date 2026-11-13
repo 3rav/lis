@@ -255,6 +255,10 @@ LIS_INT lis_solver_init(LIS_SOLVER solver)
 	solver->ilut_row_scale = 0;
 	solver->sequence_precon_ilut_rcm = 0;
 	solver->sequence_precon_ilut_row_scale = 0;
+	solver->ilutp_enabled = 0;
+	solver->ilutp_threshold = 1.0;
+	solver->sequence_precon_ilutp_enabled = 0;
+	solver->sequence_precon_ilutp_threshold = 1.0;
 	solver->sequence_precon_half_mode = LIS_PRECON_HALF_OFF;
 	solver->sequence_initial_residual = 0.0;
 	solver->sequence_rhs_norm = 0.0;
@@ -2624,7 +2628,9 @@ static LIS_INT lis_solver_sequence_precon_config_matches(
 	}
 
 	if(solver->sequence_precon_ilut_rcm!=solver->ilut_rcm ||
-	   solver->sequence_precon_ilut_row_scale!=solver->ilut_row_scale)
+	   solver->sequence_precon_ilut_row_scale!=solver->ilut_row_scale ||
+	   solver->sequence_precon_ilutp_enabled!=solver->ilutp_enabled ||
+	   solver->sequence_precon_ilutp_threshold!=solver->ilutp_threshold)
 	{
 		return LIS_FALSE;
 	}
@@ -2655,6 +2661,8 @@ static void lis_solver_sequence_precon_snapshot(
 		solver->precon_half_mode;
 	solver->sequence_precon_ilut_rcm = solver->ilut_rcm;
 	solver->sequence_precon_ilut_row_scale = solver->ilut_row_scale;
+	solver->sequence_precon_ilutp_enabled = solver->ilutp_enabled;
+	solver->sequence_precon_ilutp_threshold = solver->ilutp_threshold;
 }
 
 #undef __FUNC__
@@ -5415,6 +5423,37 @@ LIS_INT lis_solver_set_option2(char* arg1, char *arg2, LIS_SOLVER solver)
 			value;
 
 		LIS_DEBUG_FUNC_OUT;
+		return LIS_SUCCESS;
+	}
+
+	/* ILUTP is opt-in and is limited to serial real-double CSR. */
+	if(strcmp(arg1,"-ilutp")==0)
+	{
+		if(arg2!=NULL && strcmp(arg2,"1")==0)
+			solver->ilutp_enabled=1;
+		else if(arg2!=NULL && strcmp(arg2,"0")==0)
+			solver->ilutp_enabled=0;
+		else
+		{
+			LIS_SETERR(LIS_ERR_ILL_ARG,"-ilutp expects 0 or 1\n");
+			return LIS_ERR_ILL_ARG;
+		}
+		return LIS_SUCCESS;
+	}
+	if(strcmp(arg1,"-ilutp_threshold")==0)
+	{
+		char *end=NULL;
+		double t;
+		if(arg2==NULL || arg2[0]=='\0') return LIS_ERR_ILL_ARG;
+		t=strtod(arg2,&end);
+		if(end==arg2 || *end!='\0' || !isfinite(t) ||
+		   t<0.0 || t>1.0)
+		{
+			LIS_SETERR(LIS_ERR_ILL_ARG,
+			   "-ilutp_threshold expects a number in [0,1]\n");
+			return LIS_ERR_ILL_ARG;
+		}
+		solver->ilutp_threshold=(LIS_REAL)t;
 		return LIS_SUCCESS;
 	}
 
