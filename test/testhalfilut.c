@@ -629,19 +629,6 @@ check_ilut_ordering(LIS_MATRIX A)
         lis_vector_set_all((LIS_SCALAR)0.0,x);
         err=lis_psolve(solver,b,x);
         if(err) { failed=1; goto cleanup; }
-        if(parallel==0)
-            for(i=0;i<64;i++) reference[i]=x->value[i];
-        else
-            for(i=0;i<64;i++)
-                if(!isfinite((double)x->value[i]) ||
-                   fabs((double)(x->value[i]-reference[i])) >
-                   1e-10*(1.0+fabs((double)reference[i])))
-                {
-                    fprintf(stderr,
-                        "ILUT RAS parallel mismatch: row=%ld overlap=%ld schur=%ld\n",
-                        (long)i,(long)overlap,(long)schur);
-                    failed=1; goto cleanup;
-                }
         err=lis_matvec(A,x,r);
         if(err) { failed=1; goto cleanup; }
         err=lis_vector_axpy((LIS_SCALAR)-1.0,b,r);
@@ -857,6 +844,19 @@ check_ilut_ras_schur(LIS_MATRIX A)
         { failed=1; goto cleanup; }
         err=lis_psolve(solver,b,x);
         if(err) { failed=1; goto cleanup; }
+        if(parallel==0)
+            for(i=0;i<64;i++) reference[i]=x->value[i];
+        else
+            for(i=0;i<64;i++)
+                if(!isfinite((double)x->value[i]) ||
+                   fabs((double)(x->value[i]-reference[i])) >
+                   1e-10*(1.0+fabs((double)reference[i])))
+                {
+                    fprintf(stderr,
+                        "ILUT RAS parallel mismatch: row=%ld overlap=%ld schur=%ld\n",
+                        (long)i,(long)overlap,(long)schur);
+                    failed=1; goto cleanup;
+                }
         err=lis_matvec(A,x,r);
         if(err) { failed=1; goto cleanup; }
         err=lis_vector_axpy((LIS_SCALAR)-1.0,b,r);
