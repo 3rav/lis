@@ -8,6 +8,16 @@
 #include <omp.h>
 #endif
 
+/* The experimental factorization is deliberately real-only. */
+#if defined(_COMPLEX) || defined(USE_COMPLEX)
+int main(int argc,char **argv)
+{
+    (void)argc; (void)argv;
+    fprintf(stderr,"testilutp: SKIP (complex LIS build)\n");
+    return 77;
+}
+#else
+
 /* Nonsymmetric, nonsingular matrix with a zero (0,0) diagonal:
    column pivoting is required for an unregularized exact ILUT factor. */
 #define N 4
@@ -114,6 +124,196 @@ cleanup:
     return failed;
 }
 
+
+/* A larger nonsymmetric CSR system exercises incomplete fill dropping and
+ * different diagonal pivot strengths.  No perfect preconditioner is assumed. */
+#define REG_N 32
+static LIS_INT make_sparse_matrix(LIS_MATRIX *out,int weak_first)
+{
+    LIS_INT i,err;
+    *out=NULL;
+    err=lis_matrix_create(LIS_COMM_WORLD,out);if(err)return err;
+    err=lis_matrix_set_size(*out,0,REG_N);if(err)return err;
+    for(i=0;i<REG_N;i++)
+    {
+        LIS_SCALAR diag=(LIS_SCALAR)(4.0+0.03*(double)i);
+        if(i==0 && weak_first)diag=(LIS_SCALAR)1e-8;
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,diag,*out);
+        if(err)return err;
+        if(i>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,-0.65,*out);
+            if(err)return err;
+        }
+        if(i+1<REG_N)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,0.7,*out);
+            if(err)return err;
+        }
+        if(i+4<REG_N)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+4,0.25,*out);
+            if(err)return err;
+        }
+        if(i>=5)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-5,-0.15,*out);
+            if(err)return err;
+        }
+        if(i%4==0 && i+10<REG_N)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+10,0.38,*out);
+            if(err)return err;
+        }
+    }
+    err=lis_matrix_set_type(*out,LIS_MATRIX_CSR);
+    if(err)return err;
+    return lis_matrix_assemble(*out);
+}
+
+static int close_scalar(LIS_SCALAR x,LIS_SCALAR y)
+{
+    LIS_REAL scale=fabs(x)+fabs(y)+(LIS_REAL)1.0;
+    return fabs(x-y)<=(LIS_REAL)2e-13*scale;
+}
+
+/* tau=0 must reproduce legacy ILUT, with and without row normalization/RCM.
+ * This compares the ACTUAL L/U numeric data and their index lists, not just
+ * convergence histories. */
+static int check_tau_zero(int rcm,int scale)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER base=NULL,pivot=NULL;
+    LIS_PRECON pbase=NULL,ppivot=NULL;
+    LIS_INT err,i,k;
+    char options[512];
+    int failed=1;
+
+    err=make_sparse_matrix(&A,0);if(err)goto cleanup;
+    err=lis_solver_create(&base);if(err)goto cleanup;
+    err=lis_solver_create(&pivot);if(err)goto cleanup;
+    base->A=pivot->A=A;
+    snprintf(options,sizeof(options),
+        "-p ilut -ilut_rcm %d -ilut_row_scale %d "
+        "-ilut_drop 0.02 -ilut_rate 1.1 "
+        "-ilu_pivot_tol 1e-9 -scale none -omp_num_threads 1",
+        rcm,scale);
+    err=lis_solver_set_option(options,base);if(err)goto cleanup;
+    err=lis_solver_set_option(options,pivot);if(err)goto cleanup;
+    err=lis_solver_set_option("-ilutp 1 -ilutp_threshold 0",pivot);
+    if(err)goto cleanup;
+    err=lis_precon_create(base,&pbase);if(err){pbase=NULL;goto cleanup;}
+    err=lis_precon_create(pivot,&ppivot);if(err){ppivot=NULL;goto cleanup;}
+    if(!ppivot->ilutp_colperm)goto cleanup;
+    for(i=0;i<REG_N;i++)
+    {
+        if(ppivot->ilutp_colperm[i]!=i ||
+           pbase->L->nnz[i]!=ppivot->L->nnz[i] ||
+           pbase->U->nnz[i]!=ppivot->U->nnz[i] ||
+           !close_scalar(pbase->D->value[i],ppivot->D->value[i]))
+            goto cleanup;
+        for(k=0;k<pbase->L->nnz[i];k++)
+            if(pbase->L->index[i][k]!=ppivot->L->index[i][k] ||
+               !close_scalar(pbase->L->value[i][k],ppivot->L->value[i][k]))
+                goto cleanup;
+        for(k=0;k<pbase->U->nnz[i];k++)
+            if(pbase->U->index[i][k]!=ppivot->U->index[i][k] ||
+               !close_scalar(pbase->U->value[i][k],ppivot->U->value[i][k]))
+                goto cleanup;
+    }
+    failed=0;
+cleanup:
+    if(failed)fprintf(stderr,
+        "ILUTP tau=0 baseline mismatch (rcm=%d scale=%d err=%d)\n",
+        rcm,scale,(int)err);
+    if(ppivot)lis_precon_destroy(ppivot);
+    if(pbase)lis_precon_destroy(pbase);
+    if(pivot)lis_solver_destroy(pivot);
+    if(base)lis_solver_destroy(base);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
+static int solution_close(LIS_VECTOR x,LIS_VECTOR truth)
+{
+    LIS_INT i;
+    for(i=0;i<REG_N;i++)
+        if(!isfinite((double)x->value[i]) ||
+           fabs(x->value[i]-truth->value[i])>1e-6)
+            return 0;
+    return 1;
+}
+
+/* True FGMRES solve, limited L/U fill, tau in (0,1), automatic sequence
+ * reuse and option-change invalidation (not just direct psolve). */
+static int check_fgmres_sequence(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_VECTOR truth=NULL,b=NULL,x=NULL;
+    LIS_PRECON first=NULL;
+    LIS_INT i,err,status;
+    int failed=1;
+
+    err=make_sparse_matrix(&A,1);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&truth);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&b);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&x);if(err)goto cleanup;
+    for(i=0;i<REG_N;i++)
+        truth->value[i]=(LIS_SCALAR)(0.75+0.01*(double)i);
+    err=lis_matvec(A,truth,b);if(err)goto cleanup;
+
+    err=lis_solver_create(&solver);if(err)goto cleanup;
+    err=lis_solver_set_option(
+        "-i fgmres -restart 24 -maxiter 300 -tol 1e-10 "
+        "-p ilut -ilutp 1 -ilutp_threshold 0.5 "
+        "-ilut_rcm 1 -ilut_row_scale 1 "
+        "-ilut_drop 0.02 -ilut_rate 1.1 "
+        "-ilu_pivot_tol 1e-9 -scale none -omp_num_threads 1",
+        solver);
+    if(err)goto cleanup;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,x);if(err)goto cleanup;
+    err=lis_solve(A,b,x,solver);if(err)goto cleanup;
+    err=lis_solver_get_status(solver,&status);if(err || status!=LIS_SUCCESS)
+        goto cleanup;
+    if(!solution_close(x,truth))goto cleanup;
+
+    err=lis_solver_set_sequence_policy(solver,LIS_SEQUENCE_POLICY_AUTO);
+    if(err)goto cleanup;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,x);if(err)goto cleanup;
+    err=lis_solve_sequence(A,b,x,solver);if(err)goto cleanup;
+    if(solver->retcode!=LIS_SUCCESS || !solution_close(x,truth) ||
+       solver->sequence_precon==NULL ||
+       solver->sequence_precon->ilutp_colperm==NULL)
+        goto cleanup;
+    first=solver->sequence_precon;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,x);if(err)goto cleanup;
+    err=lis_solve_sequence(A,b,x,solver);if(err)goto cleanup;
+    if(solver->retcode!=LIS_SUCCESS || !solution_close(x,truth) ||
+       solver->sequence_precon!=first)
+        goto cleanup;
+
+    err=lis_solver_set_option("-ilutp_threshold 0.25",solver);if(err)goto cleanup;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,x);if(err)goto cleanup;
+    err=lis_solve_sequence(A,b,x,solver);if(err)goto cleanup;
+    if(solver->retcode!=LIS_SUCCESS || !solution_close(x,truth) ||
+       solver->sequence_precon==NULL ||
+       fabs(solver->sequence_precon_ilutp_threshold-0.25)>1e-12)
+        goto cleanup;
+
+    failed=0;
+cleanup:
+    if(failed)fprintf(stderr,
+        "ILUTP FGMRES/sequence failed (err=%d status=%d)\n",
+        (int)err,(int)(solver?solver->retcode:-1));
+    if(solver)lis_solver_destroy(solver);
+    if(x)lis_vector_destroy(x);
+    if(b)lis_vector_destroy(b);
+    if(truth)lis_vector_destroy(truth);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     int failed=0;
@@ -127,6 +327,11 @@ int main(int argc,char **argv)
     failed|=run_one(1,0);
     failed|=run_one(0,1);
     failed|=run_one(1,1);
+    failed|=check_tau_zero(0,0);
+    failed|=check_tau_zero(1,0);
+    failed|=check_tau_zero(0,1);
+    failed|=check_tau_zero(1,1);
+    failed|=check_fgmres_sequence();
     err=lis_solver_create(&solver);
     if(err)failed=1;
     else
@@ -143,3 +348,5 @@ int main(int argc,char **argv)
     if(!failed)printf("testilutp: PASS\n");
     return failed;
 }
+
+#endif /* real-double only */
