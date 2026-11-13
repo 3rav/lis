@@ -256,9 +256,9 @@ LIS_INT lis_solver_init(LIS_SOLVER solver)
 	solver->sequence_precon_ilut_rcm = 0;
 	solver->sequence_precon_ilut_row_scale = 0;
 	solver->ilutp_enabled = 0;
-	solver->ilutp_threshold = 1.0;
+	solver->ilutp_threshold = 0.5;
 	solver->sequence_precon_ilutp_enabled = 0;
-	solver->sequence_precon_ilutp_threshold = 1.0;
+	solver->sequence_precon_ilutp_threshold = 0.5;
 	solver->sequence_precon_half_mode = LIS_PRECON_HALF_OFF;
 	solver->sequence_initial_residual = 0.0;
 	solver->sequence_rhs_norm = 0.0;
@@ -5444,7 +5444,12 @@ LIS_INT lis_solver_set_option2(char* arg1, char *arg2, LIS_SOLVER solver)
 	{
 		char *end=NULL;
 		double t;
-		if(arg2==NULL || arg2[0]=='\0') return LIS_ERR_ILL_ARG;
+		if(arg2==NULL || arg2[0]=='\0')
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "-ilutp_threshold requires a value in [0,1]");
+            return LIS_ERR_ILL_ARG;
+        }
 		t=strtod(arg2,&end);
 		if(end==arg2 || *end!='\0' || !isfinite(t) ||
 		   t<0.0 || t>1.0)
