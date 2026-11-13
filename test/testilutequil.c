@@ -5,6 +5,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 /* Full-fill reference: nonsymmetric, strongly row/column imbalanced.
  * The test exercises A, A^T, RCM, row-only and two-sided Equil.
@@ -154,6 +157,11 @@ int main(int argc,char **argv)
     int failed=0;
 
     err=lis_initialize(&argc,&argv);if(err)return 1;
+#ifdef _OPENMP
+    /* Direct precon_create bypasses the solver's thread dispatcher. */
+    omp_set_dynamic(0);
+    omp_set_num_threads(1);
+#endif
 #if defined(_COMPLEX) || defined(USE_COMPLEX)
     puts("testilutequil: SKIP (real-double-only option)");
 #else
