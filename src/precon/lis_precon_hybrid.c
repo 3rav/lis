@@ -100,6 +100,16 @@ static LIS_INT lis_precon_hybrid_validate_config(LIS_SOLVER solver)
 		return LIS_ERR_ILL_ARG;
 	}
 
+	/* Never silently ignore an explicitly requested ILUTP when Hybrid's
+	 * inner preconditioner is not ILUT. Legacy Hybrid is unchanged. */
+	if( (solver->ilutp_enabled || solver->ilutp_full) &&
+	    inner_precon!=LIS_PRECON_TYPE_ILUT )
+	{
+		LIS_SETERR(LIS_ERR_ILL_ARG,
+			"Hybrid ILUTP requires -hybrid_p ilut\n");
+		return LIS_ERR_ILL_ARG;
+	}
+
 	return LIS_SUCCESS;
 }
 
@@ -178,6 +188,28 @@ LIS_INT lis_precon_create_hybrid(LIS_SOLVER solver, LIS_PRECON precon)
 	psolver->A = solver->A;
 	psolver->Ah = NULL;
 	psolver->precision = solver->precision;
+
+	/* ILUTP is stored outside options[] and params[]. When a Hybrid
+	 * inner ILUT is explicitly selected, transfer its numerical policy,
+	 * including the half-storage restriction, instead of silently using
+	 * the default legacy ILUT. Do not alter legacy Hybrid defaults. */
+	if( psolver->options[LIS_OPTIONS_PRECON]==LIS_PRECON_TYPE_ILUT &&
+	    (solver->ilutp_enabled || solver->ilutp_full) )
+	{
+		psolver->ilutp_enabled=solver->ilutp_enabled;
+		psolver->ilutp_threshold=solver->ilutp_threshold;
+		psolver->ilutp_full=solver->ilutp_full;
+		psolver->ilutp_full_limit=solver->ilutp_full_limit;
+		psolver->ilut_rcm=solver->ilut_rcm;
+		psolver->ilut_row_scale=solver->ilut_row_scale;
+		psolver->precon_half_mode=solver->precon_half_mode;
+		psolver->params[LIS_PARAMS_DROP-LIS_OPTIONS_LEN]=
+			solver->params[LIS_PARAMS_DROP-LIS_OPTIONS_LEN];
+		psolver->params[LIS_PARAMS_RATE-LIS_OPTIONS_LEN]=
+			solver->params[LIS_PARAMS_RATE-LIS_OPTIONS_LEN];
+		psolver->params[LIS_PARAMS_ILU_PIVOT_TOL-LIS_OPTIONS_LEN]=
+			solver->params[LIS_PARAMS_ILU_PIVOT_TOL-LIS_OPTIONS_LEN];
+	}
 
 	/*
 	 * Propagate solver configuration used by GCRO-DR when it is selected
