@@ -44,7 +44,7 @@ struct LIS_ILUT_RAS_PART {
 
 struct LIS_ILUT_RAS_STRUCT {
     LIS_MATRIX A;            /* borrowed outer serial CSR */
-    LIS_INT n,ndomains,overlap;
+    LIS_INT n,ndomains,overlap,parallel;
     struct LIS_ILUT_RAS_PART *parts;
     LIS_INT *owner;
     LIS_INT *gamma,*gamma_of,*pivots;
@@ -411,6 +411,7 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
     precon->ilut_ras=s; /* generic preconditioner destruction owns cleanup */
     s->A=A; s->n=n; s->ndomains=solver->ilut_ras_domains;
     s->overlap=solver->ilut_ras_overlap;
+    s->parallel=solver->ilut_ras_parallel;
     s->owner=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"RAS owners");
     s->parts=(struct LIS_ILUT_RAS_PART *)lis_malloc(
         (size_t)s->ndomains*sizeof(*s->parts),"RAS subdomains");
@@ -444,26 +445,44 @@ lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
 {
     struct LIS_ILUT_RAS_STRUCT *s=solver->precon->ilut_ras;
     LIS_INT d,i,k,gi,err,ng;
+    LIS_INT domain_err[64];
     LIS_SCALAR val;
     if(!s || !B || !X || B->n!=s->n || X->n!=s->n)
         return LIS_ERR_ILL_ARG;
     err=lis_vector_set_all((LIS_SCALAR)0.0,X);
     if(err) return err;
+    /*
+     * Local solves have disjoint solver/work vectors, share only read-only
+     * input, and inject exclusively into their nonoverlapping owner cores.
+     * Report errors after the join, never return from the OpenMP region.
+     * Setup remains serial because LIS solver/preconditioner construction
+     * mutates shared dispatch and error-reporting state.
+     */
+#ifdef _OPENMP
+    #pragma omp parallel for schedule(dynamic,1) if(s->parallel)
+#endif
     for(d=0;d<s->ndomains;d++)
     {
         struct LIS_ILUT_RAS_PART *p=&s->parts[d];
-        for(i=0;i<p->nlocal;i++)
-            p->b->value[i]=B->value[p->global[i]];
-        err=lis_psolve(p->solver,p->b,p->x);
-        if(err) return err;
-        /* RAS: inject each solve only into its nonoverlapping owner core. */
-        for(i=0;i<p->nlocal;i++)
+        LIS_INT local_err,local_i,local_g;
+        domain_err[d]=LIS_SUCCESS;
+        for(local_i=0;local_i<p->nlocal;local_i++)
+            p->b->value[local_i]=B->value[p->global[local_i]];
+        local_err=lis_psolve(p->solver,p->b,p->x);
+        if(local_err)
         {
-            gi=p->global[i];
-            if(gi>=p->start && gi<p->end)
-                X->value[gi]=p->x->value[i];
+            domain_err[d]=local_err;
+            continue;
+        }
+        for(local_i=0;local_i<p->nlocal;local_i++)
+        {
+            local_g=p->global[local_i];
+            if(local_g>=p->start && local_g<p->end)
+                X->value[local_g]=p->x->value[local_i];
         }
     }
+    for(d=0;d<s->ndomains;d++)
+        if(domain_err[d]!=LIS_SUCCESS) return domain_err[d];
     if(s->ngamma==0) return LIS_SUCCESS;
     ng=s->ngamma;
     err=lis_matvec(s->A,X,s->residual);
