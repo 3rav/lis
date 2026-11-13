@@ -293,54 +293,39 @@ LIS_INT lis_precon_update_ilut_frozen(
  * sparsity graph, so it is also defined for nonsymmetric FEA matrices.
  * This is not hypre's ddPQ pivot matching or a distributed RAS solver.
  */
-static LIS_INT
-lis_ilut_ordered_create(LIS_SOLVER solver, LIS_PRECON precon)
+
+/* Reusable deterministic RCM ordering for serial CSR. The output maps
+ * ordered positions to original rows. This is an ordering heuristic, not
+ * a guaranteed minimum-separator geometric partitioner.
+ *
+ * The integer/size overflow checks are shared with the ILUT preprocessing
+ * implementation and are required for 32-bit LIS_INT.
+ */
+LIS_INT
+lis_ilut_rcm_order(LIS_MATRIX A,LIS_INT *perm)
 {
 #if defined(_COMPLEX) || defined(USE_COMPLEX)
-    (void)solver; (void)precon;
+    (void)A; (void)perm;
     return LIS_ERR_NOT_IMPLEMENTED;
 #else
-    LIS_MATRIX A=solver->A, P=NULL;
-    LIS_INT n=A->n, i,j,k,old,other,p,err=LIS_SUCCESS;
-    LIS_INT *inv=NULL,*degree=NULL,*graphptr=NULL,*cursor=NULL;
+    LIS_INT n=A ? A->n : 0;
+    LIS_INT i,j,k,old,p,head,tail,seed,vertex,adj,ndx;
+    LIS_INT err=LIS_SUCCESS;
+    LIS_INT *degree=NULL,*graphptr=NULL,*cursor=NULL;
     LIS_INT *edges=NULL,*queue=NULL,*seen=NULL;
-    LIS_INT head,tail,seed,vertex,adj,ndx;
-    LIS_REAL largest,absv,scale;
     size_t cap;
-    LIS_INT *perm=NULL;
-    LIS_SCALAR *weights=NULL;
 
-    if(A->nprocs!=1 || A->is!=0 || A->n!=A->gn ||
-       A->matrix_type!=LIS_MATRIX_CSR ||
-       A->ptr==NULL || A->index==NULL || A->value==NULL ||
-       solver->options[LIS_OPTIONS_PRECISION]!=LIS_PRECISION_DOUBLE)
-    {
-        LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
-            "ILUT RCM/row scaling supports serial CSR in double precision");
-        return LIS_ERR_NOT_IMPLEMENTED;
-    }
-    /*
-     * Edge offsets are stored in LIS_INT, not size_t. Validate both the
-     * allocation sizes and the 2*nnz graph offset arithmetic before any
-     * increments; this matters for 32-bit LIS_INT with very large CSR.
-     */
-    if(n<=0 || A->nnz<0 ||
+    if(!A || !perm || n<=0 || A->nnz<0 || A->nprocs!=1 ||
+       A->n!=A->gn || A->is!=0 || A->matrix_type!=LIS_MATRIX_CSR ||
+       !A->ptr || !A->index || !A->value ||
        ((size_t)n+1)>SIZE_MAX/sizeof(LIS_INT) ||
-       (size_t)n>SIZE_MAX/sizeof(LIS_SCALAR) ||
        (size_t)A->nnz>SIZE_MAX/(2*sizeof(LIS_INT)) ||
-       (size_t)A->nnz > (sizeof(LIS_INT)==4 ?
-                        (size_t)INT32_MAX/2 : (size_t)INT64_MAX/2))
+       (size_t)A->nnz>(sizeof(LIS_INT)==4 ?
+                     (size_t)INT32_MAX/2 : (size_t)INT64_MAX/2))
         return LIS_ERR_ILL_ARG;
     if(A->ptr[0]!=0 || A->ptr[n]!=A->nnz)
         return LIS_ERR_ILL_ARG;
 
-    perm=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"ILUT RCM permutation");
-    inv=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"ILUT inverse permutation");
-    weights=(LIS_SCALAR *)lis_malloc((size_t)n*sizeof(LIS_SCALAR),"ILUT row scales");
-    if(!perm || !inv || !weights) { err=LIS_OUT_OF_MEMORY; goto cleanup; }
-
-    if(solver->ilut_rcm)
-    {
         degree=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"ILUT RCM degrees");
         graphptr=(LIS_INT *)lis_malloc(((size_t)n+1)*sizeof(LIS_INT),"ILUT RCM ptr");
         cursor=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"ILUT RCM cursor");
@@ -419,6 +404,65 @@ lis_ilut_ordered_create(LIS_SOLVER solver, LIS_PRECON precon)
         }
         if(tail!=n) { err=LIS_ERR_ILL_ARG; goto cleanup; }
         for(i=0;i<n;i++) perm[i]=queue[n-1-i];
+
+cleanup:
+    lis_free(degree);
+    lis_free(graphptr);
+    lis_free(cursor);
+    lis_free(edges);
+    lis_free(queue);
+    lis_free(seen);
+    return err;
+#endif
+}
+
+static LIS_INT
+lis_ilut_ordered_create(LIS_SOLVER solver, LIS_PRECON precon)
+{
+#if defined(_COMPLEX) || defined(USE_COMPLEX)
+    (void)solver; (void)precon;
+    return LIS_ERR_NOT_IMPLEMENTED;
+#else
+    LIS_MATRIX A=solver->A, P=NULL;
+    LIS_INT n=A->n, i,k,old,other,err=LIS_SUCCESS;
+    LIS_INT *inv=NULL;
+    LIS_REAL largest,absv,scale;
+    LIS_INT *perm=NULL;
+    LIS_SCALAR *weights=NULL;
+
+    if(A->nprocs!=1 || A->is!=0 || A->n!=A->gn ||
+       A->matrix_type!=LIS_MATRIX_CSR ||
+       A->ptr==NULL || A->index==NULL || A->value==NULL ||
+       solver->options[LIS_OPTIONS_PRECISION]!=LIS_PRECISION_DOUBLE)
+    {
+        LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+            "ILUT RCM/row scaling supports serial CSR in double precision");
+        return LIS_ERR_NOT_IMPLEMENTED;
+    }
+    /*
+     * Edge offsets are stored in LIS_INT, not size_t. Validate both the
+     * allocation sizes and the 2*nnz graph offset arithmetic before any
+     * increments; this matters for 32-bit LIS_INT with very large CSR.
+     */
+    if(n<=0 || A->nnz<0 ||
+       ((size_t)n+1)>SIZE_MAX/sizeof(LIS_INT) ||
+       (size_t)n>SIZE_MAX/sizeof(LIS_SCALAR) ||
+       (size_t)A->nnz>SIZE_MAX/(2*sizeof(LIS_INT)) ||
+       (size_t)A->nnz > (sizeof(LIS_INT)==4 ?
+                        (size_t)INT32_MAX/2 : (size_t)INT64_MAX/2))
+        return LIS_ERR_ILL_ARG;
+    if(A->ptr[0]!=0 || A->ptr[n]!=A->nnz)
+        return LIS_ERR_ILL_ARG;
+
+    perm=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"ILUT RCM permutation");
+    inv=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"ILUT inverse permutation");
+    weights=(LIS_SCALAR *)lis_malloc((size_t)n*sizeof(LIS_SCALAR),"ILUT row scales");
+    if(!perm || !inv || !weights) { err=LIS_OUT_OF_MEMORY; goto cleanup; }
+
+    if(solver->ilut_rcm)
+    {
+        err=lis_ilut_rcm_order(A,perm);
+        if(err) goto cleanup;
     }
     else for(i=0;i<n;i++) perm[i]=i;
     for(i=0;i<n;i++) inv[perm[i]]=i;
@@ -474,12 +518,6 @@ cleanup:
     lis_free(perm);
     lis_free(inv);
     lis_free(weights);
-    lis_free(degree);
-    lis_free(graphptr);
-    lis_free(cursor);
-    lis_free(edges);
-    lis_free(queue);
-    lis_free(seen);
     return err;
 #endif
 }
