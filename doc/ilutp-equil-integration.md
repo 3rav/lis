@@ -105,3 +105,25 @@ This shows compatibility, **not unique synergy**: Equil alone also
 converged in 3 iterations, and both Equil cases needed more fill. This
 small manufactured matrix is primarily a numerical regression example.
 
+
+## Pivot-swap diagnostics and timing caveat
+
+Native LIS CI with the instrumentation, Linux GCC (serial) at amplitude=30,
+drop=0.005 and rate=5:
+
+| Mode | Iterations | L+U nnz | Dynamic column swaps | True residual |
+|---|---:|---:|---:|---:|
+| Ordinary ILUT | 3 | 703 | 0 | 3.8142e-7 |
+| Equil | 3 | 1282 | 0 | 1.9900e-8 |
+| ILUTP | 11 | 907 | 71 | 4.4162e-7 |
+| ILUTP + Equil | 3 | 1282 | 0 | 1.9900e-8 |
+| Row-only ILUT | 3 | 703 | 0 | 3.8142e-7 |
+
+The column normalizations eliminated 71 pivot swaps in this *particular*
+small example. This is evidence that the two algorithms interact, **not**
+evidence that the combination outperforms Equil alone. The measured
+single-solve wall times are on the order of tens of microseconds and
+must not be interpreted as stable performance comparisons. The benchmark
+prints these times so a larger future run can report them responsibly.
+
+CI run: https://github.com/3rav/lis/actions/runs/43489686274
