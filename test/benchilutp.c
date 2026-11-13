@@ -34,6 +34,7 @@ int main(void)
 typedef struct
 {
     LIS_INT maxiter,restart,rcm,row_scale;
+    LIS_INT variant; /* 0 all, 1 legacy, 2 tau=0.5, 3 tau=1 */
     double rtol,drop,rate,pivot_tol;
 } BENCH_ARGS;
 
@@ -151,6 +152,48 @@ static int run_case(FILE *csv,const char *name,LIS_MATRIX A,LIS_VECTOR b,
         for(i=0;i<A->n;i++)
             if(pc->ilutp_colperm[i]!=i)permuted++;
 
+    if(getenv("LIS_ILUTP_FACTOR_TRACE"))
+    {
+        LIS_INT j,bad_first=-1;
+        long long nonfinite_d=0,nonfinite_l=0,nonfinite_u=0;
+        double max_d=0.0,max_l=0.0,max_u=0.0;
+        double min_d=HUGE_VAL;
+        for(i=0;i<A->n;i++)
+        {
+            double v=fabs((double)pc->D->value[i]);
+            if(!isfinite(v))
+            {
+                nonfinite_d++;
+                if(bad_first<0)bad_first=i;
+            }
+            else
+            {
+                if(v>max_d)max_d=v;
+                if(v<min_d)min_d=v;
+            }
+            for(j=0;j<pc->L->nnz[i];j++)
+            {
+                v=fabs((double)pc->L->value[i][j]);
+                if(!isfinite(v))nonfinite_l++;
+                else if(v>max_l)max_l=v;
+            }
+            for(j=0;j<pc->U->nnz[i];j++)
+            {
+                v=fabs((double)pc->U->value[i][j]);
+                if(!isfinite(v))nonfinite_u++;
+                else if(v>max_u)max_u=v;
+            }
+        }
+        fprintf(stderr,
+          "LIS_ILUTP_FACTOR_TRACE variant=%s "
+          "bad_D=%lld bad_L=%lld bad_U=%lld first_bad_D=%lld "
+          "min_abs_D=%.8g max_abs_D=%.8g "
+          "max_abs_L=%.8g max_abs_U=%.8g\n",
+          name,nonfinite_d,nonfinite_l,nonfinite_u,
+          (long long)bad_first,
+          min_d==HUGE_VAL ? 0.0 : min_d,max_d,max_l,max_u);
+    }
+
     err=lis_vector_set_all((LIS_SCALAR)0.0,x);
     if(err)goto report;
     t=cpu_seconds();
@@ -202,12 +245,14 @@ int main(int argc,char **argv)
         fprintf(stderr,
             "Usage: %s A.mtx b.mtx [--maxiter N] [--restart N] "
             "[--rtol V] [--drop V] [--rate V] [--pivot-tol V] "
-            "[--rcm 0|1] [--row-scale 0|1] [--csv FILE]\n",argv[0]);
+            "[--rcm 0|1] [--row-scale 0|1] [--csv FILE] "
+            "[--variant all|legacy|tau05|tau10]\n",argv[0]);
         return 2;
     }
     a.maxiter=1000;a.restart=120;
     a.rtol=1e-5;a.drop=0.005;a.rate=12.0;
     a.pivot_tol=1e-9;a.rcm=1;a.row_scale=1;
+    a.variant=0;
     for(i=3;i<argc;i+=2)
     {
         double num;
@@ -219,6 +264,20 @@ int main(int argc,char **argv)
         if(strcmp(argv[i],"--csv")==0)
         {
             csv_filename=argv[i+1];
+            continue;
+        }
+        if(strcmp(argv[i],"--variant")==0)
+        {
+            const char *v=argv[i+1];
+            if(strcmp(v,"all")==0)a.variant=0;
+            else if(strcmp(v,"legacy")==0)a.variant=1;
+            else if(strcmp(v,"tau05")==0)a.variant=2;
+            else if(strcmp(v,"tau10")==0)a.variant=3;
+            else
+            {
+                fprintf(stderr,"Unknown variant: %s\n",v);
+                return 2;
+            }
             continue;
         }
         if(parse_num(argv[i+1],&num))
@@ -286,9 +345,12 @@ int main(int argc,char **argv)
     fprintf(csv,"variant,ilutp,tau,status,iterations,nnz_L,nnz_U,"
            "moved_columns,setup_cpu_s,solve_cpu_s,physical_relres,"
            "api_error,solver_status\n");
-    run_case(csv,"legacy_ilut",A,b,x,resid,(double)bnorm,&a,0,0);
-    run_case(csv,"ilutp_0p5",A,b,x,resid,(double)bnorm,&a,1,0.5);
-    run_case(csv,"ilutp_1p0",A,b,x,resid,(double)bnorm,&a,1,1.0);
+    if(a.variant==0 || a.variant==1)
+        run_case(csv,"legacy_ilut",A,b,x,resid,(double)bnorm,&a,0,0);
+    if(a.variant==0 || a.variant==2)
+        run_case(csv,"ilutp_0p5",A,b,x,resid,(double)bnorm,&a,1,0.5);
+    if(a.variant==0 || a.variant==3)
+        run_case(csv,"ilutp_1p0",A,b,x,resid,(double)bnorm,&a,1,1.0);
     err=0;
 cleanup:
     if(csv && csv!=stdout)fclose(csv);
