@@ -798,16 +798,14 @@ done:
     return failed;
 }
 
-/* Opt-in serial partitioned RAS ILUT with diagonal-approximate Schur
- * correction must remain separate from the legacy ILUT default.
- */
+/* Opt-in RAS ILUT must remain separate from the legacy ILUT default. */
 static int
-check_ilut_ras_schur(LIS_MATRIX A)
+check_ilut_ras(LIS_MATRIX A)
 {
     LIS_SOLVER solver=NULL;
     LIS_PRECON pc=NULL;
     LIS_VECTOR b=NULL,x=NULL,e=NULL,r=NULL;
-    LIS_INT err,overlap,schur,parallel,i;
+    LIS_INT err,overlap,parallel,i;
     LIS_SCALAR reference[64];
     LIS_REAL bn=0.0,rn=0.0;
     int failed=0;
@@ -824,7 +822,6 @@ check_ilut_ras_schur(LIS_MATRIX A)
     if(err) { failed=1; goto cleanup; }
 
     for(overlap=0;overlap<=2;overlap++)
-    for(schur=0;schur<=1;schur++)
     for(parallel=0;parallel<=1;parallel++)
     {
         solver=NULL;pc=NULL;
@@ -833,9 +830,9 @@ check_ilut_ras_schur(LIS_MATRIX A)
         snprintf(opts,sizeof(opts),
             "-i gmres -p ilut -scale none -print none "
             "-iluc_drop 0 -iluc_rate 8 -ilu_pivot_tol 1e-12 "
-            "-ilut_ras_domains 4 -ilut_ras_overlap %d -ilut_schur %d "
+            "-ilut_ras_domains 4 -ilut_ras_overlap %d "
             "-ilut_ras_parallel %d",
-            (int)overlap,(int)schur,(int)parallel);
+            (int)overlap,(int)parallel);
         err=lis_solver_set_option(opts,solver);
         if(err) { failed=1; goto cleanup; }
         err=lis_solver_set_matrix(A,solver);
@@ -856,8 +853,8 @@ check_ilut_ras_schur(LIS_MATRIX A)
                    1e-10*(1.0+fabs((double)reference[i])))
                 {
                     fprintf(stderr,
-                        "ILUT RAS parallel mismatch: row=%ld overlap=%ld schur=%ld\n",
-                        (long)i,(long)overlap,(long)schur);
+                        "ILUT RAS parallel mismatch: row=%ld overlap=%ld\n",
+                        (long)i,(long)overlap);
                     failed=1; goto cleanup;
                 }
         err=lis_matvec(A,x,r);
@@ -867,8 +864,8 @@ check_ilut_ras_schur(LIS_MATRIX A)
         err=lis_vector_nrm2(r,&rn);
         if(err || !(rn/bn<0.80))
         {
-            fprintf(stderr,"ILUT RAS overlap=%d schur=%d residual %.5e\n",
-                    (int)overlap,(int)schur,(double)(rn/bn));
+            fprintf(stderr,"ILUT RAS overlap=%d residual %.5e\n",
+                    (int)overlap,(double)(rn/bn));
             failed=1; goto cleanup;
         }
         /* No mathematically incorrect adjoint implementation. */
@@ -882,7 +879,7 @@ check_ilut_ras_schur(LIS_MATRIX A)
         lis_precon_destroy(pc);pc=NULL;
         lis_solver_destroy(solver);solver=NULL;
     }
-    printf("ILUT_RAS_SCHUR PASSED\n");
+    printf("ILUT_RAS_ONLY_PASSED\n");
 
 cleanup:
     if(pc)
@@ -979,7 +976,7 @@ check_ilut_ras_contact_kkt(void)
             "-i fgmres -p ilut -scale none -print none "
             "-tol 1e-8 -maxiter 120 -restart 30 "
             "-iluc_drop 0.005 -iluc_rate 8 -ilu_pivot_tol 1e-9 %s",
-            variant ? "-ilut_ras_domains 4 -ilut_ras_overlap 1 -ilut_schur 1" : "");
+            variant ? "-ilut_ras_domains 4 -ilut_ras_overlap 1 -ilut_rcm 1" : "");
         err=lis_solver_set_option(opts,solver);
         if(err) goto done;
         lis_vector_set_all((LIS_SCALAR)0.0,x);
@@ -1015,151 +1012,6 @@ done:
     return failed;
 }
 
-
-/*
- * Negative regression: the Schur approximation MUST reject a weak
- * interior diagonal instead of quietly treating diag(A_II)^-1 as zero.
- * Row 1 is interior for the 2-domain partition of this 8x8 system.
- */
-static int
-check_ilut_ras_unsafe_interior(void)
-{
-    LIS_MATRIX A=NULL;
-    LIS_SOLVER solver=NULL;
-    LIS_PRECON pc=NULL;
-    LIS_INT i,err=0;
-    int failed=1;
-
-    err=lis_matrix_create(LIS_COMM_WORLD,&A);
-    if(err) goto done;
-    err=lis_matrix_set_size(A,0,8);
-    if(err) goto done;
-    if(A->nprocs!=1) { failed=0; goto done; }
-    for(i=0;i<8;i++)
-    {
-        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
-             (i==1 || i==2) ? (LIS_SCALAR)1.0e-20 : (LIS_SCALAR)3.0,A);
-        if(err) goto done;
-        if(i>0)
-        {
-            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,
-                                     (LIS_SCALAR)-0.4,A);
-            if(err) goto done;
-        }
-        if(i<7)
-        {
-            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
-                                     (LIS_SCALAR)-0.4,A);
-            if(err) goto done;
-        }
-    }
-    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
-    if(err) goto done;
-    err=lis_matrix_assemble(A);
-    if(err) goto done;
-    err=lis_solver_create(&solver);
-    if(err) goto done;
-    err=lis_solver_set_option(
-        "-i fgmres -p ilut -scale none -print none "
-        "-iluc_drop 0 -iluc_rate 8 -ilu_pivot_tol 1e-9 "
-        "-ilut_ras_domains 2 -ilut_ras_overlap 1 -ilut_schur 1",
-        solver);
-    if(err) goto done;
-    err=lis_solver_set_matrix(A,solver);
-    if(err) goto done;
-    err=lis_precon_create(solver,&pc);
-    if(err==LIS_ERR_ILL_ARG)
-    {
-        pc=NULL; /* failing constructor releases its partial preconditioner */
-        printf("ILUT_RAS_WEAK_DIAG_REJECTED\n");
-        failed=0;
-        goto done;
-    }
-    fprintf(stderr,"Schur accepted weak interior pivot; rc=%ld\n",(long)err);
-done:
-    if(pc) lis_precon_destroy(pc);
-    if(solver) lis_solver_destroy(solver);
-    if(A) lis_matrix_destroy(A);
-    return failed;
-}
-
-
-
-/*
- * A single weak interior diagonal is promoted to Gamma. This tests only
- * finite, successful setup and application: promotion does not guarantee
- * convergence for indefinite KKT systems or large 3D interfaces.
- */
-static int
-check_ilut_ras_promoted_interior(void)
-{
-    LIS_MATRIX A=NULL;
-    LIS_SOLVER solver=NULL;
-    LIS_PRECON pc=NULL;
-    LIS_VECTOR b=NULL,x=NULL;
-    LIS_INT i,err=0;
-    int failed=1;
-    err=lis_matrix_create(LIS_COMM_WORLD,&A);
-    if(err) goto done;
-    err=lis_matrix_set_size(A,0,8);
-    if(err) goto done;
-    if(A->nprocs!=1) { failed=0; goto done; }
-    for(i=0;i<8;i++)
-    {
-        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
-               i==1 ? (LIS_SCALAR)1.0e-20 : (LIS_SCALAR)3.0,A);
-        if(err) goto done;
-        if(i>0)
-        {
-            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,
-                                     (LIS_SCALAR)-0.4,A);
-            if(err) goto done;
-        }
-        if(i<7)
-        {
-            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
-                                     (LIS_SCALAR)-0.4,A);
-            if(err) goto done;
-        }
-    }
-    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
-    if(err) goto done;
-    err=lis_matrix_assemble(A);
-    if(err) goto done;
-    err=lis_solver_create(&solver);
-    if(err) goto done;
-    err=lis_solver_set_option(
-        "-i fgmres -p ilut -scale none -print none "
-        "-iluc_drop 0 -iluc_rate 8 -ilu_pivot_tol 1e-9 "
-        "-ilut_ras_domains 2 -ilut_ras_overlap 1 -ilut_schur 1",
-        solver);
-    if(err) goto done;
-    err=lis_solver_set_matrix(A,solver);
-    if(err) goto done;
-    err=lis_precon_create(solver,&pc);
-    if(err || !pc || !pc->ilut_ras) goto done;
-    solver->precon=pc;
-    if(lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x))
-        goto done;
-    lis_vector_set_all((LIS_SCALAR)1.0,b);
-    err=lis_psolve(solver,b,x);
-    if(err) goto done;
-    for(i=0;i<8;i++)
-        if(!isfinite((double)x->value[i])) goto done;
-    printf("ILUT_RAS_WEAK_DIAG_PROMOTED\n");
-    failed=0;
-done:
-    if(failed)
-        fprintf(stderr,"ILUT_RAS_WEAK_DIAG_PROMOTION_FAILED rc=%ld\n",
-                (long)err);
-    if(solver) solver->precon=NULL;
-    if(pc) lis_precon_destroy(pc);
-    if(solver) lis_solver_destroy(solver);
-    if(x) lis_vector_destroy(x);
-    if(b) lis_vector_destroy(b);
-    if(A) lis_matrix_destroy(A);
-    return failed;
-}
 
 /*
  * High-unit-contrast 48x48 contact-KKT algebraic regression:
@@ -1353,22 +1205,21 @@ done:
 
 /*
  * Explicit synthetic 3D scalar seven-point stencil, 8^3 = 512 unknowns.
- * Four contiguous serial domains create a Gamma interface of 384 DOF,
- * forcing the sparse CSR-ILUT Schur path (dense cutoff is 256).
+ * Four serial domains exercise local RAS owner/halo extraction.
  *
  * This is NOT 3D vector elasticity, contact FEA, or an application
  * performance benchmark. It only checks finite, consistent application
- * on a larger-than-dense-limit synthetic interface.
+ * on a larger synthetic three-dimensional graph.
  */
 static int
-check_ilut_sparse_schur_smoke(int scrambled,int half_storage,int row_scale,int local_rcm)
+check_ilut_ras_3d_smoke(int scrambled,int half_storage,int row_scale,int local_rcm)
 {
     const LIS_INT side=8,n=512;
     LIS_MATRIX A=NULL;
     LIS_VECTOR truth=NULL,b=NULL,x=NULL,ref=NULL,r=NULL;
     LIS_SOLVER solver=NULL;
     LIS_PRECON pc=NULL;
-    LIS_INT err=0,i,ix,iy,iz,parallel,rcm,row,ngamma=0,baseline_gamma=-1;
+    LIS_INT err=0,i,ix,iy,iz,parallel,rcm,row,ngamma=0;
     LIS_REAL bn=0.0,rn=0.0;
     char options[320];
     int failed=1;
@@ -1451,7 +1302,7 @@ check_ilut_sparse_schur_smoke(int scrambled,int half_storage,int row_scale,int l
         snprintf(options,sizeof(options),
                  "-i fgmres -p ilut -scale none -print none "
                  "-ilut_drop 0.001 -ilut_rate 8 -ilu_pivot_tol 1e-12 "
-                 "-ilut_ras_domains 4 -ilut_ras_overlap 1 -ilut_schur 1 "
+                 "-ilut_ras_domains 4 -ilut_ras_overlap 1 "
                  "-ilut_ras_parallel %d -ilut_ras_rcm %d "
                  "-ilut_row_scale %d -ilut_rcm %d",
                  (int)parallel,(int)rcm,row_scale,local_rcm);
@@ -1467,18 +1318,7 @@ check_ilut_sparse_schur_smoke(int scrambled,int half_storage,int row_scale,int l
         err=lis_precon_create(solver,&pc);
         if(err || !pc || !pc->ilut_ras) goto done;
         err=lis_precon_ilut_ras_interface_size(pc,&ngamma);
-        if(err || ngamma<=0 || ngamma>n) goto done;
-        if(scrambled && parallel==0)
-        {
-            if(rcm==0) baseline_gamma=ngamma;
-            else if(baseline_gamma<=0 || ngamma>=baseline_gamma)
-            {
-                fprintf(stderr,
-                    "RCM did not reduce the interface on the scrambled fixture: raw=%ld rcm=%ld\n",
-                    (long)baseline_gamma,(long)ngamma);
-                goto done;
-            }
-        }
+        if(err || ngamma!=0) goto done;
         solver->precon=pc;
 #ifdef _OPENMP
         if(tsan_mode && parallel) omp_set_num_threads(4);
@@ -1502,7 +1342,7 @@ check_ilut_sparse_schur_smoke(int scrambled,int half_storage,int row_scale,int l
             else if(fabs((double)(x->value[i]-ref->value[i])) >
                     1e-10*(1.0+fabs((double)ref->value[i]))) goto done;
         }
-        printf("ILUT_RAS_SPARSE_SCHUR_CHECK n=%ld "
+        printf("ILUT_RAS_3D_CHECK n=%ld "
                "scrambled=%d rcm=%ld ngamma=%ld parallel=%ld true_residual=%.6e\n",
                (long)n,scrambled,(long)rcm,(long)ngamma,
                (long)parallel,(double)(rn/bn));
@@ -1510,11 +1350,11 @@ check_ilut_sparse_schur_smoke(int scrambled,int half_storage,int row_scale,int l
         lis_precon_destroy(pc);pc=NULL;
         lis_solver_destroy(solver);solver=NULL;
     }
-    printf("ILUT_RAS_SPARSE_SCHUR_PASSED\n");
+    printf("ILUT_RAS_3D_PASSED\n");
     failed=0;
 done:
     if(failed)
-        fprintf(stderr,"ILUT_RAS_SPARSE_SCHUR_FAILED rc=%ld\n",(long)err);
+        fprintf(stderr,"ILUT_RAS_3D_FAILED rc=%ld\n",(long)err);
     if(solver) solver->precon=NULL;
     if(pc) lis_precon_destroy(pc);
     if(solver) lis_solver_destroy(solver);
@@ -1691,7 +1531,8 @@ done:
  *
  * ./test/testhalfilut --fea-ras A.mtx 8 8 8 0.005 8 1 1 1
  *
- * Rates are independent: base, RAS, RAS+Schur. The last four numbers
+ * Base and RAS rates are independent. The unused third rate argument
+ * is retained only for compatibility with the research CLI. The last four numbers
  * specify RAS domains, overlap, RCM-ranked partition, OpenMP local
  * apply. The benchmark measures wall time, NOT process CPU time.
  * Fill entries are a storage proxy, not peak RSS; tune rates until
@@ -1786,10 +1627,9 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
                  "-ilu_pivot_tol 1e-10 -ilut_rate %.12g "
                  "-ilut_drop %.12g -ilut_ras_domains %ld "
                  "-ilut_ras_overlap %ld -ilut_ras_rcm %ld "
-                 "-ilut_ras_parallel %ld -ilut_schur %d "
-                 "-ilut_row_scale %ld -ilut_rcm %ld",
+                 "-ilut_ras_parallel %ld -ilut_row_scale %ld -ilut_rcm %ld",
                  rate,drop,(long)domains,(long)overlap,
-                 (long)rcm,(long)parallel,mode==2,(long)row_scale,
+                 (long)rcm,(long)parallel,(long)row_scale,
                  (long)local_rcm);
     err=lis_solver_create(&solver);
     if(err) goto done;
@@ -1912,14 +1752,13 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
 {
     LIS_MATRIX A=NULL;
     LIS_VECTOR truth=NULL,b=NULL;
-    LIS_RAS_BENCH_RESULT m[3];
-    double rates[3],gap;
+    LIS_RAS_BENCH_RESULT m[2];
+    double rates[2],gap;
     LIS_INT i,err=0;
     int failed=1,mode;
-    int mode_count=getenv("LIS_FEA_ONLY_BASELINE") ? 1 :
-                   (getenv("LIS_FEA_SKIP_SCHUR") ? 2 : 3);
+    int mode_count=getenv("LIS_FEA_ONLY_BASELINE") ? 1 : 2;
     int fill_only=getenv("LIS_FEA_FILL_ONLY")!=NULL;
-    const char *names[3]={"baseline","ras","ras_schur"};
+    const char *names[2]={"baseline","ras"};
     if(!file || !isfinite(base_rate) || !(base_rate>0.0) ||
        !isfinite(ras_rate) || !(ras_rate>0.0) ||
        !isfinite(schur_rate) || !(schur_rate>0.0) ||
@@ -1929,7 +1768,7 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
        (row_scale!=0 && row_scale!=1) ||
        (local_rcm!=0 && local_rcm!=1))
         return 1;
-    rates[0]=base_rate; rates[1]=ras_rate; rates[2]=schur_rate;
+    rates[0]=base_rate; rates[1]=ras_rate;
     err=lis_matrix_create(LIS_COMM_WORLD,&A);
     if(err) goto done;
     err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
@@ -2046,13 +1885,13 @@ main(
 		return 1;
 	}
 
-	if(argc==2 && (strcmp(argv[1],"--sparse-schur-smoke")==0 ||
+	if(argc==2 && (strcmp(argv[1],"--ras-3d-smoke")==0 ||
 	               strcmp(argv[1],"--ras-rcm-smoke")==0 ||
 	               strcmp(argv[1],"--ras-half-smoke")==0 ||
 	               strcmp(argv[1],"--ras-row-scale-smoke")==0 ||
 	               strcmp(argv[1],"--ras-local-rcm-smoke")==0))
 	{
-		failed=check_ilut_sparse_schur_smoke(
+		failed=check_ilut_ras_3d_smoke(
 		    strcmp(argv[1],"--ras-rcm-smoke")==0,
 		    strcmp(argv[1],"--ras-half-smoke")==0,
 		    strcmp(argv[1],"--ras-half-smoke")==0 ||
@@ -2132,9 +1971,7 @@ main(
 	failed |= check_ilut_ordering(A);
 	failed |= check_ilut_contact_kkt();
 	failed |= check_ilut_kkt_unit_contrast();
-	failed |= check_ilut_ras_schur(A);
-	failed |= check_ilut_ras_unsafe_interior();
-	failed |= check_ilut_ras_promoted_interior();
+	failed |= check_ilut_ras(A);
 	failed |= check_ilut_ras_contact_kkt();
 
 	failed |=
