@@ -1721,6 +1721,34 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     LIS_REAL minpivot=0.0,maxpivot=0.0,bn=0.0,rn=0.0,pn=0.0;
     double t0=0.0,t1=0.0,t2=0.0;
     char opts[512];
+    const char *baseline_threads=getenv("LIS_FEA_BASELINE_THREADS");
+    const char *baseline_rcm_env=getenv("LIS_FEA_BASELINE_RCM");
+    LIS_INT baseline_rcm=(baseline_rcm_env &&
+                         strcmp(baseline_rcm_env,"1")==0) ? 1 : 0;
+#ifdef _OPENMP
+    int saved_threads=omp_get_max_threads();
+    int override_threads=0;
+    if(mode==0 && baseline_threads && baseline_threads[0])
+    {
+        char *last=NULL;
+        long num=strtol(baseline_threads,&last,10);
+        if(last==baseline_threads || *last || num<1 || num>64)
+        {
+            memset(out,0,sizeof(*out));
+            out->err=LIS_ERR_ILL_ARG;
+            return;
+        }
+        omp_set_num_threads((int)num);
+        override_threads=1;
+    }
+#else
+    if(mode==0 && baseline_threads && strcmp(baseline_threads,"1")!=0)
+    {
+        memset(out,0,sizeof(*out));
+        out->err=LIS_ERR_NOT_IMPLEMENTED;
+        return;
+    }
+#endif
     memset(out,0,sizeof(*out));
     out->iters=-1;
     out->true_relres=-1.0;
@@ -1734,7 +1762,8 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
                  "-i fgmres -p ilut -scale none -print none "
                  "-tol 1e-8 -maxiter 500 -restart 40 "
                  "-ilu_pivot_tol 1e-10 -ilut_rate %.12g "
-                 "-ilut_drop %.12g -ilut_row_scale %ld",rate,drop,(long)row_scale);
+                 "-ilut_drop %.12g -ilut_row_scale %ld -ilut_rcm %ld",
+                 rate,drop,(long)row_scale,(long)baseline_rcm);
     else
         snprintf(opts,sizeof(opts),
                  "-i fgmres -p ilut -scale none -print none "
@@ -1821,7 +1850,7 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     if(err) goto done;
     out->true_relres=rn/bn;
     out->converged=isfinite((double)out->true_relres) &&
-                    out->true_relres<=1.0e-7;
+                    out->true_relres<=1.0e-8;
 done:
     out->err=err;
     if(pc)
@@ -1833,6 +1862,9 @@ done:
     if(probe) lis_vector_destroy(probe);
     if(r) lis_vector_destroy(r);
     if(x) lis_vector_destroy(x);
+#ifdef _OPENMP
+    if(override_threads) omp_set_num_threads(saved_threads);
+#endif
 }
 
 static int
@@ -1883,11 +1915,16 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
                          overlap,rcm,parallel,row_scale,local_rcm,&m[mode]);
     printf("FEA_RAS_MATRIX file=%s n=%ld nnz_A=%ld "
            "domains=%ld overlap=%ld rcm=%ld parallel=%ld row_scale=%ld "
-           "local_rcm=%ld OMP_NUM_THREADS=%s\n",
+           "local_rcm=%ld OMP_NUM_THREADS=%s baseline_threads=%s "
+           "baseline_rcm=%s\n",
            file,(long)A->n,(long)A->nnz,
            (long)domains,(long)overlap,(long)rcm,(long)parallel,
            (long)row_scale,(long)local_rcm,
-           getenv("OMP_NUM_THREADS") ? getenv("OMP_NUM_THREADS") : "(unset)");
+           getenv("OMP_NUM_THREADS") ? getenv("OMP_NUM_THREADS") : "(unset)",
+           getenv("LIS_FEA_BASELINE_THREADS") ?
+             getenv("LIS_FEA_BASELINE_THREADS") : "(same as OMP)",
+           getenv("LIS_FEA_BASELINE_RCM") ?
+             getenv("LIS_FEA_BASELINE_RCM") : "0");
     printf("variant,rate,stored_entry_proxy,ngamma,iterations,"
            "true_relres,setup_wall_s,solve_wall_s,total_wall_s,"
            "fill_gap_vs_baseline,fair_fill,status,lis_error,"
