@@ -238,6 +238,10 @@ LIS_INT lis_precon_update_ilut_frozen(
      * Keep the first implementation conservative: fall back to the normal
      * sequence rebuild instead of reconstructing those arrays here.
      */
+    /* Frozen ILUT does not transport the ILUTP column permutation. */
+    if(solver->ilutp_enabled || precon->ilutp_colperm)
+        return LIS_ERR_NOT_IMPLEMENTED;
+
     if( solver->precon_half_mode!=LIS_PRECON_HALF_OFF ||
         precon->half!=NULL )
     {
