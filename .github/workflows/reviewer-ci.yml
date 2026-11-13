@@ -1,0 +1,62 @@
+name: Temporary ILUT FEA reviewer CI
+on:
+  push:
+    branches:
+      - ci/ready-ilut-fea
+permissions:
+  contents: read
+jobs:
+  fea:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: half-serial
+            options: '--enable-half'
+          - mode: half-openmp
+            options: '--enable-half --enable-omp'
+    env:
+      OMP_NUM_THREADS: '2'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin python3
+      - name: Build from exact upstream develop snapshot plus proposed change
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi ${{ matrix.options }}
+          make -j2
+      - name: Test successful and explicitly failed benchmark reporting
+        run: |
+          set -euo pipefail
+          LIS_FEA_BASELINE_THREADS=1 LIS_FEA_RCM_THREADS=1 ./test/testhalfilut \
+            --fea-matrix test/testmat0.mtx 8 8 0.005 | tee bench.log
+          python3 - <<'PY'
+          import csv
+          from pathlib import Path
+          lines=Path('bench.log').read_text().splitlines()
+          first=next(i for i,s in enumerate(lines) if s.startswith('variant,rate,'))
+          rows=list(csv.DictReader(lines[first:]))
+          assert [x['variant'] for x in rows]==['baseline','rcm_scaled'],rows
+          for row in rows:
+              assert int(row['threads'])==1
+              assert int(row['solver_error'])==0
+              assert row['status'] in ('converged','not_converged')
+              assert float(row['total_wall_s'])>=0
+              assert row['target_1e-8_met']==('yes' if float(row['true_relres'])<=1e-8 else 'no')
+          print('FEA_REVIEW_CSV_OK')
+          PY
+          set +e
+          LIS_FEA_BASELINE_THREADS=0 ./test/testhalfilut \
+            --fea-matrix test/testmat0.mtx 8 8 0.005 >invalid.log 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -q '^baseline,' invalid.log
+          grep -q '^rcm_scaled,' invalid.log
+          echo FEA_FAILURE_ROWS_OK
