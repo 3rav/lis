@@ -1709,7 +1709,7 @@ typedef struct {
 static void
 run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
                  double rate,double drop,LIS_INT domains,
-                 LIS_INT overlap,LIS_INT rcm,LIS_INT parallel,
+                 LIS_INT overlap,LIS_INT rcm,LIS_INT parallel,LIS_INT row_scale,
                  LIS_RAS_BENCH_RESULT *out)
 {
     LIS_SOLVER solver=NULL;
@@ -1727,7 +1727,7 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
                  "-i fgmres -p ilut -scale none -print none "
                  "-tol 1e-8 -maxiter 500 -restart 40 "
                  "-ilu_pivot_tol 1e-10 -ilut_rate %.12g "
-                 "-ilut_drop %.12g",rate,drop);
+                 "-ilut_drop %.12g -ilut_row_scale %ld",rate,drop,(long)row_scale);
     else
         snprintf(opts,sizeof(opts),
                  "-i fgmres -p ilut -scale none -print none "
@@ -1735,9 +1735,10 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
                  "-ilu_pivot_tol 1e-10 -ilut_rate %.12g "
                  "-ilut_drop %.12g -ilut_ras_domains %ld "
                  "-ilut_ras_overlap %ld -ilut_ras_rcm %ld "
-                 "-ilut_ras_parallel %ld -ilut_schur %d",
+                 "-ilut_ras_parallel %ld -ilut_schur %d "
+                 "-ilut_row_scale %ld",
                  rate,drop,(long)domains,(long)overlap,
-                 (long)rcm,(long)parallel,mode==2);
+                 (long)rcm,(long)parallel,mode==2,(long)row_scale);
     err=lis_solver_create(&solver);
     if(err) goto done;
     err=lis_solver_set_option(opts,solver);
@@ -1803,7 +1804,7 @@ done:
 static int
 run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
                     double schur_rate,double drop,LIS_INT domains,
-                    LIS_INT overlap,LIS_INT rcm,LIS_INT parallel)
+                    LIS_INT overlap,LIS_INT rcm,LIS_INT parallel,LIS_INT row_scale)
 {
     LIS_MATRIX A=NULL;
     LIS_VECTOR truth=NULL,b=NULL;
@@ -1817,7 +1818,8 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
        !isfinite(schur_rate) || !(schur_rate>0.0) ||
        !isfinite(drop) || drop<0.0 || drop>=1.0 ||
        domains<2 || domains>64 || overlap<0 || overlap>2 ||
-       (rcm!=0 && rcm!=1) || (parallel!=0 && parallel!=1))
+       (rcm!=0 && rcm!=1) || (parallel!=0 && parallel!=1) ||
+       (row_scale!=0 && row_scale!=1))
         return 1;
     rates[0]=base_rate; rates[1]=ras_rate; rates[2]=schur_rate;
     err=lis_matrix_create(LIS_COMM_WORLD,&A);
@@ -1842,12 +1844,12 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
     if(err) goto done;
     for(mode=0;mode<3;mode++)
         run_fea_ras_case(A,b,mode,rates[mode],drop,domains,
-                         overlap,rcm,parallel,&m[mode]);
+                         overlap,rcm,parallel,row_scale,&m[mode]);
     printf("FEA_RAS_MATRIX file=%s n=%ld nnz_A=%ld "
-           "domains=%ld overlap=%ld rcm=%ld parallel=%ld "
+           "domains=%ld overlap=%ld rcm=%ld parallel=%ld row_scale=%ld "
            "OMP_NUM_THREADS=%s\n",
            file,(long)A->n,(long)A->nnz,
-           (long)domains,(long)overlap,(long)rcm,(long)parallel,
+           (long)domains,(long)overlap,(long)rcm,(long)parallel,(long)row_scale,
            getenv("OMP_NUM_THREADS") ? getenv("OMP_NUM_THREADS") : "(unset)");
     printf("variant,rate,stored_entry_proxy,ngamma,iterations,"
            "true_relres,setup_wall_s,solve_wall_s,total_wall_s,"
@@ -1933,13 +1935,14 @@ main(
 		return failed ? 1 : 0;
 	}
 
-	if(argc==11 && strcmp(argv[1],"--fea-ras")==0)
+	if((argc==11 || argc==12) && strcmp(argv[1],"--fea-ras")==0)
 	{
-		char *end[8],*value[8];
+		char *end[9],*value[9];
 		double br,rr,sr,drop;
-		long domains,overlap,rcm,parallel;
+		long domains,overlap,rcm,parallel,row_scale=0;
 		int j,valid=1;
 		for(j=0;j<8;j++) { value[j]=argv[j+3]; end[j]=NULL; }
+		if(argc==12) { value[8]=argv[11]; end[8]=NULL; }
 		br=strtod(value[0],&end[0]);
 		rr=strtod(value[1],&end[1]);
 		sr=strtod(value[2],&end[2]);
@@ -1948,11 +1951,12 @@ main(
 		overlap=strtol(value[5],&end[5],10);
 		rcm=strtol(value[6],&end[6],10);
 		parallel=strtol(value[7],&end[7],10);
-		for(j=0;j<8;j++)
+		if(argc==12) row_scale=strtol(value[8],&end[8],10);
+		for(j=0;j<(argc==12 ? 9 : 8);j++)
 		    if(end[j]==value[j] || *end[j]!='\0') valid=0;
 		failed=valid ? run_fea_ras_compare(argv[2],br,rr,sr,drop,
                     (LIS_INT)domains,(LIS_INT)overlap,
-                    (LIS_INT)rcm,(LIS_INT)parallel) : 1;
+                    (LIS_INT)rcm,(LIS_INT)parallel,(LIS_INT)row_scale) : 1;
 		lis_finalize();
 		return failed ? 1 : 0;
 	}
