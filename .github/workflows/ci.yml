@@ -103,6 +103,15 @@ jobs:
               assert float(r["physical_relres"]) < 1e-5, r
           PY
 
+      - name: Publish native ILUTP benchmark runner (no user snapshots)
+        if: matrix.mode == 'serial'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lis-ilutp-benchmark-linux-serial
+          path: test/benchilutp
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Smoke-test fill-reporting ILUT Matrix Market benchmark
         if: matrix.mode == 'half'
         run: |
