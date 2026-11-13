@@ -29,7 +29,7 @@ jobs:
           autoreconf -fiv
           CC=clang CFLAGS="-O1 -g -fsanitize=thread -fno-omit-frame-pointer" \
             LDFLAGS="-fsanitize=thread" ./configure \
-            --enable-test --enable-omp --disable-fortran --disable-f90 \
+            --enable-test --enable-omp --enable-half --disable-fortran --disable-f90 \
             --disable-saamg --disable-mpi
           make -j2
           make -C test testhalfilut
@@ -50,3 +50,5 @@ jobs:
           export TSAN_OPTIONS="$TSAN_OPTIONS:ignore_noninstrumented_modules=1"
           ./test/testhalfilut --ras-rcm-smoke
           ./test/testhalfilut --sparse-schur-smoke
+          ./test/testhalfilut --ras-half-smoke
+          ./test/testhalfilut --ras-row-scale-smoke
