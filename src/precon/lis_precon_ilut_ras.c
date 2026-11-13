@@ -44,6 +44,14 @@ LIS_INT lis_precon_ilut_ras_factor_entries(LIS_PRECON pc,LIS_INT *entries)
     (void)pc; (void)entries;
     return LIS_ERR_NOT_IMPLEMENTED;
 }
+LIS_INT lis_precon_ilut_ras_probe(LIS_PRECON pc,LIS_VECTOR B,
+                         LIS_INT *worst_domain,LIS_REAL *max_ratio,
+                         LIS_REAL *min_pivot)
+{
+    (void)pc; (void)B; (void)worst_domain;
+    (void)max_ratio; (void)min_pivot;
+    return LIS_ERR_NOT_IMPLEMENTED;
+}
 #else
 #define LIS_ILUT_RAS_SCHUR_LIMIT 256
 
