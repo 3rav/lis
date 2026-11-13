@@ -1358,14 +1358,14 @@ done:
  * on a larger-than-dense-limit synthetic interface.
  */
 static int
-check_ilut_sparse_schur_smoke(void)
+check_ilut_sparse_schur_smoke(int scrambled)
 {
     const LIS_INT side=8,n=512;
     LIS_MATRIX A=NULL;
     LIS_VECTOR truth=NULL,b=NULL,x=NULL,ref=NULL,r=NULL;
     LIS_SOLVER solver=NULL;
     LIS_PRECON pc=NULL;
-    LIS_INT err=0,i,ix,iy,iz,parallel;
+    LIS_INT err=0,i,ix,iy,iz,parallel,rcm,row,ngamma=0,baseline_gamma=-1;
     LIS_REAL bn=0.0,rn=0.0;
     char options[320];
     int failed=1;
@@ -1376,45 +1376,46 @@ check_ilut_sparse_schur_smoke(void)
     if(A->nprocs!=1) { failed=0; goto done; }
     for(i=0;i<n;i++)
     {
+        row=scrambled ? ((257*i+13)%n) : i;
         ix=i%side;
         iy=(i/side)%side;
         iz=i/(side*side);
-        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
+        err=lis_matrix_set_value(LIS_INS_VALUE,row,row,
                                  (LIS_SCALAR)7.0,A);
         if(err) goto done;
         if(ix>0)
         {
-            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,
+            err=lis_matrix_set_value(LIS_INS_VALUE,row,(scrambled ? ((257*(i-1)+13)%n) : (i-1)),
                                      (LIS_SCALAR)-1.0,A);
             if(err) goto done;
         }
         if(ix+1<side)
         {
-            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
+            err=lis_matrix_set_value(LIS_INS_VALUE,row,(scrambled ? ((257*(i+1)+13)%n) : (i+1)),
                                      (LIS_SCALAR)-1.0,A);
             if(err) goto done;
         }
         if(iy>0)
         {
-            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-side,
+            err=lis_matrix_set_value(LIS_INS_VALUE,row,(scrambled ? ((257*(i-side)+13)%n) : (i-side)),
                                      (LIS_SCALAR)-1.0,A);
             if(err) goto done;
         }
         if(iy+1<side)
         {
-            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+side,
+            err=lis_matrix_set_value(LIS_INS_VALUE,row,(scrambled ? ((257*(i+side)+13)%n) : (i+side)),
                                      (LIS_SCALAR)-1.0,A);
             if(err) goto done;
         }
         if(iz>0)
         {
-            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-side*side,
+            err=lis_matrix_set_value(LIS_INS_VALUE,row,(scrambled ? ((257*(i-side*side)+13)%n) : (i-side*side)),
                                      (LIS_SCALAR)-1.0,A);
             if(err) goto done;
         }
         if(iz+1<side)
         {
-            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+side*side,
+            err=lis_matrix_set_value(LIS_INS_VALUE,row,(scrambled ? ((257*(i+side*side)+13)%n) : (i+side*side)),
                                      (LIS_SCALAR)-1.0,A);
             if(err) goto done;
         }
@@ -1432,6 +1433,7 @@ check_ilut_sparse_schur_smoke(void)
     err=lis_matvec(A,truth,b);
     if(err) goto done;
     if(lis_vector_nrm2(b,&bn) || !(bn>0.0)) goto done;
+    for(rcm=0;rcm<=1;rcm++)
     for(parallel=0;parallel<=1;parallel++)
     {
         err=lis_solver_create(&solver);
@@ -1440,13 +1442,27 @@ check_ilut_sparse_schur_smoke(void)
                  "-i fgmres -p ilut -scale none -print none "
                  "-ilut_drop 0.001 -ilut_rate 8 -ilu_pivot_tol 1e-12 "
                  "-ilut_ras_domains 4 -ilut_ras_overlap 1 -ilut_schur 1 "
-                 "-ilut_ras_parallel %d", (int)parallel);
+                 "-ilut_ras_parallel %d -ilut_ras_rcm %d",
+                 (int)parallel,(int)rcm);
         err=lis_solver_set_option(options,solver);
         if(err) goto done;
         err=lis_solver_set_matrix(A,solver);
         if(err) goto done;
         err=lis_precon_create(solver,&pc);
         if(err || !pc || !pc->ilut_ras) goto done;
+        err=lis_precon_ilut_ras_interface_size(pc,&ngamma);
+        if(err || ngamma<=0 || ngamma>n) goto done;
+        if(scrambled && parallel==0)
+        {
+            if(rcm==0) baseline_gamma=ngamma;
+            else if(baseline_gamma<=0 || ngamma>=baseline_gamma)
+            {
+                fprintf(stderr,
+                    "RCM did not reduce the interface on the scrambled fixture: raw=%ld rcm=%ld\n",
+                    (long)baseline_gamma,(long)ngamma);
+                goto done;
+            }
+        }
         solver->precon=pc;
         err=lis_psolve(solver,b,x);
         if(err) goto done;
@@ -1465,8 +1481,9 @@ check_ilut_sparse_schur_smoke(void)
                     1e-10*(1.0+fabs((double)ref->value[i]))) goto done;
         }
         printf("ILUT_RAS_SPARSE_SCHUR_CHECK n=%ld "
-               "expected_gamma=384 parallel=%ld true_residual=%.6e\n",
-               (long)n,(long)parallel,(double)(rn/bn));
+               "scrambled=%d rcm=%ld ngamma=%ld parallel=%ld true_residual=%.6e\n",
+               (long)n,scrambled,(long)rcm,(long)ngamma,
+               (long)parallel,(double)(rn/bn));
         solver->precon=NULL;
         lis_precon_destroy(pc);pc=NULL;
         lis_solver_destroy(solver);solver=NULL;
@@ -1686,9 +1703,11 @@ main(
 		return 1;
 	}
 
-	if(argc==2 && strcmp(argv[1],"--sparse-schur-smoke")==0)
+	if(argc==2 && (strcmp(argv[1],"--sparse-schur-smoke")==0 ||
+	               strcmp(argv[1],"--ras-rcm-smoke")==0))
 	{
-		failed=check_ilut_sparse_schur_smoke();
+		failed=check_ilut_sparse_schur_smoke(
+		    strcmp(argv[1],"--ras-rcm-smoke")==0);
 		lis_finalize();
 		return failed ? 1 : 0;
 	}
