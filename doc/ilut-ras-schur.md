@@ -23,6 +23,29 @@ and uses a small pivoted dense LU factorization to correct the interface residua
 
 `testhalfilut` now assembles an indefinite **48×48 stabilized saddle-point system** with a 36×36 spring-stiffness block, twelve displacement-difference constraints, and a negative 0.1 multiplier diagonal. It compares the legacy ILUT control with the opt-in variant, requiring convergence to a **true relative residual below 1e-7** and printing Krylov iterations and residuals. This is an algebraic contact-style regression, **not** a production nonlinear FEA benchmark and not evidence of a speedup.
 
+## Review scope and realistic validation
+
+This PR **depends on the ILUT RCM/equilibration PR**. The development
+branch is stacked on `feature/ilut-contact-robustness`; a GitHub PR
+targeting upstream `develop` will temporarily include that dependency
+until the upstream RCM PR is merged.
+
+A production contact claim is **not** supported by the algebraic 48×48
+KKT regression. A meaningful comparison must use several representative
+Newton tangent snapshots and balance `nnz(L+U)`, Krylov tolerance,
+setup/solve time and peak memory. The companion ILUT benchmark runner
+accepts an external Matrix Market matrix without checking in private
+FEA data:
+
+```sh
+./test/testhalfilut --fea-matrix path/to/contact.mtx 8 8 0.005
+```
+
+The output prints actual fill and states whether the rates are
+fill-matched. RAS/Schur is **not** included in the runner's two-way
+baseline-versus-RCM comparison; it must be benchmarked independently
+before any performance claim.
+
 ## Limits / safeguards
 
 - **Experimental and serial-only**: ordinary real double-precision CSR, with row indices local to the single process. MPI, USER/OPERATOR and quad-precision input are explicitly rejected when the option is used; the default ILUT remains unchanged.
