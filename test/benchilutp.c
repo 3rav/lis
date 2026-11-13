@@ -277,3 +277,5 @@ cleanup:
     lis_finalize();
     return err;
 }
+
+#endif /* real-double only */
