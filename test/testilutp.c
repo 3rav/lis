@@ -83,6 +83,8 @@ static int run_one(LIS_INT rcm, LIS_INT scale, LIS_INT equil)
             if(pc->ilutp_colperm[i]!=i) swaps++;
     if(!rcm && !scale && !swaps)
         goto cleanup;
+    if(!rcm && !scale && !equil && pc->ilutp_swap_count<=0)
+        goto cleanup;
 
     solver->precon=pc;
     err=lis_psolve_ilut_csr(solver,b,x);if(err)goto cleanup;
