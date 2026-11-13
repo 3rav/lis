@@ -424,7 +424,7 @@ static int check_full_fill(void)
     e=lis_vector_axpy(-1.0,b,r);if(e)goto done;
     e=lis_vector_nrm2(r,&rnorm);if(e)goto done;
     if((double)rnorm/(double)bnorm>1e-11)goto done;
-    printf("ILUTP_FULL n=%d weak_relres=%.9g full_relres=%.9g "
+    printf("\nILUTP_FULL n=%d weak_relres=%.9g full_relres=%.9g "
            "maxerr=%.9g factor_nnz=%d\n",(int)REG_N,
            weak,(double)rnorm/(double)bnorm,maxerr,(int)(nnzl+nnzu));
     failed=0;
