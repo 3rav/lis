@@ -1110,9 +1110,11 @@ struct LIS_SOLVER_STRUCT
 	LIS_INT ilut_ras_overlap;
 	LIS_INT ilut_ras_domains;
 	LIS_INT ilut_schur;
+	LIS_INT ilut_ras_parallel;
 	LIS_INT sequence_precon_ilut_ras_overlap;
 	LIS_INT sequence_precon_ilut_ras_domains;
 	LIS_INT sequence_precon_ilut_schur;
+	LIS_INT sequence_precon_ilut_ras_parallel;
 };
 typedef struct LIS_SOLVER_STRUCT *LIS_SOLVER;
 
