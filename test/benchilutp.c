@@ -154,7 +154,10 @@ static int run_case(FILE *csv,const char *name,LIS_MATRIX A,LIS_VECTOR b,
     err=lis_vector_set_all((LIS_SCALAR)0.0,x);
     if(err)goto report;
     t=cpu_seconds();
-    err=lis_solve_sequence(A,b,x,solver);
+    /* Factor setup was timed above. Borrow exactly those factors for one
+     * Krylov run: lis_solve_sequence may retry/rebuild after breakdown and
+     * would otherwise attribute another factorization to solve_cpu_s. */
+    err=lis_solve_kernel(A,b,x,solver,pc);
     solve_s=cpu_seconds()-t;
     retcode=solver->retcode;
     iter=solver->iter;
