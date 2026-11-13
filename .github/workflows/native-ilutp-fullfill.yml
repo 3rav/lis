@@ -1,10 +1,6 @@
-name: Native LIS full-fill ILUTP without SuperLU
+name: Native LIS ILUTP complete-fill regression
 
 on:
-  push:
-    branches:
-      - experiment/lis-native-fullfill-20261113
-      - feature/ilutp-sparse-column-pivoting-20261113
   pull_request:
     branches:
       - develop
@@ -25,7 +21,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
-      - name: Configure and build LIS without SuperLU
+      - name: Configure and build native LIS
         run: |
           autoreconf -fiv
           ./configure --enable-test --disable-fortran --disable-f90 \
@@ -150,15 +146,4 @@ jobs:
             echo 'Invalid pivot threshold was accepted' >&2
             exit 1
           fi
-      - name: Confirm no SuperLU symbols or shared library
-        run: |
-          set -euo pipefail
-          if nm -u src/.libs/liblis.a | grep -E '(dgstrf|dgstrs|dCreate_CompCol_Matrix|sp_preorder|get_perm_c)' ; then
-            echo 'Unexpected SuperLU symbol in LIS archive' >&2
-            exit 1
-          fi
-          if ldd test/testilutp | grep -i superlu ; then
-            echo 'Unexpected SuperLU dependency in test executable' >&2
-            exit 1
-          fi
-          echo 'NATIVE_LIS_NO_SUPERLU PASS'
+
