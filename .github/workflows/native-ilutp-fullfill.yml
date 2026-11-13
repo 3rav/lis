@@ -169,11 +169,14 @@ jobs:
             CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
             LDFLAGS="-fsanitize=address,undefined"
           make -j2
-      - name: Exercise RCM+row scaling and cap-exceeded cleanup
+      - name: Exercise numerical regressions and partial-factor cleanup (sanitized)
         run: |
           set -euo pipefail
+          ./test/testilutp
+          # 100x100 five-point stencil: cap=50 permits multiple L/U
+          # rows before setup fails; cap=1 only tested the empty path.
           ./test/benchilutp test/testmat2.mtx test/benchilutp_rhs_100.mtx \
-            --full 1 --only-full 1 --full-limit 1 --full-tau 0.1 \
+            --full 1 --only-full 1 --full-limit 50 --full-tau 0.1 \
             --pivot-tol 0 --rcm 1 --row-scale 1 \
             --csv "$RUNNER_TEMP/fullfill-asan-limit.csv"
           python3 - <<'PY'
