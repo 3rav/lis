@@ -47,7 +47,7 @@ struct LIS_ILUT_RAS_STRUCT {
     LIS_MATRIX A;            /* borrowed outer serial CSR */
     LIS_INT n,ndomains,overlap,parallel;
     struct LIS_ILUT_RAS_PART *parts;
-    LIS_INT *owner;
+    LIS_INT *owner,*order;
     LIS_INT *gamma,*gamma_of,*pivots;
     LIS_INT ngamma;
     LIS_SCALAR *diag_inv,*schur_lu,*schur_rhs,*schur_delta;
@@ -80,6 +80,7 @@ void lis_precon_ilut_ras_destroy(struct LIS_ILUT_RAS_STRUCT *s)
     }
     lis_free(s->parts);
     lis_free(s->owner);
+    lis_free(s->order);
     lis_free(s->gamma);
     lis_free(s->gamma_of);
     lis_free(s->pivots);
@@ -113,7 +114,7 @@ lis_ilut_ras_make_subdomain(LIS_SOLVER outer, struct LIS_ILUT_RAS_STRUCT *s,
     local=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"RAS global lookup");
     if(!selected || !local) { err=LIS_OUT_OF_MEMORY; goto done; }
     memset(selected,0,(size_t)n*sizeof(LIS_INT));
-    for(i=new_start;i<new_end;i++) selected[i]=1;
+    for(i=new_start;i<new_end;i++) selected[s->order[i]]=1;
     for(depth=1;depth<=s->overlap;depth++)
     for(i=0;i<n;i++)
     {
@@ -597,6 +598,7 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
     s->overlap=solver->ilut_ras_overlap;
     s->parallel=solver->ilut_ras_parallel;
     s->owner=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"RAS owners");
+    s->order=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"RAS rank ordering");
     s->parts=(struct LIS_ILUT_RAS_PART *)lis_malloc(
         (size_t)s->ndomains*sizeof(*s->parts),"RAS subdomains");
     /*
@@ -605,15 +607,34 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
      */
     if(s->parts)
         memset(s->parts,0,(size_t)s->ndomains*sizeof(*s->parts));
-    if(!s->owner || !s->parts) return LIS_OUT_OF_MEMORY;
-    for(i=0;i<n;i++) s->owner[i]=
-        (LIS_INT)((double)i*s->ndomains/n);
+    if(!s->owner || !s->parts || !s->order) return LIS_OUT_OF_MEMORY;
+    /*
+     * Partition contiguous *RCM ranks*, not raw global indices. Keep the
+     * original matrix and its numbering unchanged: the ordering affects
+     * only subdomain ownership/extraction and hence Gamma.
+     *
+     * The quotient/remainder split avoids integer multiplication overflow
+     * for large 64-bit LIS_INT matrices.
+     */
+    if(solver->ilut_ras_rcm)
+    {
+        err=lis_ilut_rcm_order(A,s->order);
+        if(err) return err;
+    }
+    else for(i=0;i<n;i++) s->order[i]=i;
     for(d=0;d<s->ndomains;d++)
     {
         struct LIS_ILUT_RAS_PART *p=&s->parts[d];
-        p->start=(LIS_INT)((double)d*n/s->ndomains);
-        p->end=(LIS_INT)((double)(d+1)*n/s->ndomains);
-        err=lis_ilut_ras_make_subdomain(solver,s,p);
+        p->start=(n/s->ndomains)*d +
+                 ((n%s->ndomains)*d)/s->ndomains;
+        p->end=(n/s->ndomains)*(d+1) +
+               ((n%s->ndomains)*(d+1))/s->ndomains;
+        for(i=p->start;i<p->end;i++)
+            s->owner[s->order[i]]=d;
+    }
+    for(d=0;d<s->ndomains;d++)
+    {
+        err=lis_ilut_ras_make_subdomain(solver,s,&s->parts[d]);
         if(err) return err;
     }
     if(solver->ilut_schur)
@@ -661,7 +682,7 @@ lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
         for(local_i=0;local_i<p->nlocal;local_i++)
         {
             local_g=p->global[local_i];
-            if(local_g>=p->start && local_g<p->end)
+            if(s->owner[local_g]==d)
                 X->value[local_g]=p->x->value[local_i];
         }
     }
