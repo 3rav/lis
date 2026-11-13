@@ -52,3 +52,4 @@ jobs:
           ./test/testhalfilut --sparse-schur-smoke
           ./test/testhalfilut --ras-half-smoke
           ./test/testhalfilut --ras-row-scale-smoke
+          ./test/testhalfilut --ras-local-rcm-smoke
