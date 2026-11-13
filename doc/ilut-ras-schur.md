@@ -23,6 +23,12 @@ and uses a small pivoted dense LU factorization to correct the interface residua
 
 `testhalfilut` now assembles an indefinite **48×48 stabilized saddle-point system** with a 36×36 spring-stiffness block, twelve displacement-difference constraints, and a negative 0.1 multiplier diagonal. It compares the legacy ILUT control with the opt-in variant, requiring convergence to a **true relative residual below 1e-7** and printing Krylov iterations and residuals. This is an algebraic contact-style regression, **not** a production nonlinear FEA benchmark and not evidence of a speedup.
 
+## Dependency update (2026-11-13)
+
+This branch is synchronized with the latest ILUT robustness changes from fork PR #62 (upstream #224), including the high-unit-contrast KKT test and the English user-guide option table. The fork PR #63 remains stacked cleanly on #62, with its diff restricted to RAS/Schur changes. The upstream #225 comparison against `develop` necessarily includes #224 until that dependency merges.
+
+An entirely **separate, non-integrated** sparse CSR Schur feasibility experiment lives in fork Draft PR #64. It checks a synthetic interface larger than 256 DOF and documents OpenMP risks, but it is not a fix for the production limitations of the current dense Schur implementation.
+
 ## Review scope and realistic validation
 
 This PR **depends on the ILUT RCM/equilibration PR**. The development
