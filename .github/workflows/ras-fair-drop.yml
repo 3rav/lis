@@ -123,5 +123,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: serial-ILUT-vs-RAS-calibrated-storage
-          path: fair-drop/
+          path: |
+            fair-drop/ras-drop-*.log
+            fair-drop/ras-drop-*.status
+            fair-drop/selection.txt
+            fair-drop/selected-drop.txt
+            fair-drop/final-fair-fill.log
+            fair-drop/final-status.txt
+            fair-drop/matrix.txt
           if-no-files-found: warn
