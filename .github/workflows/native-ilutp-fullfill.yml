@@ -1,0 +1,56 @@
+name: Native LIS full-fill ILUTP without SuperLU
+
+on:
+  push:
+    branches:
+      - experiment/lis-native-fullfill-20261113
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-fullfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native LIS build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Configure and build LIS without SuperLU
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --disable-fortran --disable-f90 \
+            --disable-saamg --disable-mpi
+          make -j2
+      - name: Native ILUTP regression and physical residual
+        run: |
+          set -euo pipefail
+          ./test/testilutp 2>&1 | tee native-ilutp-fullfill.log
+          grep -q '^ILUTP_FULL n=32 ' native-ilutp-fullfill.log
+          grep -q '^testilutp: PASS' native-ilutp-fullfill.log
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('native-ilutp-fullfill.log').read_text()
+          m = re.search(r'ILUTP_FULL n=32 weak_relres=([0-9.eE+-]+) full_relres=([0-9.eE+-]+)', text)
+          assert m, text
+          weak, full = map(float, m.groups())
+          assert weak > 1e-4 and full < 1e-11, (weak, full)
+          PY
+      - name: Confirm no SuperLU symbols or shared library
+        run: |
+          set -euo pipefail
+          if nm -u src/.libs/liblis.a | grep -E '(dgstrf|dgstrs|dCreate_CompCol_Matrix|sp_preorder|get_perm_c)' ; then
+            echo 'Unexpected SuperLU symbol in LIS archive' >&2
+            exit 1
+          fi
+          if ldd test/testilutp | grep -i superlu ; then
+            echo 'Unexpected SuperLU dependency in test executable' >&2
+            exit 1
+          fi
+          echo 'NATIVE_LIS_NO_SUPERLU PASS'
