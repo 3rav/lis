@@ -69,6 +69,9 @@
 /* Fixed-pattern numerical refactorization is shared with ILU(k). */
 LIS_INT lis_numerical_fact_csr(LIS_SOLVER solver, LIS_PRECON precon);
 
+/* Isolated opt-in ILUTP implementation, compiled with the ILUT module. */
+#include "lis_precon_ilutp.inc"
+
 static void
 lis_precon_release_ilut_numeric_values(
 	LIS_MATRIX_ILU A)
@@ -459,7 +462,9 @@ lis_ilut_ordered_create(LIS_SOLVER solver, LIS_PRECON precon)
     if(err) goto cleanup;
 
     solver->A=P;
-    err=lis_precon_create_ilut_csr(solver,precon);
+    err=solver->ilutp_enabled ?
+        lis_precon_create_ilutp_csr(solver,precon) :
+        lis_precon_create_ilut_csr(solver,precon);
     solver->A=A;
     if(err) goto cleanup;
     precon->ilut_perm=perm; perm=NULL;
@@ -528,7 +533,8 @@ LIS_INT lis_precon_create_ilut(LIS_SOLVER solver, LIS_PRECON precon)
 
 	LIS_DEBUG_FUNC_IN;
 
-	if((solver->ilut_rcm || solver->ilut_row_scale) &&
+	if((solver->ilut_rcm || solver->ilut_row_scale ||
+        solver->ilutp_enabled) &&
 	   solver->A->matrix_type!=LIS_MATRIX_CSR)
 	{
 		LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
@@ -539,7 +545,8 @@ LIS_INT lis_precon_create_ilut(LIS_SOLVER solver, LIS_PRECON precon)
 	switch( solver->A->matrix_type )
 	{
 	case LIS_MATRIX_CSR:
-		err = (solver->ilut_rcm || solver->ilut_row_scale) ?
+		err = (solver->ilut_rcm || solver->ilut_row_scale ||
+		       solver->ilutp_enabled) ?
 			lis_ilut_ordered_create(solver,precon) :
 			lis_precon_create_ilut_csr(solver,precon);
 
@@ -1396,13 +1403,21 @@ lis_ilut_ordered_apply(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X,
                        LIS_INT adjoint)
 {
     LIS_PRECON pc=solver->precon;
-    LIS_INT i,n=solver->A->n,err;
+    LIS_INT i,j,n=solver->A->n,err;
     LIS_VECTOR rhs=pc->ilut_work_b,sol=pc->ilut_work_x;
     if(!rhs || !sol || !pc->ilut_perm || !pc->ilut_row_scale)
         return LIS_ERR_ILL_ARG;
+
+    /*
+     * We factor D_row P A P^T Q = L U.
+     * Forward: y=(LU)^-1 (D_row P b), x=P^T Q y.
+     * Adjoint: y=(LU)^-H Q^T P b, x=P^T D_row^H y.
+     */
     for(i=0;i<n;i++)
     {
-        rhs->value[i]=B->value[pc->ilut_perm[i]] *
+        j=(adjoint && pc->ilutp_colperm) ?
+            pc->ilutp_colperm[i] : i;
+        rhs->value[i]=B->value[pc->ilut_perm[j]] *
             (adjoint ? (LIS_SCALAR)1.0 : pc->ilut_row_scale[i]);
     }
     pc->ilut_apply_active=1;
@@ -1412,7 +1427,9 @@ lis_ilut_ordered_apply(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X,
     if(err) return err;
     for(i=0;i<n;i++)
     {
-        X->value[pc->ilut_perm[i]] =
+        j=(!adjoint && pc->ilutp_colperm) ?
+            pc->ilutp_colperm[i] : i;
+        X->value[pc->ilut_perm[j]] =
             sol->value[i] *
             (adjoint ? pc->ilut_row_scale[i] : (LIS_SCALAR)1.0);
     }
