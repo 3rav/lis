@@ -34,7 +34,11 @@ jobs:
       - name: Test successful and explicitly failed benchmark reporting
         run: |
           set -euo pipefail
-          LIS_FEA_BASELINE_THREADS=1 LIS_FEA_RCM_THREADS=1 ./test/testhalfilut \
+          export EXPECTED_RCM_THREADS=1
+          if [ "${{ matrix.mode }}" = "half-openmp" ]; then
+            export EXPECTED_RCM_THREADS=2
+          fi
+          LIS_FEA_BASELINE_THREADS=1 LIS_FEA_RCM_THREADS="$EXPECTED_RCM_THREADS" ./test/testhalfilut \
             --fea-matrix test/testmat0.mtx 8 8 0.005 | tee bench.log
           python3 - <<'PY'
           import csv
@@ -44,7 +48,9 @@ jobs:
           rows=list(csv.DictReader(lines[first:]))
           assert [x['variant'] for x in rows]==['baseline','rcm_scaled'],rows
           for row in rows:
-              assert int(row['threads'])==1
+              import os
+              expected = 1 if row["variant"]=="baseline" else int(os.environ["EXPECTED_RCM_THREADS"])
+              assert int(row['threads'])==expected, row
               assert int(row['solver_error'])==0
               assert row['status'] in ('converged','not_converged')
               assert float(row['total_wall_s'])>=0
