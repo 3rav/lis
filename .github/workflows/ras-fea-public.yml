@@ -55,19 +55,23 @@ jobs:
       - name: Baseline ILUT vs RAS vs RAS+Schur (4 and 8 OpenMP threads)
         run: |
           set -uo pipefail
+          set +e
           matrix="$(cat public-fea/matrix-path.txt)"
           for nth in 4 8; do
             export OMP_NUM_THREADS="$nth"
             export OMP_DYNAMIC=FALSE
-            echo "### nthreads=$nth" | tee "public-fea/bench-${nth}.log"
-            # Exit code is preserved in a status file, but cannot suppress
-            # the logs of other variants and thread counts.
-            timeout 600 ./test/testhalfilut --fea-ras \
-              "$matrix" 8 8 8 0.005 8 1 1 1 \
-              2>&1 | tee -a "public-fea/bench-${nth}.log"
-            status="${PIPESTATUS[0]}"
-            printf '%s\n' "$status" > "public-fea/status-${nth}.txt"
-            echo "benchmark_exit_status=$status" | tee -a "public-fea/bench-${nth}.log"
+            for row_scale in 0 1; do
+              log="public-fea/bench-${nth}-scale-${row_scale}.log"
+              echo "### nthreads=$nth row_scale=$row_scale" | tee "$log"
+              # Exploratory cases may fail to converge. Continue with all
+              # four configurations and preserve their exact exit statuses.
+              timeout 600 ./test/testhalfilut --fea-ras \
+                "$matrix" 8 8 8 0.005 8 1 1 1 "$row_scale" \
+                2>&1 | tee -a "$log"
+              status="${PIPESTATUS[0]}"
+              printf '%s\n' "$status" > "public-fea/status-${nth}-scale-${row_scale}.txt"
+              echo "benchmark_exit_status=$status" | tee -a "$log"
+            done
           done
           # Do not claim a speedup: consult residual, fill proxy, status,
           # setup+solve wall time, and eventual peak-RSS measurements.
