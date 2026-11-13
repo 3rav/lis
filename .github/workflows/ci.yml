@@ -5,6 +5,7 @@ on:
     branches:
       - develop
       - ci/linux-mingw
+      - ci/ilutp-equil-validated-20261113
   pull_request:
     branches:
       - develop
@@ -82,6 +83,17 @@ jobs:
 
       - name: Run Automake test suite
         run: make -j2 check
+
+      - name: Benchmark ILUT, Equil, ILUTP, and their combination
+        if: matrix.mode == 'serial'
+        run: |
+          set -euo pipefail
+          for amp in 5 10 30; do
+            ./test/benchilutpequil "$amp" 5 0.005 | tee "ilutp-equil-$amp.log"
+            for mode in ilut equil ilutp ilutp_equil row_only; do
+              grep -q "^ILUTP_EQUIL_BENCH mode=$mode " "ilutp-equil-$amp.log"
+            done
+          done
 
       - name: Smoke-test native ILUTP Matrix Market comparison
         if: matrix.mode == 'serial'
