@@ -488,6 +488,95 @@ cleanup:
     return failed;
 }
 
+/* Hybrid must preserve an opt-in ILUTP policy in its inner ILUT
+ * preconditioner. The ordinary Hybrid/USER default remains untouched. */
+static int check_hybrid_ilutp(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL,inner=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_VECTOR truth=NULL,b=NULL,x=NULL;
+    LIS_INT err=0,i;
+    int failed=1;
+
+    err=make_sparse_matrix(&A,0);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&truth);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&b);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&x);if(err)goto cleanup;
+    for(i=0;i<REG_N;i++)truth->value[i]=(LIS_SCALAR)(1.1+0.02*i);
+    err=lis_matvec(A,truth,b);if(err)goto cleanup;
+    err=lis_solver_create(&solver);if(err)goto cleanup;
+    solver->A=A;
+    err=lis_solver_set_option(
+        "-i fgmres -p hybrid -hybrid_i gmres -hybrid_p ilut "
+        "-hybrid_maxiter 40 -hybrid_restart 20 -hybrid_tol 1e-12 "
+        "-ilutp 1 -ilutp_full 1 -ilutp_threshold 0.1 "
+        "-ilutp_full_limit 5000 -ilut_rcm 1 -ilut_row_scale 1 "
+        "-ilut_drop 0.02 -ilut_rate 1.1 -ilu_pivot_tol 0 "
+        "-scale none -omp_num_threads 1",solver);
+    if(err)goto cleanup;
+    err=lis_precon_create(solver,&pc);if(err){pc=NULL;goto cleanup;}
+    inner=pc->solver;
+    if(!inner || !inner->precon ||
+       !inner->ilutp_enabled || !inner->ilutp_full ||
+       !inner->ilut_rcm || !inner->ilut_row_scale ||
+       fabs(inner->ilutp_threshold-0.1)>1e-12 ||
+       inner->ilutp_full_limit!=5000 ||
+       !inner->precon->ilutp_colperm)
+        goto cleanup;
+    solver->precon=pc;
+    err=lis_psolve_hybrid(solver,b,x);
+    if(err || !solution_close(x,truth))goto cleanup;
+    failed=0;
+cleanup:
+    if(failed)fprintf(stderr,"ILUTP Hybrid inner-LU failed err=%d\n",(int)err);
+    if(solver)solver->precon=NULL;
+    if(pc)lis_precon_destroy(pc);
+    if(solver)lis_solver_destroy(solver);
+    if(x)lis_vector_destroy(x);
+    if(b)lis_vector_destroy(b);
+    if(truth)lis_vector_destroy(truth);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
+/* Half storage is a legacy ILUT optimization: opt-in ILUTP must not
+ * silently compress factors or fall back to a different algorithm. */
+static int check_ilutp_half_guard(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_INT err=0;
+    int failed=1;
+    err=make_sparse_matrix(&A,0);if(err)goto cleanup;
+    err=lis_solver_create(&solver);if(err)goto cleanup;
+    solver->A=A;
+    err=lis_solver_set_option(
+        "-p ilut -ilutp 1 -ilutp_threshold 0.5 "
+        "-scale none -omp_num_threads 1",solver);
+    if(err)goto cleanup;
+    err=lis_solver_set_precon_half(solver,LIS_PRECON_HALF_ON);
+    if(err)goto cleanup;
+    err=lis_precon_create(solver,&pc);
+    if(err!=LIS_ERR_NOT_IMPLEMENTED)
+        goto cleanup;
+    pc=NULL; /* failed preconditioner already destroyed by LIS */
+    err=lis_solver_set_option("-ilutp 0",solver);
+    if(err)goto cleanup;
+    err=lis_precon_create(solver,&pc);
+    if(err){pc=NULL;goto cleanup;}
+    if(pc->L==NULL || pc->U==NULL || pc->D==NULL)goto cleanup;
+    failed=0;
+cleanup:
+    if(failed)fprintf(stderr,"ILUTP half-precision guard failed err=%d\n",
+                      (int)err);
+    if(pc)lis_precon_destroy(pc);
+    if(solver)lis_solver_destroy(solver);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
 /* Complete-fill mode is an in-library alternative to incomplete LU;
  * verify Ax and A^T x, a deliberately weak ILUTP control, and the
  * explicit factor-memory budget without relying on external solvers. */
@@ -605,6 +694,8 @@ int main(int argc,char **argv)
     failed|=check_fgmres_sequence();
     failed|=check_no_swap_kernel();
     failed|=check_option_replace();
+    failed|=check_hybrid_ilutp();
+    failed|=check_ilutp_half_guard();
     failed|=check_full_fill();
     err=lis_solver_create(&solver);
     if(err)failed=1;
