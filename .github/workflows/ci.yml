@@ -102,6 +102,8 @@ jobs:
           grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-rcm.log
           ./test/testhalfilut --ras-half-smoke | tee ilut-ras-half.log
           grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-half.log
+          ./test/testhalfilut --ras-guard-smoke | tee ilut-ras-guard.log
+          grep -q '^ILUT_RAS_GROSS_GROWTH_GUARD_PASSED' ilut-ras-guard.log
           ./test/testhalfilut --ras-local-rcm-smoke | tee ilut-ras-local-rcm.log
           grep -q '^ILUT_RAS_3D_PASSED' ilut-ras-local-rcm.log
 
