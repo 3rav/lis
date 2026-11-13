@@ -113,3 +113,5 @@ preconditioner. That fallback is not enabled by this source file alone.
 Any such integration must preserve the original Newton A,b, verify the
 physical residual, and handle factor memory, repeated Newton solves,
 transposition, and sequence cache invalidation explicitly.
+
+Additional optional regression checks: run `LIS_SUPERLU_TEST_BOTH_SCALES=1 ./testsuperlu_direct` to exercise **both row and column** equilibration (`equil=B`) for ordinary and transposed reuse. `testsuperlu_singular.c` checks zero-row and rank-deficient setup rejection plus 100 complete create/destroy cycles under ASan/UBSan/LSan. These checks are included in the serial Linux CI smoke step; they do not change the default LIS build.

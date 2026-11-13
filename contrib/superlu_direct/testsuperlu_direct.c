@@ -24,6 +24,8 @@ int main(int argc,char **argv)
     LIS_VECTOR b=NULL,bt=NULL,x=NULL;
     LIS_INT e,i,j,t;
     const double scales[N]={1e-4,1e3,1e-2,1e2,1e-3,1e4};
+    const double colscales[N]={1e3,1e-2,1e2,1e-1,1e1,1e-3};
+    const int both_scale=(getenv("LIS_SUPERLU_TEST_BOTH_SCALES") != NULL);
     const double v[N]={0.6,-0.25,1.2,2.0,-1.0,0.3};
     double maxerr=0.0,max_relative_residual=0.0;
 
@@ -33,7 +35,7 @@ int main(int argc,char **argv)
     e=lis_matrix_set_size(A,0,N);if(e)goto fail;
     for(i=0;i<N;i++)for(j=0;j<N;j++)if(M[i][j]!=0)
     {
-        e=lis_matrix_set_value(LIS_INS_VALUE,i,j,M[i][j]*scales[i],A);
+        e=lis_matrix_set_value(LIS_INS_VALUE,i,j,M[i][j]*scales[i]*(both_scale?colscales[j]:1.0),A);
         if(e)goto fail;
     }
     e=lis_matrix_set_type(A,LIS_MATRIX_CSR);if(e)goto fail;
@@ -46,8 +48,8 @@ int main(int argc,char **argv)
         b->value[i]=bt->value[i]=0;
         for(j=0;j<N;j++)
         {
-            b->value[i]+=(LIS_SCALAR)(M[i][j]*scales[i]*v[j]);
-            bt->value[i]+=(LIS_SCALAR)(M[j][i]*scales[j]*v[j]);
+            b->value[i]+=(LIS_SCALAR)(M[i][j]*scales[i]*(both_scale?colscales[j]:1.0)*v[j]);
+            bt->value[i]+=(LIS_SCALAR)(M[j][i]*scales[j]*(both_scale?colscales[i]:1.0)*v[j]);
         }
     }
     e=lis_solver_create(&solver);if(e)goto fail;
@@ -62,7 +64,7 @@ int main(int argc,char **argv)
         for(i=0;i<N;i++)
         {
             double r=-b->value[i];
-            for(j=0;j<N;j++)r+=M[i][j]*scales[i]*x->value[j];
+            for(j=0;j<N;j++)r+=M[i][j]*scales[i]*(both_scale?colscales[j]:1.0)*x->value[j];
             if(fabs(r)/(fabs(b->value[i])+1)>max_relative_residual)
                 max_relative_residual=fabs(r)/(fabs(b->value[i])+1);
             if(fabs((double)x->value[i]-v[i])>maxerr)
@@ -72,15 +74,15 @@ int main(int argc,char **argv)
         for(i=0;i<N;i++)
         {
             double r=-bt->value[i];
-            for(j=0;j<N;j++)r+=M[j][i]*scales[j]*x->value[j];
+            for(j=0;j<N;j++)r+=M[j][i]*scales[j]*(both_scale?colscales[i]:1.0)*x->value[j];
             if(fabs(r)/(fabs(bt->value[i])+1)>max_relative_residual)
                 max_relative_residual=fabs(r)/(fabs(bt->value[i])+1);
             if(fabs((double)x->value[i]-v[i])>maxerr)
                 maxerr=fabs((double)x->value[i]-v[i]);
         }
     }
-    printf("SUPERLU_PLUGIN_TEST max_solution_error=%.12g max_scaled_residual=%.12g forward_and_transpose_reused=2\n",
-           maxerr,max_relative_residual);
+    printf("SUPERLU_PLUGIN_TEST max_solution_error=%.12g max_scaled_residual=%.12g forward_and_transpose_reused=2 mode=%s\n",
+           maxerr,max_relative_residual,both_scale?"both":"row");
     e=(maxerr<1e-8 && max_relative_residual<1e-10)?
        LIS_SUCCESS:LIS_BREAKDOWN;
 fail:
