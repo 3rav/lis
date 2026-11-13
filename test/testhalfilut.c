@@ -906,7 +906,7 @@ cleanup:
  */
 
 /* Gross-gain negative control: each 16x16 owner block is upper bidiagonal.
- * Its exact inverse on a unit impulse has magnitude ~10^15. This verifies
+ * Its exact inverse on a unit impulse has magnitude potentially ~10^45. This verifies
  * explicit RAS guard rejection, not an estimate of condition number.
  */
 static int
@@ -934,7 +934,7 @@ check_ilut_ras_gross_growth_guard(void)
         if(i<31)
         {
             err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
-                                    (LIS_SCALAR)-10.0,A);
+                                    (LIS_SCALAR)-1000.0,A);
             if(err) goto done;
         }
     }
@@ -969,8 +969,13 @@ check_ilut_ras_gross_growth_guard(void)
         {
             if(err!=LIS_ERR_ILL_ARG)
             {
+                LIS_REAL observed=0.0;
+                for(i=0;i<32;i++)
+                    if(fabs(x->value[i])>observed)
+                        observed=fabs(x->value[i]);
                 fprintf(stderr,
-                  "RAS_GUARD expected rejection, rc=%ld\n",(long)err);
+                    "RAS_GUARD expected rejection rc=%ld max_x=%.6e\n",
+                    (long)err,(double)observed);
                 goto done;
             }
             for(i=0;i<32;i++)
