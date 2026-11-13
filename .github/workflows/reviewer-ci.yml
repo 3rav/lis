@@ -66,3 +66,38 @@ jobs:
           grep -q '^baseline,' invalid.log
           grep -q '^rcm_scaled,' invalid.log
           echo FEA_FAILURE_ROWS_OK
+
+          # Control one- versus two-thread RCM factorization and application
+          # on the same Matrix Market input in the same Actions job.
+          if [ "${{ matrix.mode }}" = "half-openmp" ]; then
+            LIS_FEA_BASELINE_THREADS=1 LIS_FEA_RCM_THREADS=1 \
+              ./test/testhalfilut --fea-matrix test/testmat0.mtx 8 8 0.005 \
+              > fea-rcm-threads-1.log
+            LIS_FEA_BASELINE_THREADS=1 LIS_FEA_RCM_THREADS=2 \
+              ./test/testhalfilut --fea-matrix test/testmat0.mtx 8 8 0.005 \
+              > fea-rcm-threads-2.log
+            python3 - <<'PY'
+          import csv
+          from pathlib import Path
+          def read_rows(path):
+              lines=Path(path).read_text().splitlines()
+              start=next(i for i,l in enumerate(lines) if l.startswith('variant,rate,'))
+              rows=list(csv.DictReader(lines[start:]))
+              return {r['variant']:r for r in rows}
+          one=read_rows('fea-rcm-threads-1.log')
+          two=read_rows('fea-rcm-threads-2.log')
+          assert one['baseline']['threads']==two['baseline']['threads']=='1'
+          assert one['baseline']['nnz_LU']==two['baseline']['nnz_LU']
+          assert one['baseline']['iterations']==two['baseline']['iterations']
+          assert one['rcm_scaled']['threads']=='1' and two['rcm_scaled']['threads']=='2'
+          for count, rows in ((1,one),(2,two)):
+              r=rows['rcm_scaled']
+              assert int(r['solver_error'])==0, r
+              print(f'ILUT_RCM_THREADS={count} nnz_LU={r["nnz_LU"]} '
+                    f'iterations={r["iterations"]} true_relres={r["true_relres"]}')
+          print('THREAD_DEPENDENCE_OBSERVED:',
+                one['rcm_scaled']['nnz_LU']!=two['rcm_scaled']['nnz_LU'] or
+                one['rcm_scaled']['iterations']!=two['rcm_scaled']['iterations'])
+          PY
+          fi
+
