@@ -1499,6 +1499,7 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 	LIS_INT cs,sn;
 	LIS_INT trace_early;
 	LIS_REAL trace_norm_z,trace_norm_az;
+	LIS_INT normalize_z=0;
 
 	LIS_DEBUG_FUNC_IN;
 
@@ -1518,6 +1519,11 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 	ptime   = 0.0;
 	trace_early = getenv("LIS_FGMRES_TRACE") &&
 	              strcmp(getenv("LIS_FGMRES_TRACE"),"1")==0;
+#if !defined(_COMPLEX) && !defined(USE_COMPLEX)
+	normalize_z = getenv("LIS_FGMRES_NORMALIZE_Z") &&
+	              strcmp(getenv("LIS_FGMRES_NORMALIZE_Z"),"1")==0 &&
+	              A->nprocs==1 && A->n==A->gn;
+#endif
 
 	s       = solver->work[0];
 	z       = &solver->work[2];
@@ -1586,6 +1592,37 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 			        return err;
 			}
 
+#if !defined(_COMPLEX) && !defined(USE_COMPLEX)
+			if(trace_early || normalize_z)
+			{
+			    LIS_INT zi,bad=0;
+			    double maxabs=0.0;
+			    for(zi=0;zi<z[iiv]->n;zi++)
+			    {
+			        double v=fabs((double)z[iiv]->value[zi]);
+			        if(!isfinite(v)) bad++;
+			        else if(v>maxabs) maxabs=v;
+			    }
+			    if(trace_early && iter<=4)
+			        fprintf(stderr,
+			            "LIS_FGMRES_TRACE iter=%lld z_maxabs=%.16e "
+			            "z_nonfinite=%lld\n",
+			            (long long)iter,maxabs,(long long)bad);
+			    /* The flexible Krylov basis is invariant under finite positive
+			     * scaling of each preconditioned search vector. Avoid
+			     * overflow in ||M^-1 v|| and the corresponding Arnoldi column.
+			     * This is opt-in diagnostic code, not a default behavior change. */
+			    if(normalize_z && !bad && maxabs>0.0 &&
+			       (maxabs>1e100 || maxabs<1e-100))
+			    {
+			        lis_vector_scale((LIS_SCALAR)(1.0/maxabs),z[iiv]);
+			        if(trace_early && iter<=4)
+			            fprintf(stderr,
+			                "LIS_FGMRES_TRACE iter=%lld z_scaled_by=%.16e\n",
+			                (long long)iter,maxabs);
+			    }
+			}
+#endif
 			if(trace_early && iter<=4)
 			{
 			    lis_vector_nrm2(z[iiv],&trace_norm_z);
@@ -1636,7 +1673,12 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 			bb = h[i1+iih];
 			a2 = aa*aa;
 			b2 = bb*bb;
+#if !defined(_COMPLEX) && !defined(USE_COMPLEX)
+			rr = normalize_z ? (LIS_SCALAR)hypot((double)aa,(double)bb)
+			                 : sqrt(a2+b2);
+#else
 			rr = sqrt(a2+b2);
+#endif
 			if(trace_early && iter<=4)
 			{
 #if !defined(_COMPLEX) && !defined(USE_COMPLEX)
