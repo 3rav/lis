@@ -323,7 +323,7 @@ lis_ilut_ordered_create(LIS_SOLVER solver, LIS_PRECON precon)
        solver->options[LIS_OPTIONS_PRECISION]!=LIS_PRECISION_DOUBLE)
     {
         LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
-            "ILUT RCM/row scaling supports serial CSR in double precision");
+            "ILUT RCM, row scaling and ILUTP require serial double CSR");
         return LIS_ERR_NOT_IMPLEMENTED;
     }
     /*
@@ -542,7 +542,7 @@ LIS_INT lis_precon_create_ilut(LIS_SOLVER solver, LIS_PRECON precon)
 	   solver->A->matrix_type!=LIS_MATRIX_CSR)
 	{
 		LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
-		    "ILUT RCM and row scaling require serial CSR input");
+		    "ILUT RCM, row scaling and ILUTP require serial CSR input");
 		return LIS_ERR_NOT_IMPLEMENTED;
 	}
 
@@ -1411,6 +1411,16 @@ lis_ilut_ordered_apply(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X,
     LIS_VECTOR rhs=pc->ilut_work_b,sol=pc->ilut_work_x;
     if(!rhs || !sol || !pc->ilut_perm || !pc->ilut_row_scale)
         return LIS_ERR_ILL_ARG;
+#ifdef _OPENMP
+    /* Changing OMP_NUM_THREADS after ILUTP construction must not silently
+     * apply a permutation through the block-parallel ILUT kernels. */
+    if(pc->ilutp_colperm && omp_get_max_threads()!=1)
+    {
+        LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+            "ILUTP apply requires one active OpenMP thread");
+        return LIS_ERR_NOT_IMPLEMENTED;
+    }
+#endif
 
     /*
      * We factor D_row P A P^T Q = L U.
