@@ -84,6 +84,8 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
     LIS_ILUTP_ENTRY *entries=NULL;
     LIS_REAL drop,rate,tau,pivot_tol,rowmax,rowsum,tolnorm,maxval,v;
     LIS_INT swapcol;
+    LIS_INT full=solver->ilutp_full;
+    uint64_t fill_used=0,fill_limit=0;
 #ifdef _OPENMP
     /* Existing ILU triangular kernels partition factors by OpenMP rank. */
     if(omp_get_max_threads()!=1)
@@ -123,6 +125,24 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
         double budget=((double)A->nnz/(2.0*(double)n))*rate;
         cap=(budget>=(double)(n-1)) ? n-1 : (LIS_INT)budget;
     }
+    if(full)
+    {
+        /* No dropping or diagonal perturbation. Pivot against the
+         * strongest surviving Schur-complement column in every row.
+         * A*Q=L*U in exact arithmetic; Q is carried by LIS ILUTP.
+         * Factor nnz is bounded independently of sparse pivot fill. */
+        uint64_t imax=sizeof(LIS_INT)==4 ? INT32_MAX : INT64_MAX;
+        uint64_t auto_limit=(uint64_t)A->nnz;
+        if(auto_limit>imax/20) auto_limit=imax;
+        else auto_limit*=20;
+        if(auto_limit<(uint64_t)n*4) auto_limit=(uint64_t)n*4;
+        fill_limit=solver->ilutp_full_limit ?
+            (uint64_t)solver->ilutp_full_limit : auto_limit;
+        drop=0.0;
+        pivot_tol=0.0;
+        tau=1.0;
+        cap=n-1;
+    }
 
     /* Never overwrite live factor/permutation pointers on a reused object. */
     if(precon->L || precon->U || precon->D ||
@@ -133,7 +153,7 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
     }
     /* The no-pivot case is precisely legacy ILUT, including drop/fill
      * selection and floating-point evaluation order. */
-    if(tau==0.0)
+    if(tau==0.0 && !full)
     {
         err=lis_precon_create_ilut_csr(solver,precon);
         if(err) return err;
@@ -288,6 +308,38 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
         }
         D->value[i]=(LIS_SCALAR)(1.0/pivot);
 
+        /* Guard actual L+U storage before allocating the current row.
+         * The full mode fails cleanly rather than silently dropping fill
+         * or exceeding its explicit/automatic memory budget. */
+        if(full)
+        {
+            uint64_t next=fill_used;
+            if(!isfinite((double)w[i]))
+            {
+                err=LIS_BREAKDOWN;
+                goto cleanup;
+            }
+            for(t=0;t<processed;t++)
+            {
+                if(!isfinite((double)w[finished[t]]))
+                { err=LIS_BREAKDOWN; goto cleanup; }
+                if(w[finished[t]]!=0.0) next++;
+            }
+            for(t=0;t<nup;t++)
+            {
+                if(!isfinite((double)w[upper[t]]))
+                { err=LIS_BREAKDOWN; goto cleanup; }
+                if(w[upper[t]]!=0.0) next++;
+            }
+            if(next>fill_limit)
+            {
+                LIS_SETERR(LIS_OUT_OF_MEMORY,
+                    "ILUTP full factor exceeds L+U nonzero safety limit");
+                err=LIS_OUT_OF_MEMORY;
+                goto cleanup;
+            }
+            fill_used=next;
+        }
         /* Keep the largest lower multipliers (existing ILUT fill budget). */
         m=0;
         for(t=0;t<processed;t++)

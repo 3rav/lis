@@ -537,6 +537,11 @@ LIS_INT lis_precon_create_ilut(LIS_SOLVER solver, LIS_PRECON precon)
 
 	LIS_DEBUG_FUNC_IN;
 
+	if(solver->ilutp_full && !solver->ilutp_enabled)
+	{
+		LIS_SETERR(LIS_ERR_ILL_ARG, "-ilutp_full requires -ilutp 1");
+		return LIS_ERR_ILL_ARG;
+	}
 	if((solver->ilut_rcm || solver->ilut_row_scale ||
         solver->ilutp_enabled) &&
 	   solver->A->matrix_type!=LIS_MATRIX_CSR)

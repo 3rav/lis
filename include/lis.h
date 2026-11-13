@@ -1113,6 +1113,11 @@ struct LIS_SOLVER_STRUCT
 	LIS_REAL ilutp_threshold;
 	LIS_INT sequence_precon_ilutp_enabled;
 	LIS_REAL sequence_precon_ilutp_threshold;
+	/* Opt-in complete-fill column-pivoted LU, never the ILUT default. */
+	LIS_INT ilutp_full;
+	LIS_INT ilutp_full_limit; /* L+U nonzeros, 0 means auto budget */
+	LIS_INT sequence_precon_ilutp_full;
+	LIS_INT sequence_precon_ilutp_full_limit;
 };
 typedef struct LIS_SOLVER_STRUCT *LIS_SOLVER;
 
