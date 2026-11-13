@@ -84,6 +84,15 @@ jobs:
       - name: Run Automake test suite
         run: make -j2 check
 
+      - name: Compare ILUT Equil on manufactured convection-diffusion system
+        if: matrix.mode == 'serial'
+        run: |
+          set -euo pipefail
+          for amplitude in 30 100 300; do
+            ./test/benchequil "$amplitude" | tee "equil-bench-$amplitude.log"
+            grep -q '^EQUIL_BENCH mode=both ' "equil-bench-$amplitude.log"
+          done
+
       - name: Smoke-test fill-reporting ILUT Matrix Market benchmark
         if: matrix.mode == 'half'
         run: |
