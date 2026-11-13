@@ -28,9 +28,21 @@ when `-ilutp 0` (the default). No SuperLU library or plugin is needed.
 
 This is **column** pivoting, not row-pivoted or supernodal LU.
 Supported scope is serial real-double CSR with one active
-OpenMP thread. MPI, complex and half precision are unsupported.
-Frozen-pattern factor updates and factor reuse across different
-Newton matrices are not validated.
+OpenMP thread. MPI, complex scalars and half-precision *factor
+storage* are unsupported for opt-in ILUTP; legacy ILUT's half mode
+is still available. A `LIS_MATRIX_USER` or operator shell may still
+use legacy ILUT through its row callback, but an explicit ILUTP
+request on a non-CSR matrix **fails**, never silently falls back.
+
+Hybrid can select the new ILUTP **on explicit CSR** using
+`-p hybrid -hybrid_p ilut -ilutp 1` (with the usual inner
+`-hybrid_i`, tolerances and optional `-ilutp_full 1`).
+The outer opt-in ILUTP numerical parameters are passed to the
+inner ILUT preconditioner. Hybrid + USER and legacy half storage
+continue to work unchanged without ILUTP; unsupported combinations
+with opt-in ILUTP return an error instead of using another
+algorithm. Frozen-pattern factor updates and factor reuse across
+different Newton matrices are not validated.
 
 ## What has been demonstrated
 
@@ -75,9 +87,13 @@ make -j2 check
 ```
 
 `testilutp` covers column permutations, forward/transpose solves,
-RCM/scale, fill limits, invalid configurations and sequence behavior.
-A dedicated ASan/LSan CI job exercises **RCM+scale with a failed
-full-fill limit**; it passed on commit `14ab1eb`.
+RCM/scale, fill limits, option replacement, Hybrid inner ILUTP,
+half-mode rejection, invalid configurations and sequence behavior.
+`testuserprecon` checks legacy USER/Hybrid support and fail-closed
+rejection of opt-in ILUTP on USER. Dedicated native CI runs these
+tests with half precision enabled and also uses ASan/LSan/UBSan
+to exercise **RCM+scale after a partially allocated full-fill
+factor exceeds its cap**.
 
 **Legacy compatibility note:** while legacy ILUT's default
 factorization is unchanged, this PR makes
