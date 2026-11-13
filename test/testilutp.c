@@ -2,6 +2,7 @@
 #include "lis_config.h"
 #endif
 #include "lislib.h"
+#include "lis_solver_options.h"
 #include <math.h>
 #include <stdio.h>
 #ifdef _OPENMP
@@ -365,7 +366,7 @@ static int check_option_replace(void)
     LIS_VECTOR truth=NULL,b=NULL,x=NULL;
     LIS_PRECON saved=NULL;
     LIS_INT err=0,i,changed=LIS_FALSE;
-    int failed=1,step;
+    int failed=1,step=0;
     char options[512];
     const int rcms[]={0,1,1,1};
     const double taus[]={0.5,0.5,0.25,0.25};
