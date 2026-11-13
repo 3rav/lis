@@ -195,7 +195,7 @@ static int close_scalar(LIS_SCALAR x,LIS_SCALAR y)
 /* tau=0 must reproduce legacy ILUT, with and without row normalization/RCM.
  * This compares the ACTUAL L/U numeric data and their index lists, not just
  * convergence histories. */
-static int check_tau_zero(int rcm,int scale)
+static int check_tau_zero(int rcm,int scale,int equil)
 {
     LIS_MATRIX A=NULL;
     LIS_SOLVER base=NULL,pivot=NULL;
@@ -209,10 +209,10 @@ static int check_tau_zero(int rcm,int scale)
     err=lis_solver_create(&pivot);if(err)goto cleanup;
     base->A=pivot->A=A;
     snprintf(options,sizeof(options),
-        "-p ilut -ilut_rcm %d -ilut_row_scale %d "
+        "-p ilut -ilut_rcm %d -ilut_row_scale %d -ilut_equil %d "
         "-ilut_drop 0.02 -ilut_rate 1.1 "
         "-ilu_pivot_tol 1e-9 -scale none -omp_num_threads 1",
-        rcm,scale);
+        rcm,scale,equil);
     err=lis_solver_set_option(options,base);if(err)goto cleanup;
     err=lis_solver_set_option(options,pivot);if(err)goto cleanup;
     err=lis_solver_set_option("-ilutp 1 -ilutp_threshold 0",pivot);
@@ -316,6 +316,29 @@ static int check_fgmres_sequence(void)
        fabs(solver->sequence_precon_ilutp_threshold-0.25)>1e-12)
         goto cleanup;
 
+    /* Changing Equil must invalidate the cached ILUTP factorization. */
+    err=lis_solver_set_option("-ilut_equil 1",solver);
+    if(err)goto cleanup;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,x);if(err)goto cleanup;
+    err=lis_solve_sequence(A,b,x,solver);if(err)goto cleanup;
+    if(solver->retcode!=LIS_SUCCESS || !solution_close(x,truth) ||
+       solver->sequence_precon==NULL ||
+       solver->sequence_precon->ilutp_colperm==NULL ||
+       solver->sequence_precon->ilut_col_scale==NULL ||
+       solver->sequence_precon_ilut_equil!=1)
+        goto cleanup;
+
+    err=lis_solver_set_option("-ilut_equil 0",solver);
+    if(err)goto cleanup;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,x);if(err)goto cleanup;
+    err=lis_solve_sequence(A,b,x,solver);if(err)goto cleanup;
+    if(solver->retcode!=LIS_SUCCESS || !solution_close(x,truth) ||
+       solver->sequence_precon==NULL ||
+       solver->sequence_precon->ilutp_colperm==NULL ||
+       solver->sequence_precon->ilut_col_scale!=NULL ||
+       solver->sequence_precon_ilut_equil!=0)
+        goto cleanup;
+
     /*
      * Fixed matrix graph, new numerical values, frozen-pattern policy:
      * ILUTP must reject the incompatible in-place frozen refactorization,
@@ -375,21 +398,27 @@ int main(int argc,char **argv)
     failed|=run_one(1,0,1);
     failed|=run_one(0,1,1);
     failed|=run_one(1,1,1);
-    failed|=check_tau_zero(0,0);
-    failed|=check_tau_zero(1,0);
-    failed|=check_tau_zero(0,1);
-    failed|=check_tau_zero(1,1);
+    failed|=check_tau_zero(0,0,0);
+    failed|=check_tau_zero(1,0,0);
+    failed|=check_tau_zero(0,1,0);
+    failed|=check_tau_zero(1,1,0);
+    failed|=check_tau_zero(0,0,1);
+    failed|=check_tau_zero(1,0,1);
+    failed|=check_tau_zero(0,1,1);
+    failed|=check_tau_zero(1,1,1);
     failed|=check_fgmres_sequence();
     err=lis_solver_create(&solver);
     if(err)failed=1;
     else
     {
-        if(fabs(solver->ilutp_threshold-0.5)>1e-12)failed=1;
+        if(fabs(solver->ilutp_threshold-0.5)>1e-12 ||
+           solver->ilut_equil!=0)failed=1;
         if(lis_solver_set_option("-p ilut -ilutp 1 -ilutp_threshold 0.5",
                                   solver)!=LIS_SUCCESS ||
            !solver->ilutp_enabled ||
            fabs(solver->ilutp_threshold-0.5)>1e-12 ||
-           lis_solver_set_option("-ilutp_threshold 2.0",solver)==LIS_SUCCESS)
+           lis_solver_set_option("-ilutp_threshold 2.0",solver)==LIS_SUCCESS ||
+           lis_solver_set_option("-ilut_equil 2",solver)==LIS_SUCCESS)
             failed=1;
         lis_solver_destroy(solver);
     }
