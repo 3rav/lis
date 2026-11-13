@@ -29,7 +29,7 @@ static const LIS_SCALAR a[N][N] = {
 };
 static const LIS_SCALAR truth[N] = {1.25,-0.5,2.0,0.75};
 
-static int run_one(LIS_INT rcm, LIS_INT scale)
+static int run_one(LIS_INT rcm, LIS_INT scale, LIS_INT equil)
 {
     LIS_MATRIX A=NULL;
     LIS_SOLVER solver=NULL;
@@ -68,14 +68,16 @@ static int run_one(LIS_INT rcm, LIS_INT scale)
     solver->A=A;
     snprintf(options,sizeof(options),
         "-i fgmres -p ilut -ilutp 1 -ilutp_threshold 1 "
-        "-ilut_rcm %d -ilut_row_scale %d "
+        "-ilut_rcm %d -ilut_row_scale %d -ilut_equil %d "
         "-ilut_drop 0 -ilut_rate 100 "
         "-ilu_pivot_tol 0 -scale none -omp_num_threads 1",
-        (int)rcm,(int)scale);
+        (int)rcm,(int)scale,(int)equil);
     err=lis_solver_set_option(options,solver);if(err)goto cleanup;
     err=lis_precon_create(solver,&pc);if(err){pc=NULL;goto cleanup;}
     if(!pc->ilutp_colperm || !pc->ilut_perm || !pc->D)
         goto cleanup;
+    if(equil && !pc->ilut_col_scale)goto cleanup;
+    if(!equil && pc->ilut_col_scale)goto cleanup;
     if(!rcm && !scale)
         for(i=0;i<N;i++)
             if(pc->ilutp_colperm[i]!=i) swaps++;
@@ -90,8 +92,8 @@ static int run_one(LIS_INT rcm, LIS_INT scale)
         if(!isfinite((double)diff) || diff>1e-9)
         {
             fprintf(stderr,
-                "ILUTP forward mismatch rcm=%d scale=%d i=%d diff=%g\n",
-                (int)rcm,(int)scale,(int)i,(double)diff);
+                "ILUTP forward mismatch rcm=%d scale=%d equil=%d i=%d diff=%g\n",
+                (int)rcm,(int)scale,(int)equil,(int)i,(double)diff);
             goto cleanup;
         }
     }
@@ -103,8 +105,8 @@ static int run_one(LIS_INT rcm, LIS_INT scale)
         if(!isfinite((double)diff) || diff>1e-9)
         {
             fprintf(stderr,
-                "ILUTP adjoint mismatch rcm=%d scale=%d i=%d diff=%g\n",
-                (int)rcm,(int)scale,(int)i,(double)diff);
+                "ILUTP adjoint mismatch rcm=%d scale=%d equil=%d i=%d diff=%g\n",
+                (int)rcm,(int)scale,(int)equil,(int)i,(double)diff);
             goto cleanup;
         }
     }
@@ -125,8 +127,8 @@ static int run_one(LIS_INT rcm, LIS_INT scale)
 
 cleanup:
     if(failed)
-        fprintf(stderr,"ILUTP test failed (rcm=%d scale=%d err=%d)\n",
-            (int)rcm,(int)scale,(int)err);
+        fprintf(stderr,"ILUTP test failed (rcm=%d scale=%d equil=%d err=%d)\n",
+            (int)rcm,(int)scale,(int)equil,(int)err);
     if(solver)solver->precon=NULL;
     if(pc)lis_precon_destroy(pc);
     if(solver)lis_solver_destroy(solver);
@@ -364,10 +366,15 @@ int main(int argc,char **argv)
 #ifdef _OPENMP
     omp_set_num_threads(1);
 #endif
-    failed|=run_one(0,0);
-    failed|=run_one(1,0);
-    failed|=run_one(0,1);
-    failed|=run_one(1,1);
+    /* Verify Q*C maps in both forward and transpose solves. */
+    failed|=run_one(0,0,0);
+    failed|=run_one(1,0,0);
+    failed|=run_one(0,1,0);
+    failed|=run_one(1,1,0);
+    failed|=run_one(0,0,1);
+    failed|=run_one(1,0,1);
+    failed|=run_one(0,1,1);
+    failed|=run_one(1,1,1);
     failed|=check_tau_zero(0,0);
     failed|=check_tau_zero(1,0);
     failed|=check_tau_zero(0,1);
