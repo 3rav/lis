@@ -61,6 +61,18 @@ This branch is synchronized with the latest ILUT robustness changes from fork PR
 
 An entirely **separate, non-integrated** sparse CSR Schur feasibility experiment lives in fork Draft PR #64. It checks a synthetic interface larger than 256 DOF and documents OpenMP risks, but it is not a fix for the production limitations of the current dense Schur implementation.
 
+## Local ILUT RCM ablation and numerical finding (2026-11-13)
+
+The RAS domain-ownership option `-ilut_ras_rcm 1` only orders how the global matrix is divided into subdomains. **It is separate from** `-ilut_rcm 1`: the latter now also orders each extracted local owner+halo matrix before factorization, using the existing symmetric RCM/row-scaling implementation. Both remain opt-in. The local ordering is applied after extracting the subdomain, not merely to the owner ranks.
+
+A controlled real structural-FEA ablation on `Boeing/bcsstk39` (46,772 DOF, 8 OpenMP threads, 8 domains, overlap=0, domain RCM=off, row scaling=off, fill rate 8) detected extreme inverse amplification **in local domain 6** when local RCM was disabled: `||M_d^-1 b_d||/||b_d||=8.16e70`, while the smallest observed factor-pivot magnitude over all domains was about `6.98e4`. Thus absolute pivot magnitude alone did not detect instability.
+
+When local `-ilut_rcm 1` was enabled, the worst local inverse response dropped to `2.23e-4`. The complete RAS preconditioner response changed from `2.25e70` to `6.26e-5` relative to `||b||`; at 500 FGMRES iterations the true relative residual improved from `0.999963` to `0.001772`. The baseline 8-thread ILUT reached `0.004015` at the same iteration count. **None met the required convergence tolerance** and the locally ordered RAS was slower than the baseline (roughly 6.62 s versus 5.46 s setup+solve, with 19% less stored-factor-entry proxy). Adding the sparse Schur correction worsened the local-RCM residual to `0.005588`.
+
+[Complete two-configuration ablation and worst-domain factor diagnostic](https://github.com/3rav/lis/actions/runs/43397517228).
+
+The result supports local reordering as a way to avoid a catastrophic failure on this one matrix. It **does not prove a general speedup**, stability across contact-KKT systems, or that any particular fixed threshold/diagonal shift would be safe. A default-on factor-stability guard is **not implemented**: dimensionless tests of triangular growth and regularization policies need independent validation. This branch remains Draft.
+
 ## OpenMP ThreadSanitizer and real structural-FEA findings (2026-11-13)
 
 The OpenMP RAS local-solve path no longer enters nested ILUT parallel regions. Local ILUT factorization and application now consistently use one thread; the sparse Schur-ILUT setup and apply do the same. The number of threads used by a factorization must not change between setup and application, since the legacy OpenMP ILUT algorithm partitions factor dependencies by thread.
