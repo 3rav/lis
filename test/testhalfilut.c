@@ -1701,7 +1701,7 @@ done:
  */
 typedef struct {
     LIS_INT iters,entries,ngamma,err;
-    LIS_REAL true_relres;
+    LIS_REAL true_relres,probe_apply_ratio,probe_true_relres;
     double setup_wall,solve_wall;
     int converged;
 } LIS_RAS_BENCH_RESULT;
@@ -1714,14 +1714,16 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
 {
     LIS_SOLVER solver=NULL;
     LIS_PRECON pc=NULL;
-    LIS_VECTOR x=NULL,r=NULL;
+    LIS_VECTOR x=NULL,r=NULL,probe=NULL;
     LIS_INT nl=0,nu=0,err=0;
-    LIS_REAL minpivot=0.0,maxpivot=0.0,bn=0.0,rn=0.0;
+    LIS_REAL minpivot=0.0,maxpivot=0.0,bn=0.0,rn=0.0,pn=0.0;
     double t0=0.0,t1=0.0,t2=0.0;
     char opts[512];
     memset(out,0,sizeof(*out));
     out->iters=-1;
     out->true_relres=-1.0;
+    out->probe_apply_ratio=-1.0;
+    out->probe_true_relres=-1.0;
     if(mode==0)
         snprintf(opts,sizeof(opts),
                  "-i fgmres -p ilut -scale none -print none "
@@ -1749,6 +1751,8 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     if(err) goto done;
     err=lis_vector_duplicate(A,&r);
     if(err) goto done;
+    err=lis_vector_duplicate(A,&probe);
+    if(err) goto done;
     err=lis_vector_set_all((LIS_SCALAR)0.0,x);
     if(err) goto done;
     t0=lis_wtime();
@@ -1772,6 +1776,27 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
         err=lis_precon_ilut_ras_interface_size(pc,&out->ngamma);
         if(err) goto done;
     }
+    /*
+     * Numerical ablation: inspect the uniterated preconditioner action
+     * independently from FGMRES. This distinguishes an extreme local
+     * factor response from a Krylov/solver-dispatch issue. Record the
+     * norms, never infer instability from the final residual alone.
+     */
+    err=lis_vector_nrm2(b,&bn);
+    if(err || !(bn>0.0)) { err=LIS_ERR_ILL_ARG; goto done; }
+    err=lis_psolve(solver,b,probe);
+    if(err) goto done;
+    err=lis_vector_nrm2(probe,&pn);
+    if(err || !isfinite((double)pn)) { err=LIS_ERR_ILL_ARG; goto done; }
+    out->probe_apply_ratio=pn/bn;
+    err=lis_matvec(A,probe,r);
+    if(err) goto done;
+    err=lis_vector_axpy((LIS_SCALAR)-1.0,b,r);
+    if(err) goto done;
+    err=lis_vector_nrm2(r,&rn);
+    if(err || !isfinite((double)rn)) { err=LIS_ERR_ILL_ARG; goto done; }
+    out->probe_true_relres=rn/bn;
+    t1=lis_wtime();
     err=lis_solve_kernel(A,b,x,solver,pc);
     t2=lis_wtime();
     out->solve_wall=t2-t1;
@@ -1784,8 +1809,6 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     if(err) goto done;
     err=lis_vector_nrm2(r,&rn);
     if(err) goto done;
-    err=lis_vector_nrm2(b,&bn);
-    if(err || !(bn>0.0)) { err=LIS_ERR_ILL_ARG; goto done; }
     out->true_relres=rn/bn;
     out->converged=isfinite((double)out->true_relres) &&
                     out->true_relres<=1.0e-7;
@@ -1797,6 +1820,7 @@ done:
         lis_precon_destroy(pc);
     }
     if(solver) lis_solver_destroy(solver);
+    if(probe) lis_vector_destroy(probe);
     if(r) lis_vector_destroy(r);
     if(x) lis_vector_destroy(x);
 }
@@ -1853,14 +1877,15 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
            getenv("OMP_NUM_THREADS") ? getenv("OMP_NUM_THREADS") : "(unset)");
     printf("variant,rate,stored_entry_proxy,ngamma,iterations,"
            "true_relres,setup_wall_s,solve_wall_s,total_wall_s,"
-           "fill_gap_vs_baseline,fair_fill,status,lis_error\n");
+           "fill_gap_vs_baseline,fair_fill,status,lis_error,"
+           "probe_norm_ratio,probe_one_apply_true_relres\n");
     for(mode=0;mode<3;mode++)
     {
         gap=m[0].entries>0 && m[mode].entries>0 ?
             fabs((double)m[mode].entries-(double)m[0].entries)/
             (double)m[0].entries : -1.0;
         printf("%s,%.9g,%ld,%ld,%ld,%.9g,%.6f,%.6f,%.6f,"
-               "%.5f,%s,%s,%ld\n",
+               "%.5f,%s,%s,%ld,%.9g,%.9g\n",
                names[mode],rates[mode],(long)m[mode].entries,
                (long)m[mode].ngamma,(long)m[mode].iters,
                (double)m[mode].true_relres,
@@ -1869,7 +1894,9 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
                gap,gap>=0.0 && gap<=0.05 ? "yes":"no",
                m[mode].err==0 && m[mode].converged ? "converged" :
                (m[mode].err ? "solver_error" : "not_converged"),
-               (long)m[mode].err);
+               (long)m[mode].err,
+               (double)m[mode].probe_apply_ratio,
+               (double)m[mode].probe_true_relres);
     }
     failed=0;
     for(mode=0;mode<3;mode++)
