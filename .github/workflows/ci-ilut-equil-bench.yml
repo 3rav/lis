@@ -1,0 +1,39 @@
+name: Focused ILUT Equil benchmark
+on:
+  push:
+    branches:
+      - ci/ilut-equil-focused-benchmark-20261113
+permissions:
+  contents: read
+jobs:
+  numerical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Compile LIS with benchmark
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi
+          make -j2
+      - name: Validate baseline Equil regression
+        run: ./test/testilutequil
+      - name: Compare none, row-only and two-sided scaling
+        run: |
+          set -euo pipefail
+          for amp in 30 100 300; do
+            for rate in 1 5; do
+              echo "=== amplitude=$amp fill_rate=$rate ==="
+              ./test/benchequil "$amp" "$rate" | tee -a "results.txt"
+            done
+          done
+          grep -q '^EQUIL_BENCH mode=both ' results.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ilut-equil-focused-benchmark-results
+          path: results.txt
