@@ -25,10 +25,12 @@ jobs:
       - name: Compare none, row-only and two-sided scaling
         run: |
           set -euo pipefail
-          for amp in 5 10 20 30 50 100 300; do
-            for rate in 0.5 0.75 1 1.25 1.5 2 2.5 3 4 5; do
-              echo "=== amplitude=$amp fill_rate=$rate ==="
-              ./test/benchequil "$amp" "$rate" | tee -a "results.txt"
+          for amp in 5 10 30 100 300; do
+            for drop in 0.0001 0.001 0.005 0.02 0.05; do
+              for rate in 0.5 0.75 1 1.25 1.5 2 2.5 3 4 5; do
+                echo "=== amplitude=$amp drop=$drop fill_rate=$rate ==="
+                ./test/benchequil "$amp" "$rate" "$drop" | tee -a "results.txt"
+              done
             done
           done
           grep -q '^EQUIL_BENCH mode=both ' results.txt
