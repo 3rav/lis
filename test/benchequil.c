@@ -33,7 +33,7 @@ static LIS_REAL coeff(LIS_INT i,LIS_INT j)
     if(y>0 && j==i-SIDE)return -1.;
     return 0.;
 }
-static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate)
+static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate,LIS_REAL drop)
 {
     LIS_MATRIX A=NULL;
     LIS_VECTOR b=NULL,x=NULL,ax=NULL;
@@ -74,9 +74,9 @@ static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate)
     snprintf(options,sizeof(options),
         "-i fgmres -restart 50 -p ilut -ilut_rcm 0 "
         "-ilut_row_scale %d -ilut_equil %d "
-        "-ilut_drop 0.005 -ilut_rate %.7g -ilu_pivot_tol 0.001 "
+        "-ilut_drop %.9g -ilut_rate %.7g -ilu_pivot_tol 0.001 "
         "-scale none -tol 1e-6 -maxiter 300 -omp_num_threads 1",
-        (int)(mode>0),(int)(mode==2),(double)rate);
+        (int)(mode>0),(int)(mode==2),(double)drop,(double)rate);
     err=lis_solver_set_option(options,s);if(err)goto done;
     actual_rate=s->params[LIS_PARAMS_RATE-LIS_OPTIONS_LEN];
     actual_drop=s->params[LIS_PARAMS_DROP-LIS_OPTIONS_LEN];
@@ -98,10 +98,10 @@ static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate)
         nb+=(LIS_REAL)(b->value[i]*b->value[i]);
     }
     rr=nb>0. ? (LIS_REAL)sqrt((double)(nr/nb)) : 0.;
-    printf("EQUIL_BENCH mode=%s n=%d amplitude=%.9g rate=%.7g actual_rate=%.7g actual_drop=%.7g nnz_A=%lld lfil_budget=%d "
+    printf("EQUIL_BENCH mode=%s n=%d amplitude=%.9g rate=%.7g drop=%.9g actual_rate=%.7g actual_drop=%.7g nnz_A=%lld lfil_budget=%d "
            "status=%d iterations=%d true_residual=%.12e "
            "nnz_L_plus_U=%lld\n",name,N,(double)amp,
-           (double)rate,(double)actual_rate,(double)actual_drop,
+           (double)rate,(double)drop,(double)actual_rate,(double)actual_drop,
            (long long)A->nnz,
            (int)((double)A->nnz/(2.0*N)*actual_rate),
            (int)err,(int)iter,(double)rr,nnz_factor);
@@ -120,12 +120,14 @@ done:
 }
 int main(int argc,char **argv)
 {
-    LIS_REAL amp=100.,rate=1.;
+    LIS_REAL amp=100.,rate=1.,drop=0.005;
     LIS_INT err;
     int failed=0;
     if(argc>1)amp=(LIS_REAL)atof(argv[1]);
     if(argc>2)rate=(LIS_REAL)atof(argv[2]);
-    if(!(amp>=1. && amp<=1000.) || !(rate>0. && rate<=10.))return 2;
+    if(argc>3)drop=(LIS_REAL)atof(argv[3]);
+    if(!(amp>=1. && amp<=1000.) || !(rate>0. && rate<=10.) ||
+       !(drop>=0. && drop<=1.))return 2;
     err=lis_initialize(&argc,&argv);if(err)return 1;
 #ifdef _OPENMP
     omp_set_dynamic(0);
@@ -134,9 +136,9 @@ int main(int argc,char **argv)
 #if defined(_COMPLEX) || defined(USE_COMPLEX)
     puts("EQUIL_BENCH skip: real-double only");
 #else
-    failed|=run_case(0,amp,rate);
-    failed|=run_case(1,amp,rate);
-    failed|=run_case(2,amp,rate);
+    failed|=run_case(0,amp,rate,drop);
+    failed|=run_case(1,amp,rate,drop);
+    failed|=run_case(2,amp,rate,drop);
 #endif
     lis_finalize();
     return failed;
