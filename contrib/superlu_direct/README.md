@@ -27,6 +27,27 @@ cc -std=c99 -O2 -I./include -I./contrib/superlu_direct -DHAVE_CONFIG_H \
 ./testsuperlu_direct
 \`\`\`
 
+For direct validation of the original CCX snapshot pair (no numerical
+data is published), compile the standalone validator from the LIS source
+root:
+
+```sh
+cc -std=c99 -O2 -I./include -I./contrib/superlu_direct -DHAVE_CONFIG_H \
+  contrib/superlu_direct/benchsuperlu.c \
+  contrib/superlu_direct/lis_superlu_direct.c \
+  src/.libs/liblis.a $(pkg-config --cflags --libs superlu) -lblas -lm \
+  -o benchsuperlu
+OMP_NUM_THREADS=1 ./benchsuperlu A.mtx b.mtx
+```
+
+It computes the **physical** `||A*x-b||/||b||` and reports the
+FGMRES iteration count. The RHS must be the original CCX Matrix Market
+`matrix array real general` vector.
+
+A separate `testsuperlu_singular.c` validates controlled
+`LIS_BREAKDOWN` and cleanup for a rank-deficient input; run it under
+ASan/UBSan with leak detection where available.
+
 For other applications, compile/link \`lis_superlu_direct.c\` and the
 required SuperLU libraries into the application, then register it
 **after** \`lis_initialize()\` and **before** setting LIS options:
