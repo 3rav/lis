@@ -8,6 +8,7 @@
 #include "lis_config_win.h"
 #endif
 #include <math.h>
+#include <float.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,11 +60,12 @@ struct LIS_ILUT_RAS_PART {
     LIS_SOLVER solver;
     LIS_PRECON pc;
     LIS_VECTOR b,x;
+    LIS_REAL anorm_inf;
 };
 
 struct LIS_ILUT_RAS_STRUCT {
     LIS_MATRIX A;            /* borrowed outer serial CSR */
-    LIS_INT n,ndomains,overlap,parallel;
+    LIS_INT n,ndomains,overlap,parallel,guard;
     struct LIS_ILUT_RAS_PART *parts;
     LIS_INT *owner,*order;
 };
@@ -199,6 +201,25 @@ lis_ilut_ras_make_subdomain(LIS_SOLVER outer, struct LIS_ILUT_RAS_STRUCT *s,
     }
     err=lis_matrix_assemble(p->A);
     if(err) goto done;
+    /*
+     * Cache the infinity matrix norm for a scale-invariant gross-growth
+     * guard. Build once, not during each Krylov iteration.
+     */
+    p->anorm_inf=0.0;
+    for(i=0;i<p->nlocal;i++)
+    {
+        LIS_REAL row_sum=0.0;
+        for(k=p->A->ptr[i];k<p->A->ptr[i+1];k++)
+        {
+            LIS_REAL magnitude=fabs(p->A->value[k]);
+            if(!isfinite((double)magnitude) ||
+               row_sum>DBL_MAX-magnitude)
+            { err=LIS_ERR_ILL_ARG; goto done; }
+            row_sum+=magnitude;
+        }
+        if(row_sum>p->anorm_inf) p->anorm_inf=row_sum;
+    }
+    if(!(p->anorm_inf>0.0)) { err=LIS_ERR_ILL_ARG; goto done; }
 
     err=lis_solver_create(&p->solver);
     if(err) goto done;
@@ -264,6 +285,7 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
     s->A=A; s->n=n; s->ndomains=solver->ilut_ras_domains;
     s->overlap=solver->ilut_ras_overlap;
     s->parallel=solver->ilut_ras_parallel;
+    s->guard=solver->ilut_ras_guard;
     s->owner=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"RAS owners");
     s->order=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"RAS rank ordering");
     s->parts=(struct LIS_ILUT_RAS_PART *)lis_malloc(
@@ -457,6 +479,44 @@ lis_precon_ilut_ras_probe(LIS_PRECON pc,LIS_VECTOR B,
     return LIS_SUCCESS;
 }
 
+/*
+ * Fail fast on extreme local inverse growth relative to the matrix scale:
+ *
+ *     G = ||A_d||_inf * ||M_d^-1 b_d||_inf / ||b_d||_inf
+ *
+ * This is a single-RHS diagnostic, NOT a condition-number estimate and NOT
+ * proof of stability below the limit. G > 1/(32*DBL_EPSILON) indicates
+ * grossly unreliable floating-point amplification for this RHS. The
+ * conservative check may reject legitimate highly ill-conditioned
+ * problems; -ilut_ras_guard 0 disables it for controlled research.
+ *
+ * Use logarithms to avoid overflow on matrices with large unit contrast.
+ * Avoid LIS_SETERR inside the OpenMP loop (shared error-reporting state).
+ */
+static LIS_INT
+lis_ilut_ras_reject_extreme_growth(struct LIS_ILUT_RAS_PART *p)
+{
+    LIS_INT i;
+    LIS_REAL bn=0.0,xn=0.0;
+    if(!p || !p->b || !p->x || !(p->anorm_inf>0.0))
+        return LIS_ERR_ILL_ARG;
+    for(i=0;i<p->nlocal;i++)
+    {
+        LIS_REAL bi=fabs(p->b->value[i]);
+        LIS_REAL xi=fabs(p->x->value[i]);
+        if(!isfinite((double)bi) || !isfinite((double)xi))
+            return LIS_ERR_ILL_ARG;
+        if(bi>bn) bn=bi;
+        if(xi>xn) xn=xi;
+    }
+    if(bn==0.0) return xn==0.0 ? LIS_SUCCESS : LIS_ERR_ILL_ARG;
+    if(xn==0.0) return LIS_SUCCESS;
+    if(log(p->anorm_inf)+log(xn)-log(bn) >
+       log(1.0/(32.0*DBL_EPSILON)))
+        return LIS_ERR_ILL_ARG;
+    return LIS_SUCCESS;
+}
+
 LIS_INT
 lis_psolve_ilut_ras(LIS_SOLVER solver,LIS_VECTOR B,LIS_VECTOR X)
 {
@@ -483,6 +543,8 @@ lis_psolve_ilut_ras(LIS_SOLVER solver,LIS_VECTOR B,LIS_VECTOR X)
         for(i=0;i<p->nlocal;i++)
             p->b->value[i]=B->value[p->global[i]];
         local_err=lis_ilut_ras_apply_local(p);
+        if(!local_err && s->guard)
+            local_err=lis_ilut_ras_reject_extreme_growth(p);
         if(local_err) { domain_err[d]=local_err; continue; }
         for(i=0;i<p->nlocal;i++)
         {
@@ -491,7 +553,12 @@ lis_psolve_ilut_ras(LIS_SOLVER solver,LIS_VECTOR B,LIS_VECTOR X)
         }
     }
     for(d=0;d<s->ndomains;d++)
-        if(domain_err[d]!=LIS_SUCCESS) return domain_err[d];
+        if(domain_err[d]!=LIS_SUCCESS)
+        {
+            /* Do not expose partial owner-core corrections on error. */
+            lis_vector_set_all((LIS_SCALAR)0.0,X);
+            return domain_err[d];
+        }
     return LIS_SUCCESS;
 }
 

@@ -11,6 +11,7 @@ Options (serial, double-precision CSR only; MPI and adjoint `psolveh` are **not 
 | `-ilut_ras_overlap 0..2` | -1 (off) | Enable RAS with 0–2 edge-overlap layers |
 | `-ilut_ras_domains 2..64` | 2 | Domain count |
 | `-ilut_ras_parallel 0\|1` | 0 | Enable OpenMP outer-domain *apply*, **not setup** |
+| `-ilut_ras_guard 0\|1` | 1 | Fail on extreme scale-normalized local inverse amplification (disable only for controlled research) |
 | `-ilut_ras_rcm 0\|1` | 0 | Partition domain owners by global RCM-ranked positions |
 | `-ilut_rcm 0\|1` | 0 | Independently RCM-order each local owner+halo ILUT matrix |
 | `-ilut_row_scale 0\|1` | 0 | Apply local ILUT row equilibration |
@@ -25,7 +26,7 @@ All choices are opt-in; default global ILUT remains unchanged. Owner-core writes
 - RCM is an ordering heuristic, not a provably optimal geometric separator, and its two option flags mean different things.
 - Factor-entry counts are **not peak RSS**. FGMRES true residuals and full setup+solve wall times must both be reported.
 - No automatic diagonal shift or condition-number estimator has been validated. The separate diagnostic helper measures local inverse amplification on an **actual supplied RHS**; a single probe is not a proof of general factor stability.
-- If local ILUT produces nonfinite output, setup/apply fails explicitly. A very large but finite response may still be numerically inappropriate; do not assume the defaults are safe for all contact/KKT cases.
+- Local ILUT fails explicitly on nonfinite output. The default-on growth guard rejects a local response when `||A_d||∞ ||M_d^-1 b_d||∞ / ||b_d||∞ > 1/(32 ε_double)`; evaluation uses logarithms to avoid overflow. This is **not** a condition number, a backward-error guarantee, or a complete stability certificate. It may reject a legitimate ill-conditioned problem; opt out explicitly with `-ilut_ras_guard 0` only for controlled diagnostics.
 - The Schur experiment remains in [fork Draft PR #66](https://github.com/3rav/lis/pull/66), not in this RAS-only proposal.
 
 ## Reproducible correctness tests
