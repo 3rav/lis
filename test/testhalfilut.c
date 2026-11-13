@@ -995,6 +995,75 @@ done:
     return failed;
 }
 
+
+/*
+ * Negative regression: the Schur approximation MUST reject a weak
+ * interior diagonal instead of quietly treating diag(A_II)^-1 as zero.
+ * Row 1 is interior for the 2-domain partition of this 8x8 system.
+ */
+static int
+check_ilut_ras_unsafe_interior(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_INT i,err=0;
+    int failed=1;
+
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,8);
+    if(err) goto done;
+    if(A->nprocs!=1) { failed=0; goto done; }
+    for(i=0;i<8;i++)
+    {
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
+             i==1 ? (LIS_SCALAR)1.0e-20 : (LIS_SCALAR)3.0,A);
+        if(err) goto done;
+        if(i>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,
+                                     (LIS_SCALAR)-0.4,A);
+            if(err) goto done;
+        }
+        if(i<7)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
+                                     (LIS_SCALAR)-0.4,A);
+            if(err) goto done;
+        }
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    err=lis_solver_create(&solver);
+    if(err) goto done;
+    err=lis_solver_set_option(
+        "-i fgmres -p ilut -scale none -print none "
+        "-iluc_drop 0 -iluc_rate 8 -ilu_pivot_tol 1e-9 "
+        "-ilut_ras_domains 2 -ilut_ras_overlap 1 -ilut_schur 1",
+        solver);
+    if(err) goto done;
+    err=lis_solver_set_matrix(A,solver);
+    if(err) goto done;
+    err=lis_precon_create(solver,&pc);
+    if(err==LIS_ERR_ILL_ARG)
+    {
+        pc=NULL; /* failing constructor releases its partial preconditioner */
+        printf("ILUT_RAS_WEAK_DIAG_REJECTED\n");
+        failed=0;
+        goto done;
+    }
+    fprintf(stderr,"Schur accepted weak interior pivot; rc=%ld\n",(long)err);
+done:
+    if(pc) lis_precon_destroy(pc);
+    if(solver) lis_solver_destroy(solver);
+    if(A) lis_matrix_destroy(A);
+    return failed;
+}
+
+
 int
 main(
 	int argc,
@@ -1058,6 +1127,7 @@ main(
 	failed |= check_ilut_ordering(A);
 	failed |= check_ilut_contact_kkt();
 	failed |= check_ilut_ras_schur(A);
+	failed |= check_ilut_ras_unsafe_interior();
 	failed |= check_ilut_ras_contact_kkt();
 
 	failed |=
