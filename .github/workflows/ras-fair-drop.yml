@@ -1,10 +1,10 @@
-name: Match RAS to serial ILUT storage and test convergence
+name: Experimental RAS-only fair-fill comparison to serial ILUT
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - experiment/ras-schur-scalable
+      - experiment/ras-only-review
     paths:
       - .github/workflows/ras-fair-drop.yml
 
@@ -20,7 +20,6 @@ jobs:
       OMP_DYNAMIC: 'FALSE'
       LIS_FEA_BASELINE_THREADS: '1'
       LIS_FEA_BASELINE_RCM: '0'
-      LIS_FEA_SKIP_SCHUR: '1'
     steps:
       - uses: actions/checkout@v4
       - name: Install build tools
