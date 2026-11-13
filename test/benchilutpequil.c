@@ -42,6 +42,8 @@ static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate,LIS_REAL drop)
     LIS_INT err=0,i,j,iter=-1;
     char options[450];
     LIS_REAL nr=0.,nb=0.,rr,actual_rate,actual_drop;
+    double elapsed=0.,solve_seconds=0.,setup_seconds=0.,create_seconds=0.,init_seconds=0.;
+    LIS_INT swaps=0;
     long long nnz_factor=0;
     const char *name=mode==0?"ilut":mode==1?"equil":
                      mode==2?"ilutp":mode==3?"ilutp_equil":"row_only";
@@ -87,12 +89,15 @@ static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate,LIS_REAL drop)
     s->A=A;
     err=lis_precon_create(s,&pc);if(err){pc=NULL;goto done;}
     if(!pc->L || !pc->U || !pc->D)goto done;
+    swaps=pc->ilutp_swap_count;
     for(i=0;i<N;i++)
         nnz_factor+=(long long)pc->L->nnz[i]+
                      (long long)pc->U->nnz[i];
     lis_precon_destroy(pc);pc=NULL;
     err=lis_solve(A,b,x,s);
     if(lis_solver_get_iter(s,&iter))iter=-1;
+    (void)lis_solver_get_timeex(s,&elapsed,&solve_seconds,
+                                &setup_seconds,&create_seconds,&init_seconds);
     if(lis_matvec(A,x,ax))goto done;
     for(i=0;i<N;i++)
     {
@@ -103,11 +108,13 @@ static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate,LIS_REAL drop)
     rr=nb>0. ? (LIS_REAL)sqrt((double)(nr/nb)) : 0.;
     printf("ILUTP_EQUIL_BENCH mode=%s n=%d amplitude=%.9g rate=%.7g drop=%.9g actual_rate=%.7g actual_drop=%.7g nnz_A=%lld lfil_budget=%d "
            "status=%d iterations=%d true_residual=%.12e "
-           "nnz_L_plus_U=%lld\n",name,N,(double)amp,
+           "nnz_L_plus_U=%lld swaps=%d wall_seconds=%.6g "
+           "precon_seconds=%.6g solve_seconds=%.6g\n",name,N,(double)amp,
            (double)rate,(double)drop,(double)actual_rate,(double)actual_drop,
            (long long)A->nnz,
            (int)((double)A->nnz/(2.0*N)*actual_rate),
-           (int)err,(int)iter,(double)rr,nnz_factor);
+           (int)err,(int)iter,(double)rr,nnz_factor,
+           (int)swaps,elapsed,setup_seconds,solve_seconds);
     fflush(stdout);
     failed=0;
 done:
