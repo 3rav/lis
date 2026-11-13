@@ -92,3 +92,42 @@ mode. `--full-limit N` checks a nonnegative integer within LIS_INT range.
 This regression demonstrates a 60,265-DOF sparse control, NOT the
 original 256-spring Newton system. Original CCX A,b are unavailable in
 this repository. Its fill, spectrum, memory and convergence may differ.
+
+
+## Run on original CCX Newton snapshots (not yet available here)
+
+Build this branch with serial real-double LIS, then point the **native**
+benchmark at each original Matrix Market matrix and its original RHS.
+This command does not fabricate a right-hand side, modify the inputs,
+use or link SuperLU, or declare success based on GMRES's status alone.
+
+```sh
+python3 tools/run_native_ilutp_contact.py \
+  --bench ./test/benchilutp \
+  --case 256-springs /path/256_A.mtx /path/256_b.mtx \
+  --case 187-springs /path/187_A.mtx /path/187_b.mtx \
+  --report /tmp/lis-ccx-contact-audit.json \
+  --csv /tmp/lis-ccx-contact-audit.csv \
+  --full-limit 20000000 --rtol 1e-6 --accept-residual 1e-5 \
+  --max-rss-mib 3072 --max-vmem-mib 4096 \
+  --timeout 600
+```
+
+The script records SHA-256 of both input files before and after each
+solve, the exact invocation, native LIS status and original-system
+`||Ax-b||_2/||b||_2`, iteration count, true factor fill, setup/solve
+CPU seconds, subprocess elapsed time, and peak RSS in KiB. Separate
+case CSVs, logs, and machine-readable JSON are saved next to the report.
+It exits nonzero when any full-fill case fails its acceptance threshold
+or limit. The optional `--compare` flag also includes the three
+incomplete ILUT/ILUTP baseline modes; only full-fill is an acceptance gate.
+
+`--max-rss-mib` is a **post-run acceptance threshold** requiring GNU
+`/usr/bin/time` (otherwise the case is rejected rather than guessing
+RSS). `--max-vmem-mib` is a hard POSIX RLIMIT_AS on the process
+address space, not a direct RSS cap. Both are independent of the
+in-library `--full-limit` bound on factor nonzero counts.
+
+The synthetic 60,265-DOF GitHub regression checks a successful audit
+and two negative controls (too little fill and unacceptable physical
+residual). It remains **not** evidence for the real CCX matrices.

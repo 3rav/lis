@@ -82,6 +82,44 @@ jobs:
             echo 'Malformed fill limit was accepted' >&2
             exit 1
           fi
+      - name: Audit synthetic large case with original-system acceptance and memory limits
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools -p test_run_native_ilutp_contact.py -v
+          python3 tools/run_native_ilutp_contact.py --bench ./test/benchilutp \
+            --case synthetic-60265 "$RUNNER_TEMP/native-A.mtx" "$RUNNER_TEMP/native-b.mtx" \
+            --report "$RUNNER_TEMP/native-audit.json" \
+            --csv "$RUNNER_TEMP/native-audit.csv" \
+            --full-limit 20000000 --maxiter 80 --restart 20 \
+            --rcm 0 --row-scale 1 --rtol 1e-6 --accept-residual 1e-10 \
+            --max-rss-mib 2048 --max-vmem-mib 4096 --timeout 120
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path(__import__('os').environ['RUNNER_TEMP'], 'native-audit.json').read_text())
+          assert data['accepted'] and len(data['cases']) == 1, data
+          case = data['cases'][0]
+          assert case['sha256_before'] == case['sha256_after'], case
+          assert case['metrics']['physical_relres'] < 1e-10, case
+          assert case['metrics']['peak_rss_kib'] > 0, case
+          assert case['metrics']['nnz_L'] + case['metrics']['nnz_U'] > 0, case
+          print('LIS_NATIVE_CONTACT_AUDIT PASS original A/b, physical residual, SHA256, RSS')
+          PY
+          if python3 tools/run_native_ilutp_contact.py --bench ./test/benchilutp \
+            --case insufficient-fill "$RUNNER_TEMP/native-A.mtx" "$RUNNER_TEMP/native-b.mtx" \
+            --report "$RUNNER_TEMP/native-budget-fail.json" \
+            --full-limit 10000 --maxiter 80 --restart 20 --rcm 0 --timeout 120 ; then
+            echo 'Insufficient fill budget unexpectedly accepted' >&2
+            exit 1
+          fi
+          if python3 tools/run_native_ilutp_contact.py --bench ./test/benchilutp \
+            --case strict-residual "$RUNNER_TEMP/native-A.mtx" "$RUNNER_TEMP/native-b.mtx" \
+            --report "$RUNNER_TEMP/native-residual-fail.json" \
+            --full-limit 20000000 --maxiter 80 --restart 20 --rcm 0 \
+            --accept-residual 1e-20 --timeout 120 ; then
+            echo 'Unmet physical residual was unexpectedly accepted' >&2
+            exit 1
+          fi
       - name: Confirm no SuperLU symbols or shared library
         run: |
           set -euo pipefail
