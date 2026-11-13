@@ -903,6 +903,7 @@ struct LIS_PRECON_STRUCT
 	LIS_INT ilut_apply_active;
 	/* ILUTP: factor-space column position -> original factor-space col. */
 	LIS_INT *ilutp_colperm;
+	LIS_INT ilutp_swap_count; /* diagnostic: dynamic column swaps */
 	/* Two-sided equilibration: C diagonal in pre-pivot factor coordinates. */
 	LIS_SCALAR *ilut_col_scale;
 };
