@@ -27,6 +27,10 @@ jobs:
           ./configure --enable-test --disable-fortran --disable-f90 \
             --disable-saamg --disable-mpi
           make -j2
+      - name: Verify legacy USER and Hybrid capability gates
+        run: |
+          set -euo pipefail
+          ./test/testuserprecon
       - name: Native ILUTP regression and physical residual
         run: |
           set -euo pipefail
@@ -201,3 +205,28 @@ jobs:
           assert int(rows[0]["api_error"]) != 0, rows
           print("LIS_ILUTP_FULL_LIMIT_ASAN PASS: expected setup failure; no sanitizer errors")
           PY
+
+  native-half-user-hybrid:
+    name: Half precision, USER and Hybrid compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native LIS build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build with half precision enabled
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --enable-half --disable-fortran --disable-f90 \
+            --disable-saamg --disable-mpi
+          make -j2
+      - name: Validate half, USER and nested Hybrid paths
+        run: |
+          set -euo pipefail
+          ./test/testilutp
+          ./test/testuserprecon
+          ./test/testhalfilut --fea-matrix test/testmat0.mtx 8 8 0.005
