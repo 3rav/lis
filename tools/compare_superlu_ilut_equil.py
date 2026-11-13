@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Controlled SciPy/SuperLU ILU ablation: Equil x column ordering.
+"""Controlled SuperLU ILU ablation: explicit max-norm scaling x ordering.
 
-Only Equil and permc_spec vary across the four cases per matrix.  This is
-an experiment, not a substitute for LIS's own ILUT implementation.
+SciPy spilu calls SuperLU's low-level *gsitrf() factorization directly;
+setting spilu(options={"Equil": ...}) does NOT apply SuperLU driver
+equilibration. Therefore this tool explicitly implements R*A*C with
+column max-norm scaling (and row max-norm scaling, when needed).
+This is an algorithmic experiment, not an exact dgssvx/dgsisx clone or
+a substitute for LIS's own ILUT implementation.
 """
 
 import argparse
@@ -23,7 +27,7 @@ from scipy.sparse.linalg import LinearOperator, gmres, spilu
 
 FIELDS = (
     "matrix", "rhs_source", "n", "nnz", "rcm", "row_max_scale",
-    "equil", "permc_spec", "status", "info", "iterations", "setup_s",
+    "equil", "col_scaled_count", "col_scale_max", "permc_spec", "status", "info", "iterations", "setup_s",
     "solve_s", "rel_residual", "L_nnz", "U_nnz", "row_perm_moved",
     "error",
 )
@@ -79,26 +83,54 @@ def run_case(a, b, work, rhs, perm, args, equil, ordering, rhs_source):
         matrix=str(args.current_matrix), rhs_source=rhs_source,
         n=a.shape[0], nnz=a.nnz, rcm=args.rcm,
         row_max_scale=args.row_max_scale, equil=equil, permc_spec=ordering,
+        col_scaled_count=0, col_scale_max=1.0,
         status="failed", info="", iterations=0, setup_s="", solve_s="",
         rel_residual="", L_nnz="", U_nnz="", row_perm_moved="", error="",
     )
     try:
-        settings = {"Equil": bool(equil)}
+        # The pre-existing --row-max-scale is shared by the four cases.
+        # With it enabled, Equil=True adds *only* column equilibration.
+        # Without it, Equil=True computes both R and C explicitly.
+        factor_a = work
+        factor_rhs = rhs
+        if equil and not args.row_max_scale:
+            row_max = np.abs(work).max(axis=1).toarray().reshape(-1)
+            r = np.ones(work.shape[0], dtype=np.float64)
+            mask = row_max > 0
+            r[mask] = 1.0 / row_max[mask]
+            if not np.all(np.isfinite(r)):
+                raise ValueError("row equilibration scale overflowed")
+            factor_a = (sparse.diags(r, format="csc") @ work).tocsc()
+            factor_rhs = r * rhs
+
+        c = np.ones(factor_a.shape[1], dtype=np.float64)
+        if equil:
+            column_max = np.abs(factor_a).max(axis=0).toarray().reshape(-1)
+            mask = column_max > 0
+            c[mask] = 1.0 / column_max[mask]
+            if not np.all(np.isfinite(c)):
+                raise ValueError("column equilibration scale overflowed")
+            factor_a = (factor_a @ sparse.diags(c, format="csc")).tocsc()
+        result["col_scaled_count"] = int(np.count_nonzero(np.abs(c - 1.0) > 1.e-12))
+        result["col_scale_max"] = float(np.max(c))
+
+        # SuperLU's spilu path does not perform driver equilibration;
+        # disable its ineffective Equil option in BOTH cases.
         kwargs = dict(
             drop_tol=args.drop_tol, fill_factor=args.fill_factor,
-            permc_spec=ordering, options=settings,
+            permc_spec=ordering, options={"Equil": False},
         )
         if args.diag_pivot_thresh is not None:
             kwargs["diag_pivot_thresh"] = args.diag_pivot_thresh
         t0 = time.perf_counter()
-        ilu = spilu(work, **kwargs)
+        ilu = spilu(factor_a, **kwargs)
         result["setup_s"] = time.perf_counter() - t0
         result["L_nnz"] = ilu.L.nnz
         result["U_nnz"] = ilu.U.nnz
         result["row_perm_moved"] = int(np.count_nonzero(
             ilu.perm_r != np.arange(a.shape[0])
         ))
-        precon = LinearOperator(work.shape, matvec=ilu.solve, dtype=work.dtype)
+        precon = LinearOperator(factor_a.shape, matvec=ilu.solve, dtype=factor_a.dtype)
         iteration_count = [0]
 
         def record_iteration(_):
@@ -106,7 +138,7 @@ def run_case(a, b, work, rhs, perm, args, equil, ordering, rhs_source):
 
         t0 = time.perf_counter()
         x_perm, info = gmres(
-            work, rhs, M=precon, atol=args.atol, rtol=args.rtol,
+            factor_a, factor_rhs, M=precon, atol=args.atol, rtol=args.rtol,
             restart=args.restart, maxiter=args.maxiter,
             callback=record_iteration, callback_type="pr_norm",
         )
@@ -114,7 +146,7 @@ def run_case(a, b, work, rhs, perm, args, equil, ordering, rhs_source):
         result["iterations"] = iteration_count[0]
         result["info"] = int(info)
         x = np.empty_like(x_perm)
-        x[perm] = x_perm
+        x[perm] = c * x_perm
         rel_res = np.linalg.norm(b - a @ x) / np.linalg.norm(b)
         result["rel_residual"] = float(rel_res)
         result["status"] = "converged" if info == 0 and np.isfinite(rel_res) and rel_res <= args.rtol * args.residual_allowance else "not_converged"
@@ -131,7 +163,7 @@ def parse_args(argv=None):
     parser.add_argument("--manufactured-rhs", action="store_true",
                         help="explicitly use A @ random(seed=42) instead of physical RHS")
     parser.add_argument("--rcm", action="store_true", help="same symmetric RCM on rows and columns for all four cases")
-    parser.add_argument("--row-max-scale", action="store_true", help="same external max-norm row scaling in all cases")
+    parser.add_argument("--row-max-scale", action="store_true", help="fixed max-norm row scaling in all cases; Equil adds explicit max-norm column scaling")
     parser.add_argument("--drop-tol", type=float, default=1e-4)
     parser.add_argument("--fill-factor", type=float, default=10.0)
     parser.add_argument("--diag-pivot-thresh", type=float, default=None,
@@ -195,7 +227,7 @@ def main(argv=None):
         writer.writerows(results)
     if args.json is not None:
         args.json.write_text(json.dumps({
-            "method": "SciPy spilu + left-preconditioned GMRES; two-factor Equil/permc_spec ablation",
+            "method": "Explicit max-norm R*A*C scaling (not spilu Equil option) + SciPy spilu + left-preconditioned GMRES; two-factor equil/permc_spec ablation",
             "versions": {"python": platform.python_version(), "numpy": np.__version__,
                          "scipy": scipy.__version__},
             "fixed": {"rcm": args.rcm, "row_max_scale": args.row_max_scale,
