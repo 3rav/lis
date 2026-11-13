@@ -42,6 +42,17 @@ jobs:
           weak, full = map(float, m.groups())
           assert weak > 1e-4 and full < 1e-11, (weak, full)
           PY
+      - name: Reject fractional and overflowing LIS_INT CLI arguments
+        run: |
+          set -euo pipefail
+          for bad in "--maxiter 1e20" "--restart 1.5" "--rcm 2" \
+                     "--row-scale -1" "--full-limit 9223372036854775808"; do
+            if ./test/benchilutp test/testmat2.mtx test/benchilutp_rhs_100.mtx $bad \
+               >/dev/null 2>&1; then
+              echo "Invalid integer argument was accepted: $bad" >&2
+              exit 1
+            fi
+          done
       - name: Synthetic 60265 DOF benchmark and bounded factor fill
         run: |
           set -euo pipefail
