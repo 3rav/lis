@@ -32,6 +32,8 @@ lis_ilutp_compare_desc(const void *va,const void *vb)
     return 0;
 }
 
+#undef __FUNC__
+#define __FUNC__ "lis_precon_create_ilutp_csr"
 static LIS_INT
 lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
 {
@@ -42,7 +44,7 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
     LIS_MATRIX A=solver->A;
     LIS_MATRIX_ILU L=NULL,U=NULL;
     LIS_VECTOR D=NULL;
-    LIS_INT n=A->n,i,j,k,pos,orig,stamp,nlo,nup,processed;
+    LIS_INT n=A->n,i,j,k,orig,stamp,nlo,nup,processed;
     LIS_INT best,t,at,col,cap,nnz,m,err=LIS_SUCCESS,kept;
     LIS_INT *perm=NULL,*inv=NULL,*seen=NULL,*lower=NULL,*upper=NULL;
     LIS_SCALAR *w=NULL,fact,delta,pivot,swapval;
@@ -84,9 +86,10 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
        !isfinite((double)pivot_tol) || pivot_tol<0.0 ||
        !isfinite((double)tau) || tau<0.0 || tau>1.0)
         return LIS_ERR_ILL_ARG;
-    cap=(LIS_INT)((double)A->nnz/(2.0*(double)n)*rate);
-    if(cap<0) cap=0;
-    if(cap>n-1) cap=n-1;
+    {
+        double budget=((double)A->nnz/(2.0*(double)n))*rate;
+        cap=(budget>=(double)(n-1)) ? n-1 : (LIS_INT)budget;
+    }
 
     perm=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),
                                "ILUTP column permutation");
