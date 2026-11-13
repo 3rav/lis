@@ -33,7 +33,20 @@ jobs:
             --disable-saamg --disable-mpi
           make -j2
           make -C test testhalfilut
-      - name: Exercise concurrent local RAS solves with TSan
+      - name: Exercise concurrent local RAS solves with TSan + Archer
         run: |
+          set -euo pipefail
+          # The distro libomp is not TSan-instrumented. Archer supplies
+          # OpenMP barrier/task happens-before semantics via OMPT.
+          archer="$(clang -print-file-name=libarcher.so)"
+          if [ ! -f "$archer" ]; then
+            archer="$(find /usr/lib/llvm-* -name libarcher.so -type f 2>/dev/null | head -1)"
+          fi
+          test -f "$archer" || { echo "::error::libarcher.so missing"; exit 1; }
+          echo "Archer=$archer"
+          export OMP_TOOL=enabled
+          export OMP_TOOL_LIBRARIES="$archer"
+          export ARCHER_OPTIONS=verbose=1
+          export TSAN_OPTIONS="$TSAN_OPTIONS:ignore_noninstrumented_modules=1"
           ./test/testhalfilut --ras-rcm-smoke
           ./test/testhalfilut --sparse-schur-smoke
