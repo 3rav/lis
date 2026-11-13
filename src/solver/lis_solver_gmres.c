@@ -1497,6 +1497,8 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 	LIS_INT ii,i1,iiv,i1v,iih,jj;
 	LIS_INT h_dim;
 	LIS_INT cs,sn;
+	LIS_INT trace_early;
+	LIS_REAL trace_norm_z,trace_norm_az;
 
 	LIS_DEBUG_FUNC_IN;
 
@@ -1514,6 +1516,8 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
      noimp_stop    = LIS_FALSE;
 	h_dim   = m+1;
 	ptime   = 0.0;
+	trace_early = getenv("LIS_FGMRES_TRACE") &&
+	              strcmp(getenv("LIS_FGMRES_TRACE"),"1")==0;
 
 	s       = solver->work[0];
 	z       = &solver->work[2];
@@ -1532,6 +1536,12 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 	}
 	tol     = solver->tol;
 	rnorm   = 1.0/bnrm2;
+	if(trace_early)
+	    fprintf(stderr,
+	        "LIS_FGMRES_TRACE start n=%lld beta_norm=%.16e "
+	        "bnrm_scale=%.16e tol=%.9g restart=%lld\n",
+	        (long long)A->n,(double)rnorm,(double)bnrm2,
+	        (double)tol,(long long)m);
 
 	/* The FGMRES-supported NRM2_R condition uses ||r0|| as the
 	 * normalization denominator. solver->bnrm = 1/||r0||.
@@ -1576,8 +1586,22 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 			        return err;
 			}
 
+			if(trace_early && iter<=4)
+			{
+			    lis_vector_nrm2(z[iiv],&trace_norm_z);
+			    fprintf(stderr,
+			       "LIS_FGMRES_TRACE iter=%lld norm_prec_vector=%.16e\n",
+			       (long long)iter,(double)trace_norm_z);
+			}
 			/* w = A * z */
 			lis_matvec(A,z[iiv], v[i1v]);
+			if(trace_early && iter<=4)
+			{
+			    lis_vector_nrm2(v[i1v],&trace_norm_az);
+			    fprintf(stderr,
+			       "LIS_FGMRES_TRACE iter=%lld norm_Aprec_vector=%.16e\n",
+			       (long long)iter,(double)trace_norm_az);
+			}
 
 			for(k=0;k<i;k++)
 			{
@@ -1613,6 +1637,17 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 			a2 = aa*aa;
 			b2 = bb*bb;
 			rr = sqrt(a2+b2);
+			if(trace_early && iter<=4)
+			{
+#if !defined(_COMPLEX) && !defined(USE_COMPLEX)
+			    fprintf(stderr,
+			       "LIS_FGMRES_TRACE iter=%lld h_diag=%.16e "
+			       "h_sub=%.16e rotation_r=%.16e "
+			       "hypot_ref=%.16e\n",
+			       (long long)iter,(double)aa,(double)bb,
+			       (double)rr,hypot((double)aa,(double)bb));
+#endif
+			}
 			/* Reject a degenerate FGMRES Givens rotation. */
 			if( rr==0.0 || rr!=rr )
 			{
