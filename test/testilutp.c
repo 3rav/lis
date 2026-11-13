@@ -355,6 +355,83 @@ cleanup:
     return failed;
 }
 
+/* The option-profile replacement helpers must distinguish identical
+ * profiles from changed preconditioner options, and must release the
+ * sequence preconditioner only for a changed profile. */
+static int check_option_replace(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_VECTOR truth=NULL,b=NULL,x=NULL;
+    LIS_PRECON saved=NULL;
+    LIS_INT err=0,i,changed=LIS_FALSE;
+    int failed=1,step;
+    char options[512];
+    const int rcms[]={0,1,1,1};
+    const double taus[]={0.5,0.5,0.25,0.25};
+    const int limits[]={0,0,0,5000};
+
+    err=make_sparse_matrix(&A,0);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&truth);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&b);if(err)goto cleanup;
+    err=lis_vector_duplicate(A,&x);if(err)goto cleanup;
+    for(i=0;i<REG_N;i++)truth->value[i]=1.0+0.01*(double)i;
+    err=lis_matvec(A,truth,b);if(err)goto cleanup;
+    err=lis_solver_create(&solver);if(err)goto cleanup;
+    err=lis_solver_set_sequence_policy(solver,LIS_SEQUENCE_POLICY_AUTO);
+    if(err)goto cleanup;
+
+    for(step=0;step<4;step++)
+    {
+        snprintf(options,sizeof(options),
+            "-i fgmres -restart 24 -maxiter 300 -tol 1e-10 "
+            "-p ilut -ilutp 1 -ilutp_threshold %.16g "
+            "-ilut_rcm %d -ilut_row_scale 1 "
+            "-ilutp_full_limit %d -ilut_drop 0.02 -ilut_rate 1.1 "
+            "-ilu_pivot_tol 1e-9 -scale none -omp_num_threads 1",
+            taus[step],rcms[step],limits[step]);
+        if(step==0)
+        {
+            err=lis_solver_set_option_replace(options,solver);
+            if(err)goto cleanup;
+        }
+        else
+        {
+            changed=LIS_FALSE;
+            err=lis_solver_set_option_replace_if_changed(options,solver,&changed);
+            if(err || changed!=LIS_TRUE || solver->sequence_precon!=NULL)
+                goto cleanup;
+        }
+        if(solver->ilut_rcm!=rcms[step] ||
+           solver->ilut_row_scale!=1 ||
+           fabs(solver->ilutp_threshold-taus[step])>1e-12 ||
+           solver->ilutp_full_limit!=limits[step])
+            goto cleanup;
+        err=lis_vector_set_all(0.0,x);if(err)goto cleanup;
+        err=lis_solve_sequence(A,b,x,solver);if(err)goto cleanup;
+        if(solver->retcode!=LIS_SUCCESS || !solution_close(x,truth) ||
+           solver->sequence_precon==NULL)goto cleanup;
+        saved=solver->sequence_precon;
+
+        /* Same profile must be a no-op, including factor identity. */
+        changed=LIS_TRUE;
+        err=lis_solver_set_option_replace_if_changed(options,solver,&changed);
+        if(err || changed!=LIS_FALSE || solver->sequence_precon!=saved)
+            goto cleanup;
+    }
+    failed=0;
+cleanup:
+    if(failed)fprintf(stderr,
+        "ILUTP option_replace lifecycle failed step=%d err=%d changed=%d\n",
+        step,(int)err,(int)changed);
+    if(solver)lis_solver_destroy(solver);
+    if(x)lis_vector_destroy(x);
+    if(b)lis_vector_destroy(b);
+    if(truth)lis_vector_destroy(truth);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
 /* Complete-fill mode is an in-library alternative to incomplete LU;
  * verify Ax and A^T x, a deliberately weak ILUTP control, and the
  * explicit factor-memory budget without relying on external solvers. */
@@ -413,17 +490,26 @@ static int check_full_fill(void)
         if(d>maxerr)maxerr=d;
     }
     if(maxerr>1e-10)goto done;
+    /* Check Ax=b while x is still the forward solve result. */
+    e=lis_matvec(A,x,r);if(e)goto done;
+    e=lis_vector_axpy(-1.0,b,r);if(e)goto done;
+    e=lis_vector_nrm2(r,&rnorm);if(e)goto done;
+    if((double)rnorm/(double)bnorm>1e-11)goto done;
     e=lis_psolveh_ilut_csr(solver,bt,x);if(e)goto done;
     for(i=0;i<REG_N;i++) {
         double d=fabs(x->value[i]-truth->value[i]);
         if(d>maxerr)maxerr=d;
     }
     if(maxerr>1e-10)goto done;
-    e=lis_matvec(A,x,r);if(e)goto done;
-    /* Physical transpose solved above; forward x equals the same truth. */
-    e=lis_vector_axpy(-1.0,b,r);if(e)goto done;
-    e=lis_vector_nrm2(r,&rnorm);if(e)goto done;
-    if((double)rnorm/(double)bnorm>1e-11)goto done;
+    /* Transpose solve has its own physical A^T x = bt check. */
+    e=lis_matvech(A,x,r);if(e)goto done;
+    e=lis_vector_axpy(-1.0,bt,r);if(e)goto done;
+    {
+        LIS_REAL btnorm,transnorm;
+        e=lis_vector_nrm2(bt,&btnorm);if(e || !(btnorm>0.0))goto done;
+        e=lis_vector_nrm2(r,&transnorm);if(e)goto done;
+        if((double)transnorm/(double)btnorm>1e-11)goto done;
+    }
     printf("\nILUTP_FULL n=%d weak_relres=%.9g full_relres=%.9g "
            "maxerr=%.9g factor_nnz=%d\n",(int)REG_N,
            weak,(double)rnorm/(double)bnorm,maxerr,(int)(nnzl+nnzu));
@@ -461,6 +547,7 @@ int main(int argc,char **argv)
     failed|=check_tau_zero(0,1);
     failed|=check_tau_zero(1,1);
     failed|=check_fgmres_sequence();
+    failed|=check_option_replace();
     failed|=check_full_fill();
     err=lis_solver_create(&solver);
     if(err)failed=1;
