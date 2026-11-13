@@ -42,6 +42,8 @@ jobs:
             "https://nrvis.com/download/data/misc/bcsstk39.zip" \
             -o public-fea/bcsstk39.zip
           unzip -o -q public-fea/bcsstk39.zip -d public-fea
+          # The Network Repository ZIP preserves non-readable UNIX modes.
+          find public-fea -type f -name '*.mtx' -exec chmod u+r {} +
           matrix="$(find public-fea -type f -iname '*.mtx' | head -1)"
           test -n "$matrix" || { echo "::error::No Matrix Market matrix"; exit 1; }
           head -n 1 "$matrix" | tee public-fea/header.txt
