@@ -1,6 +1,5 @@
 /*
- * Opt-in serial restricted additive Schwarz ILUT with diagonal-approximate
- * interface Schur correction. No MPI exchange: distributed matrices are
+ * Opt-in serial restricted additive Schwarz ILUT without a coarse-level interface correction. No MPI exchange: distributed matrices are
  * deliberately rejected, not silently treated as serial subdomains.
  */
 #ifdef HAVE_CONFIG_H
