@@ -10,6 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include "lislib.h"
 
 
@@ -1369,6 +1372,13 @@ check_ilut_sparse_schur_smoke(int scrambled)
     LIS_REAL bn=0.0,rn=0.0;
     char options[320];
     int failed=1;
+#ifdef _OPENMP
+    int tsan_mode=getenv("LIS_RAS_TSAN")!=NULL;
+    /* Isolate the OpenMP RAS *apply* from unrelated matrix/setup
+     * OpenMP work in the existing LIS library for targeted TSan.
+     * Production tests continue to use the normal thread settings. */
+    if(tsan_mode) omp_set_num_threads(1);
+#endif
     err=lis_matrix_create(LIS_COMM_WORLD,&A);
     if(err) goto done;
     err=lis_matrix_set_size(A,0,n);
@@ -1464,7 +1474,13 @@ check_ilut_sparse_schur_smoke(int scrambled)
             }
         }
         solver->precon=pc;
+#ifdef _OPENMP
+        if(tsan_mode && parallel) omp_set_num_threads(4);
+#endif
         err=lis_psolve(solver,b,x);
+#ifdef _OPENMP
+        if(tsan_mode) omp_set_num_threads(1);
+#endif
         if(err) goto done;
         err=lis_matvec(A,x,r);
         if(err) goto done;
