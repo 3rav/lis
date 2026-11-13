@@ -98,6 +98,8 @@ jobs:
           set -euo pipefail
           ./test/testhalfilut --sparse-schur-smoke | tee ilut-sparse-schur.log
           grep -q '^ILUT_RAS_SPARSE_SCHUR_PASSED' ilut-sparse-schur.log
+          ./test/testhalfilut --ras-rcm-smoke | tee ilut-ras-rcm.log
+          grep -q '^ILUT_RAS_SPARSE_SCHUR_PASSED' ilut-ras-rcm.log
 
 
       - name: Smoke-test optional 3D FP16 memory and Krylov benchmark
