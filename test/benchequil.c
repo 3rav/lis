@@ -41,7 +41,7 @@ static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate)
     LIS_PRECON pc=NULL;
     LIS_INT err=0,i,j,iter=-1;
     char options[450];
-    LIS_REAL nr=0.,nb=0.,rr;
+    LIS_REAL nr=0.,nb=0.,rr,actual_rate,actual_drop;
     long long nnz_factor=0;
     const char *name=mode==0?"none":mode==1?"row":"both";
     int failed=1;
@@ -78,6 +78,8 @@ static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate)
         "-scale none -tol 1e-6 -maxiter 300 -omp_num_threads 1",
         (int)(mode>0),(int)(mode==2),(double)rate);
     err=lis_solver_set_option(options,s);if(err)goto done;
+    actual_rate=s->params[LIS_PARAMS_RATE-LIS_OPTIONS_LEN];
+    actual_drop=s->params[LIS_PARAMS_DROP-LIS_OPTIONS_LEN];
     /* Explicitly collect fill: lis_solve destroys its preconditioner. */
     s->A=A;
     err=lis_precon_create(s,&pc);if(err){pc=NULL;goto done;}
@@ -96,10 +98,13 @@ static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate)
         nb+=(LIS_REAL)(b->value[i]*b->value[i]);
     }
     rr=nb>0. ? (LIS_REAL)sqrt((double)(nr/nb)) : 0.;
-    printf("EQUIL_BENCH mode=%s n=%d amplitude=%.9g rate=%.7g "
+    printf("EQUIL_BENCH mode=%s n=%d amplitude=%.9g rate=%.7g actual_rate=%.7g actual_drop=%.7g nnz_A=%lld lfil_budget=%d "
            "status=%d iterations=%d true_residual=%.12e "
            "nnz_L_plus_U=%lld\n",name,N,(double)amp,
-           (double)rate,(int)err,(int)iter,(double)rr,nnz_factor);
+           (double)rate,(double)actual_rate,(double)actual_drop,
+           (long long)A->nnz,
+           (int)((double)A->nnz/(2.0*N)*actual_rate),
+           (int)err,(int)iter,(double)rr,nnz_factor);
     fflush(stdout);
     failed=0;
 done:
