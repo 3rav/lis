@@ -717,6 +717,62 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
     return LIS_SUCCESS;
 }
 
+/*
+ * Each RAS domain owns its factor/workspace. Perform its triangular solve
+ * serially INSIDE the outer OpenMP domain loop: nested LIS ILUT OpenMP
+ * regions otherwise repartition a domain by the wrong thread count when
+ * nested parallelism is disabled, in addition to unnecessary oversubscription.
+ *
+ * Packed half factors retain their existing dedicated solve path. Local
+ * RAS construction does not enable ILUT permutation/row equilibration;
+ * reject an unexpected local factor layout instead of silently misusing it.
+ */
+static LIS_INT
+lis_ilut_ras_apply_local(struct LIS_ILUT_RAS_PART *part)
+{
+    LIS_MATRIX_ILU L,U;
+    LIS_VECTOR D;
+    LIS_SCALAR *x;
+    LIS_INT n,i,j,col,err;
+    LIS_PRECON pc;
+    if(!part || !part->solver || !part->pc || !part->b || !part->x)
+        return LIS_ERR_ILL_ARG;
+    pc=part->pc;
+    if(pc->ilut_perm || pc->ilut_row_scale)
+        return LIS_ERR_ILL_ARG;
+    if(pc->half)
+        return lis_half_ilu_psolve(part->solver,part->b,part->x);
+    L=pc->L; U=pc->U; D=pc->D;
+    n=part->nlocal;
+    if(!L || !U || !D || !D->value || !part->b->value ||
+       !part->x->value)
+        return LIS_ERR_ILL_ARG;
+    x=part->x->value;
+    for(i=0;i<n;i++) x[i]=part->b->value[i];
+    for(i=0;i<n;i++)
+    {
+        for(j=0;j<L->nnz[i];j++)
+        {
+            col=L->index[i][j];
+            if(col<0 || col>=n) return LIS_ERR_ILL_ARG;
+            x[i]-=L->value[i][j]*x[col];
+        }
+        if(!isfinite((double)x[i])) return LIS_ERR_ILL_ARG;
+    }
+    for(i=n-1;i>=0;i--)
+    {
+        for(j=0;j<U->nnz[i];j++)
+        {
+            col=U->index[i][j];
+            if(col<0 || col>=n) return LIS_ERR_ILL_ARG;
+            x[i]-=U->value[i][j]*x[col];
+        }
+        x[i]*=D->value[i];
+        if(!isfinite((double)x[i])) return LIS_ERR_ILL_ARG;
+    }
+    return LIS_SUCCESS;
+}
+
 LIS_INT
 lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
 {
@@ -745,7 +801,7 @@ lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
         domain_err[d]=LIS_SUCCESS;
         for(local_i=0;local_i<p->nlocal;local_i++)
             p->b->value[local_i]=B->value[p->global[local_i]];
-        local_err=lis_psolve(p->solver,p->b,p->x);
+        local_err=lis_ilut_ras_apply_local(p);
         if(local_err)
         {
             domain_err[d]=local_err;
