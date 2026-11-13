@@ -1361,7 +1361,7 @@ done:
  * on a larger-than-dense-limit synthetic interface.
  */
 static int
-check_ilut_sparse_schur_smoke(int scrambled)
+check_ilut_sparse_schur_smoke(int scrambled,int half_storage)
 {
     const LIS_INT side=8,n=512;
     LIS_MATRIX A=NULL;
@@ -1456,6 +1456,11 @@ check_ilut_sparse_schur_smoke(int scrambled)
                  (int)parallel,(int)rcm);
         err=lis_solver_set_option(options,solver);
         if(err) goto done;
+        if(half_storage)
+        {
+            err=lis_solver_set_precon_half(solver,LIS_PRECON_HALF_ON);
+            if(err) goto done;
+        }
         err=lis_solver_set_matrix(A,solver);
         if(err) goto done;
         err=lis_precon_create(solver,&pc);
@@ -1914,10 +1919,12 @@ main(
 	}
 
 	if(argc==2 && (strcmp(argv[1],"--sparse-schur-smoke")==0 ||
-	               strcmp(argv[1],"--ras-rcm-smoke")==0))
+	               strcmp(argv[1],"--ras-rcm-smoke")==0 ||
+	               strcmp(argv[1],"--ras-half-smoke")==0))
 	{
 		failed=check_ilut_sparse_schur_smoke(
-		    strcmp(argv[1],"--ras-rcm-smoke")==0);
+		    strcmp(argv[1],"--ras-rcm-smoke")==0,
+		    strcmp(argv[1],"--ras-half-smoke")==0);
 		lis_finalize();
 		return failed ? 1 : 0;
 	}
