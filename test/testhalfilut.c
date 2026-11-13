@@ -904,6 +904,118 @@ cleanup:
  * The negative multiplier block makes the matrix indefinite.
  * This is an algebraic regression, NOT a full nonlinear contact FEA run.
  */
+
+/* Gross-gain negative control: each 16x16 owner block is upper bidiagonal.
+ * Its exact inverse on a unit impulse has magnitude ~10^15. This verifies
+ * explicit RAS guard rejection, not an estimate of condition number.
+ */
+static int
+check_ilut_ras_gross_growth_guard(void)
+{
+#if defined(_COMPLEX) || defined(USE_COMPLEX)
+    return 0;
+#else
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_VECTOR b=NULL,x=NULL;
+    LIS_INT i,err=0,guard;
+    LIS_REAL max_value;
+    int failed=1;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,32);
+    if(err) goto done;
+    if(A->nprocs!=1) { failed=0; goto done; }
+    for(i=0;i<32;i++)
+    {
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)1.0,A);
+        if(err) goto done;
+        if(i<31)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
+                                    (LIS_SCALAR)-10.0,A);
+            if(err) goto done;
+        }
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    if(lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x))
+        goto done;
+    lis_vector_set_all((LIS_SCALAR)0.0,b);
+    b->value[31]=(LIS_SCALAR)1.0;
+    for(guard=1;guard>=0;guard--)
+    {
+        char opts[256];
+        err=lis_solver_create(&solver);
+        if(err) goto done;
+        snprintf(opts,sizeof(opts),
+            "-i fgmres -p ilut -scale none -print none "
+            "-ilut_drop 0 -ilut_rate 32 -ilu_pivot_tol 1e-10 "
+            "-ilut_ras_domains 2 -ilut_ras_overlap 0 "
+            "-ilut_ras_parallel 0 -ilut_ras_guard %ld",
+            (long)guard);
+        err=lis_solver_set_option(opts,solver);
+        if(err) goto done;
+        err=lis_solver_set_matrix(A,solver);
+        if(err) goto done;
+        err=lis_precon_create(solver,&pc);
+        if(err || !pc || !pc->ilut_ras) goto done;
+        solver->precon=pc;
+        err=lis_psolve(solver,b,x);
+        if(guard)
+        {
+            if(err!=LIS_ERR_ILL_ARG)
+            {
+                fprintf(stderr,
+                  "RAS_GUARD expected rejection, rc=%ld\n",(long)err);
+                goto done;
+            }
+            for(i=0;i<32;i++)
+                if(x->value[i]!=(LIS_SCALAR)0.0) goto done;
+            err=LIS_SUCCESS;
+        }
+        else
+        {
+            if(err) goto done;
+            max_value=0.0;
+            for(i=0;i<32;i++)
+            {
+                LIS_REAL v=fabs(x->value[i]);
+                if(!isfinite((double)v)) goto done;
+                if(v>max_value) max_value=v;
+            }
+            if(!(max_value>1.0e14))
+            {
+                fprintf(stderr,
+                  "RAS_GUARD control did not grow: %.6e\n",
+                  (double)max_value);
+                goto done;
+            }
+            printf("ILUT_RAS_GROSS_GROWTH_GUARD_PASSED max=%.6e\n",
+                   (double)max_value);
+        }
+        solver->precon=NULL;
+        lis_precon_destroy(pc);pc=NULL;
+        lis_solver_destroy(solver);solver=NULL;
+    }
+    failed=0;
+done:
+    if(failed)
+        fprintf(stderr,
+          "ILUT_RAS_GROSS_GROWTH_GUARD_FAILED rc=%ld\n",(long)err);
+    if(solver) solver->precon=NULL;
+    if(pc) lis_precon_destroy(pc);
+    if(solver) lis_solver_destroy(solver);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(A) lis_matrix_destroy(A);
+    return failed;
+#endif
+}
+
 static int
 check_ilut_ras_contact_kkt(void)
 {
@@ -1883,6 +1995,13 @@ main(
 		return 1;
 	}
 
+	if(argc==2 && strcmp(argv[1],"--ras-guard-smoke")==0)
+	{
+		failed=check_ilut_ras_gross_growth_guard();
+		lis_finalize();
+		return failed ? 1 : 0;
+	}
+
 	if(argc==2 && (strcmp(argv[1],"--ras-3d-smoke")==0 ||
 	               strcmp(argv[1],"--ras-rcm-smoke")==0 ||
 	               strcmp(argv[1],"--ras-half-smoke")==0 ||
@@ -1969,6 +2088,7 @@ main(
 	failed |= check_ilut_contact_kkt();
 	failed |= check_ilut_kkt_unit_contrast();
 	failed |= check_ilut_ras(A);
+	failed |= check_ilut_ras_gross_growth_guard();
 	failed |= check_ilut_ras_contact_kkt();
 
 	failed |=
