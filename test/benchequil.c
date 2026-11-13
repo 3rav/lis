@@ -33,7 +33,7 @@ static LIS_REAL coeff(LIS_INT i,LIS_INT j)
     if(y>0 && j==i-SIDE)return -1.;
     return 0.;
 }
-static int run_case(LIS_INT mode,LIS_REAL amp)
+static int run_case(LIS_INT mode,LIS_REAL amp,LIS_REAL rate)
 {
     LIS_MATRIX A=NULL;
     LIS_VECTOR b=NULL,x=NULL,ax=NULL;
@@ -74,9 +74,9 @@ static int run_case(LIS_INT mode,LIS_REAL amp)
     snprintf(options,sizeof(options),
         "-i fgmres -restart 50 -p ilut -ilut_rcm 0 "
         "-ilut_row_scale %d -ilut_equil %d "
-        "-ilut_drop 0.005 -ilut_rate 5 -ilu_pivot_tol 0.001 "
+        "-ilut_drop 0.005 -ilut_rate %.7g -ilu_pivot_tol 0.001 "
         "-scale none -tol 1e-6 -maxiter 300 -omp_num_threads 1",
-        (int)(mode>0),(int)(mode==2));
+        (int)(mode>0),(int)(mode==2),(double)rate);
     err=lis_solver_set_option(options,s);if(err)goto done;
     /* Explicitly collect fill: lis_solve destroys its preconditioner. */
     s->A=A;
@@ -96,10 +96,10 @@ static int run_case(LIS_INT mode,LIS_REAL amp)
         nb+=(LIS_REAL)(b->value[i]*b->value[i]);
     }
     rr=nb>0. ? (LIS_REAL)sqrt((double)(nr/nb)) : 0.;
-    printf("EQUIL_BENCH mode=%s n=%d amplitude=%.9g "
+    printf("EQUIL_BENCH mode=%s n=%d amplitude=%.9g rate=%.7g "
            "status=%d iterations=%d true_residual=%.12e "
            "nnz_L_plus_U=%lld\n",name,N,(double)amp,
-           (int)err,(int)iter,(double)rr,nnz_factor);
+           (double)rate,(int)err,(int)iter,(double)rr,nnz_factor);
     fflush(stdout);
     failed=0;
 done:
@@ -115,11 +115,12 @@ done:
 }
 int main(int argc,char **argv)
 {
-    LIS_REAL amp=100.;
+    LIS_REAL amp=100.,rate=1.;
     LIS_INT err;
     int failed=0;
     if(argc>1)amp=(LIS_REAL)atof(argv[1]);
-    if(!(amp>=1. && amp<=1000.))return 2;
+    if(argc>2)rate=(LIS_REAL)atof(argv[2]);
+    if(!(amp>=1. && amp<=1000.) || !(rate>0. && rate<=10.))return 2;
     err=lis_initialize(&argc,&argv);if(err)return 1;
 #ifdef _OPENMP
     omp_set_dynamic(0);
@@ -128,9 +129,9 @@ int main(int argc,char **argv)
 #if defined(_COMPLEX) || defined(USE_COMPLEX)
     puts("EQUIL_BENCH skip: real-double only");
 #else
-    failed|=run_case(0,amp);
-    failed|=run_case(1,amp);
-    failed|=run_case(2,amp);
+    failed|=run_case(0,amp,rate);
+    failed|=run_case(1,amp,rate);
+    failed|=run_case(2,amp,rate);
 #endif
     lis_finalize();
     return failed;
