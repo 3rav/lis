@@ -31,6 +31,11 @@ void lis_precon_ilut_ras_destroy(struct LIS_ILUT_RAS_STRUCT *s)
 {
     (void)s;
 }
+LIS_INT lis_precon_ilut_ras_interface_size(LIS_PRECON pc,LIS_INT *ngamma)
+{
+    (void)pc; (void)ngamma;
+    return LIS_ERR_NOT_IMPLEMENTED;
+}
 #else
 #define LIS_ILUT_RAS_SCHUR_LIMIT 256
 
@@ -99,6 +104,15 @@ void lis_precon_ilut_ras_destroy(struct LIS_ILUT_RAS_STRUCT *s)
     if(s->schur_A) lis_matrix_destroy(s->schur_A);
     if(s->residual) lis_vector_destroy(s->residual);
     lis_free(s);
+}
+
+/* Read-only internal test/benchmark diagnostic for the separator size. */
+LIS_INT
+lis_precon_ilut_ras_interface_size(LIS_PRECON pc,LIS_INT *ngamma)
+{
+    if(!pc || !pc->ilut_ras || !ngamma) return LIS_ERR_ILL_ARG;
+    *ngamma=pc->ilut_ras->ngamma;
+    return LIS_SUCCESS;
 }
 
 static LIS_INT
