@@ -776,7 +776,7 @@ lis_ilut_ras_apply_local(struct LIS_ILUT_RAS_PART *part)
     LIS_MATRIX_ILU L,U;
     LIS_VECTOR D;
     LIS_SCALAR *x;
-    LIS_INT n,i,j,col,err;
+    LIS_INT n,i,j,col;
     LIS_PRECON pc;
     if(!part || !part->solver || !part->pc || !part->b || !part->x)
         return LIS_ERR_ILL_ARG;
@@ -784,7 +784,20 @@ lis_ilut_ras_apply_local(struct LIS_ILUT_RAS_PART *part)
     if(pc->ilut_perm || pc->ilut_row_scale)
         return LIS_ERR_ILL_ARG;
     if(pc->half)
-        return lis_half_ilu_psolve(part->solver,part->b,part->x);
+    {
+        LIS_INT err;
+#ifdef _OPENMP
+        int saved_threads=omp_get_max_threads();
+        omp_set_num_threads(1);
+#endif
+        /* The packed-half kernel also partitions by omp_get_max_threads.
+         * Force the same single-thread policy as local factor creation. */
+        err=lis_half_ilu_psolve(part->solver,part->b,part->x);
+#ifdef _OPENMP
+        omp_set_num_threads(saved_threads);
+#endif
+        return err;
+    }
     L=pc->L; U=pc->U; D=pc->D;
     n=part->nlocal;
     if(!L || !U || !D || !D->value || !part->b->value ||
