@@ -7,6 +7,10 @@ on:
       - experiment/ras-only-review
     paths:
       - .github/workflows/ras-fair-drop.yml
+      - src/precon/lis_precon_ilut_ras.c
+      - src/solver/lis_solver.c
+      - include/lis.h
+      - test/testhalfilut.c
 
 permissions:
   contents: read
