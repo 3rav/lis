@@ -478,7 +478,7 @@ int main(int argc,char **argv)
         lis_solver_destroy(solver);
     }
     lis_finalize();
-    if(!failed)printf("testilutp: PASS\n");
+    if(!failed)printf("\ntestilutp: PASS\n");
     return failed;
 }
 
