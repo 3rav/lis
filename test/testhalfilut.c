@@ -1702,6 +1702,8 @@ done:
 typedef struct {
     LIS_INT iters,entries,ngamma,err;
     LIS_REAL true_relres,probe_apply_ratio,probe_true_relres;
+    LIS_INT worst_domain;
+    LIS_REAL worst_local_ratio,min_local_pivot;
     double setup_wall,solve_wall;
     int converged;
 } LIS_RAS_BENCH_RESULT;
@@ -1724,6 +1726,9 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     out->true_relres=-1.0;
     out->probe_apply_ratio=-1.0;
     out->probe_true_relres=-1.0;
+    out->worst_domain=-1;
+    out->worst_local_ratio=-1.0;
+    out->min_local_pivot=-1.0;
     if(mode==0)
         snprintf(opts,sizeof(opts),
                  "-i fgmres -p ilut -scale none -print none "
@@ -1774,6 +1779,10 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
         err=lis_precon_ilut_ras_factor_entries(pc,&out->entries);
         if(err) goto done;
         err=lis_precon_ilut_ras_interface_size(pc,&out->ngamma);
+        if(err) goto done;
+        err=lis_precon_ilut_ras_probe(pc,b,&out->worst_domain,
+                                    &out->worst_local_ratio,
+                                    &out->min_local_pivot);
         if(err) goto done;
     }
     /*
@@ -1878,14 +1887,15 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
     printf("variant,rate,stored_entry_proxy,ngamma,iterations,"
            "true_relres,setup_wall_s,solve_wall_s,total_wall_s,"
            "fill_gap_vs_baseline,fair_fill,status,lis_error,"
-           "probe_norm_ratio,probe_one_apply_true_relres\n");
+           "probe_norm_ratio,probe_one_apply_true_relres,"
+           "worst_domain,worst_local_inverse_ratio,min_local_pivot\n");
     for(mode=0;mode<3;mode++)
     {
         gap=m[0].entries>0 && m[mode].entries>0 ?
             fabs((double)m[mode].entries-(double)m[0].entries)/
             (double)m[0].entries : -1.0;
         printf("%s,%.9g,%ld,%ld,%ld,%.9g,%.6f,%.6f,%.6f,"
-               "%.5f,%s,%s,%ld,%.9g,%.9g\n",
+               "%.5f,%s,%s,%ld,%.9g,%.9g,%ld,%.9g,%.9g\n",
                names[mode],rates[mode],(long)m[mode].entries,
                (long)m[mode].ngamma,(long)m[mode].iters,
                (double)m[mode].true_relres,
@@ -1896,7 +1906,10 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
                (m[mode].err ? "solver_error" : "not_converged"),
                (long)m[mode].err,
                (double)m[mode].probe_apply_ratio,
-               (double)m[mode].probe_true_relres);
+               (double)m[mode].probe_true_relres,
+               (long)m[mode].worst_domain,
+               (double)m[mode].worst_local_ratio,
+               (double)m[mode].min_local_pivot);
     }
     failed=0;
     for(mode=0;mode<3;mode++)
