@@ -1897,7 +1897,9 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
     LIS_RAS_BENCH_RESULT m[3];
     double rates[3],gap;
     LIS_INT i,err=0;
-    int failed=1,mode,mode_count=getenv("LIS_FEA_ONLY_BASELINE") ? 1 : 3;
+    int failed=1,mode;
+    int mode_count=getenv("LIS_FEA_ONLY_BASELINE") ? 1 :
+                   (getenv("LIS_FEA_SKIP_SCHUR") ? 2 : 3);
     const char *names[3]={"baseline","ras","ras_schur"};
     if(!file || !isfinite(base_rate) || !(base_rate>0.0) ||
        !isfinite(ras_rate) || !(ras_rate>0.0) ||
