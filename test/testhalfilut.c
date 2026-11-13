@@ -1347,6 +1347,148 @@ done:
 }
 
 
+
+/*
+ * Explicit synthetic 3D scalar seven-point stencil, 8^3 = 512 unknowns.
+ * Four contiguous serial domains create a Gamma interface of 384 DOF,
+ * forcing the sparse CSR-ILUT Schur path (dense cutoff is 256).
+ *
+ * This is NOT 3D vector elasticity, contact FEA, or an application
+ * performance benchmark. It only checks finite, consistent application
+ * on a larger-than-dense-limit synthetic interface.
+ */
+static int
+check_ilut_sparse_schur_smoke(void)
+{
+    const LIS_INT side=8,n=512;
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR truth=NULL,b=NULL,x=NULL,ref=NULL,r=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_INT err=0,i,ix,iy,iz,parallel;
+    LIS_REAL bn=0.0,rn=0.0;
+    char options[320];
+    int failed=1;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,n);
+    if(err) goto done;
+    if(A->nprocs!=1) { failed=0; goto done; }
+    for(i=0;i<n;i++)
+    {
+        ix=i%side;
+        iy=(i/side)%side;
+        iz=i/(side*side);
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
+                                 (LIS_SCALAR)7.0,A);
+        if(err) goto done;
+        if(ix>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,
+                                     (LIS_SCALAR)-1.0,A);
+            if(err) goto done;
+        }
+        if(ix+1<side)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
+                                     (LIS_SCALAR)-1.0,A);
+            if(err) goto done;
+        }
+        if(iy>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-side,
+                                     (LIS_SCALAR)-1.0,A);
+            if(err) goto done;
+        }
+        if(iy+1<side)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+side,
+                                     (LIS_SCALAR)-1.0,A);
+            if(err) goto done;
+        }
+        if(iz>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-side*side,
+                                     (LIS_SCALAR)-1.0,A);
+            if(err) goto done;
+        }
+        if(iz+1<side)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+side*side,
+                                     (LIS_SCALAR)-1.0,A);
+            if(err) goto done;
+        }
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    if(lis_vector_duplicate(A,&truth) ||
+       lis_vector_duplicate(A,&b) ||
+       lis_vector_duplicate(A,&x) ||
+       lis_vector_duplicate(A,&ref) ||
+       lis_vector_duplicate(A,&r)) goto done;
+    lis_vector_set_all((LIS_SCALAR)1.0,truth);
+    err=lis_matvec(A,truth,b);
+    if(err) goto done;
+    if(lis_vector_nrm2(b,&bn) || !(bn>0.0)) goto done;
+    for(parallel=0;parallel<=1;parallel++)
+    {
+        err=lis_solver_create(&solver);
+        if(err) goto done;
+        snprintf(options,sizeof(options),
+                 "-i fgmres -p ilut -scale none -print none "
+                 "-ilut_drop 0.001 -ilut_rate 8 -ilu_pivot_tol 1e-12 "
+                 "-ilut_ras_domains 4 -ilut_ras_overlap 1 -ilut_schur 1 "
+                 "-ilut_ras_parallel %d", (int)parallel);
+        err=lis_solver_set_option(options,solver);
+        if(err) goto done;
+        err=lis_solver_set_matrix(A,solver);
+        if(err) goto done;
+        err=lis_precon_create(solver,&pc);
+        if(err || !pc || !pc->ilut_ras) goto done;
+        solver->precon=pc;
+        err=lis_psolve(solver,b,x);
+        if(err) goto done;
+        err=lis_matvec(A,x,r);
+        if(err) goto done;
+        err=lis_vector_axpy((LIS_SCALAR)-1.0,b,r);
+        if(err) goto done;
+        err=lis_vector_nrm2(r,&rn);
+        if(err || !isfinite((double)rn) ||
+           !(rn/bn < 1.0)) goto done;
+        for(i=0;i<n;i++)
+        {
+            if(!isfinite((double)x->value[i])) goto done;
+            if(parallel==0) ref->value[i]=x->value[i];
+            else if(fabs((double)(x->value[i]-ref->value[i])) >
+                    1e-10*(1.0+fabs((double)ref->value[i]))) goto done;
+        }
+        printf("ILUT_RAS_SPARSE_SCHUR_CHECK n=%ld "
+               "expected_gamma=384 parallel=%ld true_residual=%.6e\n",
+               (long)n,(long)parallel,(double)(rn/bn));
+        solver->precon=NULL;
+        lis_precon_destroy(pc);pc=NULL;
+        lis_solver_destroy(solver);solver=NULL;
+    }
+    printf("ILUT_RAS_SPARSE_SCHUR_PASSED\n");
+    failed=0;
+done:
+    if(failed)
+        fprintf(stderr,"ILUT_RAS_SPARSE_SCHUR_FAILED rc=%ld\n",(long)err);
+    if(solver) solver->precon=NULL;
+    if(pc) lis_precon_destroy(pc);
+    if(solver) lis_solver_destroy(solver);
+    if(r) lis_vector_destroy(r);
+    if(ref) lis_vector_destroy(ref);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(truth) lis_vector_destroy(truth);
+    if(A) lis_matrix_destroy(A);
+    return failed;
+}
+
+
 /*
  * Manually-invoked external Matrix Market FEA review harness.
  *
@@ -1542,6 +1684,13 @@ main(
 	if( err )
 	{
 		return 1;
+	}
+
+	if(argc==2 && strcmp(argv[1],"--sparse-schur-smoke")==0)
+	{
+		failed=check_ilut_sparse_schur_smoke();
+		lis_finalize();
+		return failed ? 1 : 0;
 	}
 
 	if(argc>=5 && argc<=6 &&
