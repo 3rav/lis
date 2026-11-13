@@ -22,11 +22,11 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin clang libomp-dev
       - name: Build instrumented LIS with OpenMP
         run: |
           autoreconf -fiv
-          CC=gcc CFLAGS="-O1 -g -fsanitize=thread -fno-omit-frame-pointer" \
+          CC=clang CFLAGS="-O1 -g -fsanitize=thread -fno-omit-frame-pointer" \
             LDFLAGS="-fsanitize=thread" ./configure \
             --enable-test --enable-omp --disable-fortran --disable-f90 \
             --disable-saamg --disable-mpi
