@@ -76,3 +76,5 @@ LIS_FEA_BASELINE_THREADS=1 OMP_NUM_THREADS=8 \\
 ```
 
 The optional environment variable `LIS_FEA_RAS_DROP` controls the RAS-only drop threshold independently of the baseline; `LIS_FEA_FILL_ONLY=1` performs factor-entry calibration without invoking a Krylov solver. `LIS_FEA_ONLY_BASELINE=1` isolates the baseline. The benchmark never treats `LIS_FEA_FILL_ONLY` as a numerical convergence test.
+
+The standalone negative regression `./test/testhalfilut --ras-guard-smoke` builds a strongly nonnormal upper-bidiagonal test matrix. It checks that the default guard rejects a finite inverse amplification above the scale-aware bound and clears partial output, while a deliberate `-ilut_ras_guard 0` allows the same diagnostic response. This test is not a claim that the guard detects all unstable factors.
