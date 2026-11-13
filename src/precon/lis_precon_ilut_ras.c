@@ -36,6 +36,11 @@ LIS_INT lis_precon_ilut_ras_interface_size(LIS_PRECON pc,LIS_INT *ngamma)
     (void)pc; (void)ngamma;
     return LIS_ERR_NOT_IMPLEMENTED;
 }
+LIS_INT lis_precon_ilut_ras_factor_entries(LIS_PRECON pc,LIS_INT *entries)
+{
+    (void)pc; (void)entries;
+    return LIS_ERR_NOT_IMPLEMENTED;
+}
 #else
 #define LIS_ILUT_RAS_SCHUR_LIMIT 256
 
@@ -112,6 +117,59 @@ lis_precon_ilut_ras_interface_size(LIS_PRECON pc,LIS_INT *ngamma)
 {
     if(!pc || !pc->ilut_ras || !ngamma) return LIS_ERR_ILL_ARG;
     *ngamma=pc->ilut_ras->ngamma;
+    return LIS_SUCCESS;
+}
+
+
+/* Count stored factor entries, including overlapping local ILUT copies,
+ * the dense Schur LU or sparse Schur ILUT, and sparse Schur CSR.
+ *
+ * This is a transparent *entry-count proxy*, NOT peak RSS: it excludes
+ * indices, pivots, work vectors, CSR overhead and temporary allocations.
+ */
+LIS_INT
+lis_precon_ilut_ras_factor_entries(LIS_PRECON pc,LIS_INT *entries)
+{
+    struct LIS_ILUT_RAS_STRUCT *s;
+    LIS_INT d,nl=0,nu=0,err;
+    LIS_REAL smallest=0.0,largest=0.0;
+    size_t total=0,limit=(sizeof(LIS_INT)==4 ?
+                          (size_t)INT32_MAX : (size_t)INT64_MAX);
+    if(!pc || !pc->ilut_ras || !entries) return LIS_ERR_ILL_ARG;
+    s=pc->ilut_ras;
+    for(d=0;d<s->ndomains;d++)
+    {
+        if(!s->parts || !s->parts[d].pc) return LIS_ERR_ILL_ARG;
+        err=lis_precon_ilut_factor_stats(s->parts[d].pc,
+                            &nl,&nu,&smallest,&largest);
+        if(err || nl<0 || nu<0) return err ? err : LIS_ERR_ILL_ARG;
+        if((size_t)nl>limit-total) return LIS_ERR_ILL_ARG;
+        total+=(size_t)nl;
+        if((size_t)nu>limit-total) return LIS_ERR_ILL_ARG;
+        total+=(size_t)nu;
+    }
+    if(s->ngamma>0 && s->schur_sparse)
+    {
+        if(!s->schur_A || !s->schur_pc ||
+           s->schur_A->nnz<0) return LIS_ERR_ILL_ARG;
+        if((size_t)s->schur_A->nnz>limit-total)
+            return LIS_ERR_ILL_ARG;
+        total+=(size_t)s->schur_A->nnz;
+        err=lis_precon_ilut_factor_stats(s->schur_pc,
+                            &nl,&nu,&smallest,&largest);
+        if(err || nl<0 || nu<0) return err ? err : LIS_ERR_ILL_ARG;
+        if((size_t)nl>limit-total) return LIS_ERR_ILL_ARG;
+        total+=(size_t)nl;
+        if((size_t)nu>limit-total) return LIS_ERR_ILL_ARG;
+        total+=(size_t)nu;
+    }
+    else if(s->ngamma>0)
+    {
+        size_t ng=(size_t)s->ngamma;
+        if(ng>limit/ng || ng*ng>limit-total) return LIS_ERR_ILL_ARG;
+        total+=ng*ng;
+    }
+    *entries=(LIS_INT)total;
     return LIS_SUCCESS;
 }
 
