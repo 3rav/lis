@@ -30,7 +30,7 @@ test_PROGRAMS = testesubspaceretry etest1 etest2 etest3 etest4 etest5 etest5b et
 	testblockorthogonal testblockrank
 
 # Keep optional session tests separate from the long test_PROGRAMS list.
-test_PROGRAMS += testmatrixautosession testvectorreal64 benchautojacobirefresh testabi testgesolvepair testrcoalloc testilutequil
+test_PROGRAMS += testmatrixautosession testvectorreal64 benchautojacobirefresh testabi testgesolvepair testrcoalloc testilutequil benchequil
 
 testabi_SOURCES = testabi.c
 testrcoalloc_SOURCES = testrcoalloc.c
@@ -51,6 +51,7 @@ benchautojacobirefresh_SOURCES = benchautojacobirefresh.c
 testvectorreal64_SOURCES = testvectorreal64.c
 testfrozenilut_SOURCES = testfrozenilut.c
 testilutequil_SOURCES = testilutequil.c
+benchequil_SOURCES = benchequil.c
 benchfrozenilut_SOURCES = benchfrozenilut.c
 testsplitview_SOURCES = testsplitview.c
 testsplitviewi64_SOURCES = testsplitviewi64.c
