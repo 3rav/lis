@@ -12,6 +12,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include "lislib.h"
 
 #define __FUNC__ "lis_precon_ilut_ras"
@@ -173,6 +176,46 @@ lis_precon_ilut_ras_factor_entries(LIS_PRECON pc,LIS_INT *entries)
     return LIS_SUCCESS;
 }
 
+/*
+ * Existing OpenMP ILUT factorization splits rows according to the active
+ * thread count. An ILUT factor built with T threads MUST NOT subsequently
+ * be applied with a different number of threads: its block dependencies
+ * differ. RAS local factors and the sparse Schur ILUT deliberately use
+ * a single thread both at setup and at application.
+ *
+ * This changes the OpenMP ICV of the calling task only, not a global
+ * environment variable. All RAS setup is currently serial.
+ */
+static LIS_INT
+lis_ilut_ras_create_serial_factor(LIS_SOLVER solver,LIS_PRECON *pc)
+{
+    LIS_INT err;
+#ifdef _OPENMP
+    int previous_threads=omp_get_max_threads();
+    omp_set_num_threads(1);
+#endif
+    err=lis_precon_create(solver,pc);
+#ifdef _OPENMP
+    omp_set_num_threads(previous_threads);
+#endif
+    return err;
+}
+
+static LIS_INT
+lis_ilut_ras_apply_serial_schur(struct LIS_ILUT_RAS_STRUCT *s)
+{
+    LIS_INT err;
+#ifdef _OPENMP
+    int previous_threads=omp_get_max_threads();
+    omp_set_num_threads(1);
+#endif
+    err=lis_psolve(s->schur_solver,s->schur_b,s->schur_x);
+#ifdef _OPENMP
+    omp_set_num_threads(previous_threads);
+#endif
+    return err;
+}
+
 static LIS_INT
 lis_ilut_ras_make_subdomain(LIS_SOLVER outer, struct LIS_ILUT_RAS_STRUCT *s,
                             struct LIS_ILUT_RAS_PART *p)
@@ -247,7 +290,7 @@ lis_ilut_ras_make_subdomain(LIS_SOLVER outer, struct LIS_ILUT_RAS_STRUCT *s,
     if(err) goto done;
     err=lis_solver_set_matrix(p->A,p->solver);
     if(err) goto done;
-    err=lis_precon_create(p->solver,&p->pc);
+    err=lis_ilut_ras_create_serial_factor(p->solver,&p->pc);
     if(err) { p->pc=NULL; goto done; }
     p->solver->precon=p->pc;
     err=lis_vector_duplicate(p->A,&p->b);
@@ -407,7 +450,7 @@ lis_ilut_ras_make_sparse_schur(LIS_SOLVER outer,
     if(err) goto done;
     err=lis_solver_set_matrix(s->schur_A,s->schur_solver);
     if(err) goto done;
-    err=lis_precon_create(s->schur_solver,&s->schur_pc);
+    err=lis_ilut_ras_create_serial_factor(s->schur_solver,&s->schur_pc);
     if(err) { s->schur_pc=NULL; goto done; }
     s->schur_solver->precon=s->schur_pc;
     err=lis_vector_duplicate(s->schur_A,&s->schur_b);
@@ -829,7 +872,7 @@ lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
         /* One ILUT application to the sparse approximate interface RHS,
          * not an iterative or exact Schur solve. */
         for(i=0;i<ng;i++) s->schur_b->value[i]=s->schur_rhs[i];
-        err=lis_psolve(s->schur_solver,s->schur_b,s->schur_x);
+        err=lis_ilut_ras_apply_serial_schur(s);
         if(err) return err;
         for(i=0;i<ng;i++)
         {
