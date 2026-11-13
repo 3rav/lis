@@ -179,7 +179,7 @@ static LIS_INT
 lis_ilut_ras_make_schur(struct LIS_ILUT_RAS_STRUCT *s)
 {
     LIS_MATRIX A=s->A;
-    LIS_INT i,j,k,g,q,t,p,best,ng=0;
+    LIS_INT i,j,k,g,q,t,p,best,ng=0,promoted=0;
     LIS_REAL val,peak,schur_norm=0.0;
     LIS_SCALAR tmp;
     size_t entries;
@@ -198,6 +198,41 @@ lis_ilut_ras_make_schur(struct LIS_ILUT_RAS_STRUCT *s)
         {
             s->gamma_of[i]=0;
             s->gamma_of[j]=0;
+        }
+    }
+    /*
+     * Weak KKT interior diagonals cannot be inverted safely. Promote the
+     * affected rows into Gamma before allocating or assembling the Schur
+     * complement. Never silently replace their inverse by zero.
+     *
+     * This is deliberately bounded: promotion can enlarge Gamma and
+     * worsen separator quality, and it does not repair a singular Schur.
+     */
+    for(i=0;i<s->n;i++) if(s->gamma_of[i]<0)
+    {
+        LIS_REAL row_max=0.0,diag_abs=0.0;
+        for(k=A->ptr[i];k<A->ptr[i+1];k++)
+        {
+            LIS_REAL mag=fabs(A->value[k]);
+            if(!isfinite((double)mag))
+            {
+                LIS_SETERR(LIS_ERR_ILL_ARG,
+                    "ILUT RAS Schur input contains nonfinite entry");
+                return LIS_ERR_ILL_ARG;
+            }
+            if(mag>row_max) row_max=mag;
+            if(A->index[k]==i) diag_abs=mag;
+        }
+        if(!(row_max>0.0) || !(diag_abs>1.0e-10*row_max))
+        {
+            if(promoted>=s->n/5)
+            {
+                LIS_SETERR(LIS_ERR_ILL_ARG,
+                    "ILUT RAS Schur weak-diagonal promotions exceed 20 percent");
+                return LIS_ERR_ILL_ARG;
+            }
+            s->gamma_of[i]=0;
+            promoted++;
         }
     }
     for(i=0;i<s->n;i++) if(s->gamma_of[i]>=0) ++ng;
@@ -367,7 +402,7 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
         return LIS_ERR_NOT_IMPLEMENTED;
     }
     if(solver->ilut_ras_overlap<0 || solver->ilut_ras_overlap>2 ||
-       solver->ilut_ras_domains<2 || solver->ilut_ras_domains>16 ||
+       solver->ilut_ras_domains<2 || solver->ilut_ras_domains>64 ||
        solver->ilut_ras_domains>n)
         return LIS_ERR_ILL_ARG;
     s=(struct LIS_ILUT_RAS_STRUCT *)lis_malloc(sizeof(*s),"ILUT RAS state");
