@@ -5,6 +5,7 @@ on:
     branches:
       - develop
       - ci/linux-mingw
+      - ci/ilutp-equil-integration-20261113
   pull_request:
     branches:
       - develop
