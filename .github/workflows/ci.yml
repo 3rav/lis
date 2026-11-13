@@ -101,6 +101,16 @@ jobs:
           ./test/testhalfilut --ras-rcm-smoke | tee ilut-ras-rcm.log
           grep -q '^ILUT_RAS_SPARSE_SCHUR_PASSED' ilut-ras-rcm.log
 
+      - name: Smoke-test 3-way Matrix Market RAS benchmarking
+        if: matrix.mode == 'half'
+        run: |
+          set -euo pipefail
+          ./test/testhalfilut --fea-ras test/testmat0.mtx 8 8 8 0.005 4 1 1 1 | tee ilut-fea-ras.csv
+          grep -q '^FEA_RAS_MATRIX ' ilut-fea-ras.csv
+          grep -q '^baseline,' ilut-fea-ras.csv
+          grep -q '^ras,' ilut-fea-ras.csv
+          grep -q '^ras_schur,' ilut-fea-ras.csv
+
 
       - name: Smoke-test optional 3D FP16 memory and Krylov benchmark
         if: matrix.mode == 'half'
