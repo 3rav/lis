@@ -286,6 +286,9 @@ lis_ilut_ras_make_subdomain(LIS_SOLVER outer, struct LIS_ILUT_RAS_STRUCT *s,
         outer->params[LIS_PARAMS_GAMMA-LIS_OPTIONS_LEN];
     p->solver->params[LIS_PARAMS_ILU_PIVOT_TOL-LIS_OPTIONS_LEN] =
         outer->params[LIS_PARAMS_ILU_PIVOT_TOL-LIS_OPTIONS_LEN];
+    /* Reuse opt-in ILUT row equilibration from upstream #224 for each
+     * independently factored RAS subdomain. */
+    p->solver->ilut_row_scale=outer->ilut_row_scale;
     err=lis_solver_set_precon_half(p->solver,outer->precon_half_mode);
     if(err) goto done;
     err=lis_solver_set_matrix(p->A,p->solver);
@@ -774,57 +777,89 @@ static LIS_INT
 lis_ilut_ras_apply_local(struct LIS_ILUT_RAS_PART *part)
 {
     LIS_MATRIX_ILU L,U;
-    LIS_VECTOR D;
+    LIS_VECTOR D,from,to;
     LIS_SCALAR *x;
-    LIS_INT n,i,j,col;
+    LIS_INT n,i,j,col,err;
     LIS_PRECON pc;
+    LIS_INT *perm;
+    LIS_SCALAR *scales;
     if(!part || !part->solver || !part->pc || !part->b || !part->x)
         return LIS_ERR_ILL_ARG;
     pc=part->pc;
-    if(pc->ilut_perm || pc->ilut_row_scale)
+    perm=pc->ilut_perm;
+    scales=pc->ilut_row_scale;
+    n=part->nlocal;
+    if((perm!=NULL)!=(scales!=NULL))
         return LIS_ERR_ILL_ARG;
+    from=part->b;
+    to=part->x;
+    if(perm)
+    {
+        from=pc->ilut_work_b;
+        to=pc->ilut_work_x;
+        if(!from || !to || !from->value || !to->value)
+            return LIS_ERR_ILL_ARG;
+        /* The same row scaling / permutation as ordered ILUT's apply,
+         * except the triangular solve is serial for every RAS domain. */
+        for(i=0;i<n;i++)
+        {
+            col=perm[i];
+            if(col<0 || col>=n ||
+               !isfinite((double)scales[i]) || scales[i]<=0.0)
+                return LIS_ERR_ILL_ARG;
+            from->value[i]=part->b->value[col]*scales[i];
+            if(!isfinite((double)from->value[i])) return LIS_ERR_ILL_ARG;
+        }
+    }
     if(pc->half)
     {
-        LIS_INT err;
 #ifdef _OPENMP
         int saved_threads=omp_get_max_threads();
         omp_set_num_threads(1);
 #endif
-        /* The packed-half kernel also partitions by omp_get_max_threads.
-         * Force the same single-thread policy as local factor creation. */
-        err=lis_half_ilu_psolve(part->solver,part->b,part->x);
+        err=lis_half_ilu_psolve(part->solver,from,to);
 #ifdef _OPENMP
         omp_set_num_threads(saved_threads);
 #endif
-        return err;
+        if(err) return err;
     }
-    L=pc->L; U=pc->U; D=pc->D;
-    n=part->nlocal;
-    if(!L || !U || !D || !D->value || !part->b->value ||
-       !part->x->value)
-        return LIS_ERR_ILL_ARG;
-    x=part->x->value;
-    for(i=0;i<n;i++) x[i]=part->b->value[i];
-    for(i=0;i<n;i++)
+    else
     {
-        for(j=0;j<L->nnz[i];j++)
+        L=pc->L; U=pc->U; D=pc->D;
+        if(!L || !U || !D || !D->value || !from->value ||
+           !to->value)
+            return LIS_ERR_ILL_ARG;
+        x=to->value;
+        for(i=0;i<n;i++) x[i]=from->value[i];
+        for(i=0;i<n;i++)
         {
-            col=L->index[i][j];
-            if(col<0 || col>=n) return LIS_ERR_ILL_ARG;
-            x[i]-=L->value[i][j]*x[col];
+            for(j=0;j<L->nnz[i];j++)
+            {
+                col=L->index[i][j];
+                if(col<0 || col>=n) return LIS_ERR_ILL_ARG;
+                x[i]-=L->value[i][j]*x[col];
+            }
+            if(!isfinite((double)x[i])) return LIS_ERR_ILL_ARG;
         }
-        if(!isfinite((double)x[i])) return LIS_ERR_ILL_ARG;
+        for(i=n-1;i>=0;i--)
+        {
+            for(j=0;j<U->nnz[i];j++)
+            {
+                col=U->index[i][j];
+                if(col<0 || col>=n) return LIS_ERR_ILL_ARG;
+                x[i]-=U->value[i][j]*x[col];
+            }
+            x[i]*=D->value[i];
+            if(!isfinite((double)x[i])) return LIS_ERR_ILL_ARG;
+        }
     }
-    for(i=n-1;i>=0;i--)
+    if(perm)
     {
-        for(j=0;j<U->nnz[i];j++)
+        for(i=0;i<n;i++)
         {
-            col=U->index[i][j];
-            if(col<0 || col>=n) return LIS_ERR_ILL_ARG;
-            x[i]-=U->value[i][j]*x[col];
+            if(!isfinite((double)to->value[i])) return LIS_ERR_ILL_ARG;
+            part->x->value[perm[i]]=to->value[i];
         }
-        x[i]*=D->value[i];
-        if(!isfinite((double)x[i])) return LIS_ERR_ILL_ARG;
     }
     return LIS_SUCCESS;
 }
