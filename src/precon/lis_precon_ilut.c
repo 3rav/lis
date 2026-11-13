@@ -566,7 +566,7 @@ LIS_INT lis_precon_create_ilut(LIS_SOLVER solver, LIS_PRECON precon)
 
 	LIS_DEBUG_FUNC_IN;
 
-	if(solver->ilut_ras_overlap>=0 || solver->ilut_schur)
+	if(solver->ilut_ras_overlap>=0)
 	{
 		if(solver->ilut_ras_overlap<0) return LIS_ERR_ILL_ARG;
 		err=lis_precon_create_ilut_ras(solver,precon);
