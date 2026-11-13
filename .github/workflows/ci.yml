@@ -89,7 +89,8 @@ jobs:
           set -euo pipefail
           ./test/benchilutp test/testmat2.mtx test/benchilutp_rhs_100.mtx \
             --maxiter 180 --restart 30 --drop 0.005 --rate 8 \
-            --rcm 1 --row-scale 1 | tee benchilutp-smoke.csv
+            --rcm 1 --row-scale 1 --csv benchilutp-smoke.csv
+          cat benchilutp-smoke.csv
           python3 - <<'PY'
           import csv
           from pathlib import Path
