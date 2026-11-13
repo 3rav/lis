@@ -1724,6 +1724,20 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
     const char *stage="initial";
     const char *baseline_threads=getenv("LIS_FEA_BASELINE_THREADS");
     const char *baseline_rcm_env=getenv("LIS_FEA_BASELINE_RCM");
+    const char *ras_drop_env=getenv("LIS_FEA_RAS_DROP");
+    if(mode>0 && ras_drop_env && ras_drop_env[0])
+    {
+        char *last=NULL;
+        double value=strtod(ras_drop_env,&last);
+        if(last==ras_drop_env || *last || !isfinite(value) ||
+           value<0.0 || value>=1.0)
+        {
+            memset(out,0,sizeof(*out));
+            out->err=LIS_ERR_ILL_ARG;
+            return;
+        }
+        drop=value;
+    }
     LIS_INT baseline_rcm=(baseline_rcm_env &&
                          strcmp(baseline_rcm_env,"1")==0) ? 1 : 0;
 #ifdef _OPENMP
@@ -1937,7 +1951,7 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
     printf("FEA_RAS_MATRIX file=%s n=%ld nnz_A=%ld "
            "domains=%ld overlap=%ld rcm=%ld parallel=%ld row_scale=%ld "
            "local_rcm=%ld OMP_NUM_THREADS=%s baseline_threads=%s "
-           "baseline_rcm=%s\n",
+           "baseline_rcm=%s drop=%g ras_drop=%s\n",
            file,(long)A->n,(long)A->nnz,
            (long)domains,(long)overlap,(long)rcm,(long)parallel,
            (long)row_scale,(long)local_rcm,
@@ -1945,7 +1959,10 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
            getenv("LIS_FEA_BASELINE_THREADS") ?
              getenv("LIS_FEA_BASELINE_THREADS") : "(same as OMP)",
            getenv("LIS_FEA_BASELINE_RCM") ?
-             getenv("LIS_FEA_BASELINE_RCM") : "0");
+             getenv("LIS_FEA_BASELINE_RCM") : "0",
+           drop,
+           getenv("LIS_FEA_RAS_DROP") ?
+             getenv("LIS_FEA_RAS_DROP") : "(same as baseline)");
     printf("variant,rate,stored_entry_proxy,ngamma,iterations,"
            "true_relres,setup_wall_s,solve_wall_s,total_wall_s,"
            "fill_gap_vs_baseline,fair_fill,status,lis_error,"
