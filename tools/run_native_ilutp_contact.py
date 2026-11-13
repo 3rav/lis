@@ -36,9 +36,14 @@ def sha256_file(path: Path) -> str:
 def integer_nonnegative(value: str) -> int:
     if not value.isascii() or not value.isdecimal():
         raise argparse.ArgumentTypeError('expected a nonnegative decimal integer')
-    n = int(value)
-    if n >= 2 ** 31:
-        raise argparse.ArgumentTypeError('factor limit exceeds 32-bit LIS_INT range')
+    try:
+        n = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError('invalid decimal integer') from exc
+    # The benchmark itself validates against the build's LIS_INT width.
+    # Do not reject valid 64-bit LIS_INT limits in this Python front end.
+    if n > 2 ** 63 - 1:
+        raise argparse.ArgumentTypeError('factor limit exceeds 64-bit LIS_INT range')
     return n
 
 
