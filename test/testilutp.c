@@ -108,6 +108,19 @@ static int run_one(LIS_INT rcm, LIS_INT scale)
             goto cleanup;
         }
     }
+#ifdef _OPENMP
+    if(!rcm && !scale)
+    {
+        /* The number of threads may change after factor construction.
+         * Applying a serial ILUTP via an OpenMP-partitioned triangular
+         * solve must fail explicitly rather than silently corrupting x. */
+        omp_set_num_threads(2);
+        err=lis_psolve_ilut_csr(solver,b,x);
+        omp_set_num_threads(1);
+        if(err!=LIS_ERR_NOT_IMPLEMENTED)goto cleanup;
+        err=LIS_SUCCESS;
+    }
+#endif
     failed=0;
 
 cleanup:
@@ -364,6 +377,7 @@ int main(int argc,char **argv)
     if(err)failed=1;
     else
     {
+        if(fabs(solver->ilutp_threshold-0.5)>1e-12)failed=1;
         if(lis_solver_set_option("-p ilut -ilutp 1 -ilutp_threshold 0.5",
                                   solver)!=LIS_SUCCESS ||
            !solver->ilutp_enabled ||
