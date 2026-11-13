@@ -81,7 +81,7 @@ jobs:
         run: make -j2
 
       - name: Run Automake test suite
-        run: make -j1 check
+        run: make -j2 check
 
       - name: Smoke-test native ILUTP Matrix Market comparison
         if: matrix.mode == 'serial'
@@ -426,7 +426,7 @@ jobs:
         run: make -j2
 
       - name: Run Automake test suite
-        run: make -j1 check
+        run: make -j2 check
 
       - name: Run distributed MPI regressions (2 ranks)
         run: |
@@ -502,7 +502,7 @@ jobs:
         run: make -j2
 
       - name: Run Automake test suite
-        run: make -j1 check
+        run: make -j2 check
 
       - name: Upload failed test logs
         if: failure()
@@ -532,7 +532,7 @@ jobs:
           ./configure --enable-oom-tests --enable-test --disable-mpi \
             --disable-omp --disable-fortran --disable-f90 --disable-saamg
       - name: Build and run make check
-        run: make -j1 check
+        run: make -j2 check
       - name: Upload failed test logs
         if: failure()
         uses: actions/upload-artifact@v4
