@@ -1833,6 +1833,10 @@ run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
                                     &out->min_local_pivot);
         if(err) goto done;
     }
+    /* Calibration-only mode reports factor entry counts without claiming
+     * any convergence; use the full solve for the selected fair-fill pair. */
+    if(getenv("LIS_FEA_FILL_ONLY"))
+        goto done;
     /*
      * Numerical ablation: inspect the uniterated preconditioner action
      * independently from FGMRES. This distinguishes an extreme local
@@ -1914,6 +1918,7 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
     int failed=1,mode;
     int mode_count=getenv("LIS_FEA_ONLY_BASELINE") ? 1 :
                    (getenv("LIS_FEA_SKIP_SCHUR") ? 2 : 3);
+    int fill_only=getenv("LIS_FEA_FILL_ONLY")!=NULL;
     const char *names[3]={"baseline","ras","ras_schur"};
     if(!file || !isfinite(base_rate) || !(base_rate>0.0) ||
        !isfinite(ras_rate) || !(ras_rate>0.0) ||
@@ -1981,8 +1986,9 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
                m[mode].setup_wall,m[mode].solve_wall,
                m[mode].setup_wall+m[mode].solve_wall,
                gap,gap>=0.0 && gap<=0.05 ? "yes":"no",
-               m[mode].err==0 && m[mode].converged ? "converged" :
-               (m[mode].err ? "solver_error" : "not_converged"),
+               m[mode].err ? "solver_error" :
+               (fill_only ? "fill_probe" :
+               (m[mode].converged ? "converged" : "not_converged")),
                (long)m[mode].err,
                (double)m[mode].probe_apply_ratio,
                (double)m[mode].probe_true_relres,
@@ -1992,7 +1998,7 @@ run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
     }
     failed=0;
     for(mode=0;mode<mode_count;mode++)
-        if(m[mode].err || !m[mode].converged) failed=1;
+        if(m[mode].err || (!fill_only && !m[mode].converged)) failed=1;
 done:
     if(err) fprintf(stderr,"FEA_RAS_INPUT_ERROR file=%s rc=%ld\n",
                     file,(long)err);
