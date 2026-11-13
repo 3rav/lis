@@ -27,7 +27,15 @@ The experimental successor branch `experiment/ras-schur-scalable` extends the se
 - `-ilut_ras_parallel 1`: explicitly opt-in OpenMP parallelism of independent **local preconditioner applications only**. Setup/factorization remains serial because LIS currently mutates shared global dispatch and error-reporting state during construction. Serial builds execute the same loop sequentially. Per-domain errors are collected and returned after the OpenMP join.
 - Bounded weak-diagonal promotion from the interior to the Schur interface before factorization, with a cap of 20% of the matrix dimension. This is not sufficient to guarantee a well-conditioned Schur operator. A larger or singular interface still fails safely.
 
-These changes are not a claim of automatic near-linear scaling, and do not yet remove the dense Schur 256-DOF limit. A separate sparse Schur CSR proof of concept exists in [3rav/lis#64](https://github.com/3rav/lis/pull/64), but is not integrated. RCM-first partitioning also remains a proposed improvement rather than an established separator minimizer. No production FEA performance comparison is available.
+These changes are not a claim of automatic near-linear scaling. **The current experimental successor adds a sparse CSR approximate-Schur path above 256 interface DOF**, using a bounded rowwise accumulator, `nnz(S) <= 4 * nnz(A)`, relative dropping, and one existing ILUT preconditioner application with row equilibration. Small interfaces retain dense pivoted LU. This is not an iterative Schur solve and sparse fill can still be large; exceeding the budget fails explicitly. The separate prior [3rav/lis#64](https://github.com/3rav/lis/pull/64) remains a standalone research PoC. RCM-first partitioning and parallel factorization are **not implemented**. No production contact FEA performance comparison is available.
+
+### Explicit synthetic sparse Schur smoke test
+
+```sh
+./test/testhalfilut --sparse-schur-smoke
+```
+
+The smoke test constructs a **512-unknown scalar 3D seven-point stencil** with four contiguous partitions and an expected 384 interface DOF. It checks that sparse Schur setup succeeds, reports true residuals after one preconditioner application, and compares results with `-ilut_ras_parallel 0` and `1`. It does **not** represent three-dimensional vector elasticity, a Newton/contact KKT matrix, or a measured performance advantage. CI includes it in the Linux FP16 job.
 
 ## Synthetic contact-KKT regression
 
@@ -65,7 +73,7 @@ before any performance claim.
 ## Limits / safeguards
 
 - **Experimental and serial-only**: ordinary real double-precision CSR, with row indices local to the single process. MPI, USER/OPERATOR and quad-precision input are explicitly rejected when the option is used; the default ILUT remains unchanged.
-- Maximum interface size for the dense Schur option is 256 DOF. A larger interface or singular approximate Schur leads to an explicit error rather than an undocumented silent fallback.
+- The dense Schur path is used at `n_gamma <= 256`; larger interfaces use the experimental bounded sparse CSR-ILUT path. Unsafe pivots or exceeding the `4*nnz(A)` sparse fill budget cause explicit errors, not silent fallback.
 - The diagonal approximation explicitly rejects interior rows with missing or weak diagonals (relative to their largest coefficient, threshold `1e-10`) and nonfinite reciprocals. The dense Schur factorization rejects pivots smaller than `1e-12` of the initial Schur maximum coefficient. These guards prevent silent invalid arithmetic; they **do not guarantee a well-conditioned or effective contact preconditioner**.
 - The regression also checks that a deliberately weak interior diagonal is rejected. These tests are algebraic safeguards, not a production FEA validation.
 - The nested ILUT setup may be costly in memory and time; there is currently no automatic partitioner or communication overlap.
