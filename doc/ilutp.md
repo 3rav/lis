@@ -7,12 +7,12 @@ This branch provides an opt-in, **serial real-double CSR** variant of ILUT with
 ## Example
 
 ```text
--i fgmres -restart 120 -p ilut -ilutp 1 -ilutp_threshold 1.0 -ilut_rcm 1 -ilut_row_scale 1 -ilut_drop 0.005 -ilut_rate 12 -ilu_pivot_tol 1e-9 -omp_num_threads 1 -maxiter 1000 -scale none
+-i fgmres -restart 120 -p ilut -ilutp 1 -ilutp_threshold 0.5 -ilut_rcm 1 -ilut_row_scale 1 -ilut_drop 0.005 -ilut_rate 12 -ilu_pivot_tol 1e-9 -omp_num_threads 1 -maxiter 1000 -scale none
 ```
 
 - `-ilutp 0|1`: enable dynamic column pivoting (default 0).
 - `-ilutp_threshold <number>`: pivot when `abs(diagonal) < threshold * max(abs(uneliminated row))`.
-  Range [0,1], default 1 (choose the strongest remaining column).
+  Range [0,1], default 0.5 (pivot only when the diagonal is less than half the largest remaining entry).
 - `-ilu_pivot_tol`: existing *diagonal regularization*, applied **after**
   column selection. It is not itself pivoting.
 - `-ilut_rcm` and `-ilut_row_scale`: optional existing preprocessors, applied
@@ -25,8 +25,7 @@ No row permutations, MPI, complex scalars, FP16, or parallel factorization
 are provided in this initial version. OpenMP builds require one active solver
 thread (`-omp_num_threads 1`).
 
-The factorization uses the existing ILUT drop threshold and per-row fill
-budget. New upper column indices are kept in original factor-space numbering
+The factorization follows the existing ILUT rule of dropping new fill contributions below the row-average-based threshold before insertion, and uses the existing per-row L/U fill budget.  It does not apply an extra post-accumulation or final-factor drop.  A min-heap handles dynamically discovered lower entries in O(log n) per insertion/removal rather than quadratic selection scans.  With `-ilutp_threshold 0`, ILUTP delegates numerical factorization to the existing ILUT implementation and retains an identity column permutation, providing an exact no-pivot baseline. New upper column indices are kept in original factor-space numbering
 during elimination, then converted to final positions once all pivots have
 been selected. ILUTP intentionally disables the frozen-pattern update path:
 reusing a pattern from a different column permutation is not valid.
@@ -45,7 +44,11 @@ make -j2 check
 
 `testilutp` checks a nonsymmetric 4x4 matrix requiring column pivoting and
 verifies the full-fill preconditioner against exact forward and transpose
-solutions, with/without RCM and row scaling. It also checks option parsing.
+solutions, with/without RCM and row scaling.  It also compares L/U/D
+factors with legacy ILUT for `tau=0` (with/without RCM/row scaling),
+runs an end-to-end limited-fill FGMRES solve, checks preconditioner
+sequence reuse and pivot-threshold invalidation, and validates option parsing.
+Complex LIS builds skip this real-only regression.
 
 ## Development status
 
