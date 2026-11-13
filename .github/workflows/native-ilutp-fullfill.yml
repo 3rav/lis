@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - experiment/lis-native-fullfill-20261113
+      - feature/ilutp-sparse-column-pivoting-20261113
+  pull_request:
+    branches:
+      - develop
   workflow_dispatch:
 
 permissions:

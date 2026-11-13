@@ -1,6 +1,6 @@
 # Native LIS ILUTP validation on CCX contact Newton matrices
 
-**Status: mixed outcome; keep ILUTP experimental and opt-in.** These results are from an actual serial LIS executable built by GitHub Actions, not SciPy or SuperLU.
+**Status: mixed outcome for the *limited-fill* ILUTP mode; retain this negative-control benchmark.** These results are from an actual serial LIS executable built by GitHub Actions, not SciPy or SuperLU. A later independent complete-fill mode has additional validation; see the note at the end and [15-step native results](ilutp-native-contact-v2-15steps.md).
 
 ## Inputs and methodology
 
@@ -90,3 +90,29 @@ Change snapshot 05 to 03 for the 256-spring experiment. The CLI reports setup/so
 **Keep upstream PR Draft and ILUTP opt-in**; the 187-spring success is strong evidence for value on some contact systems, but the harder 256-spring case is still a breakdown with significant extra fill. Before promotion: diagnose early FGMRES/preconditioner breakdown, measure pivot growth and memory, and benchmark against matching-based ordering (such as MC64) and SuperLU row pivoting.
 
 These are direct linear-solver snapshots, not a nonlinear CCX increment acceptance test. No claim is made that the overall CCX nonlinear analysis now converges.
+
+
+## Follow-up: native complete-fill mode on a separate 15-step series
+
+After the limited-fill measurements above, LIS gained **optional native
+complete-fill ILUTP**, which retains all elimination fill and respects
+a configurable column-pivot threshold without linking to SuperLU.
+
+On a *separately supplied* archive with 15 original 60,265-DOF Newton
+matrix/RHS pairs (prefix `pivot1e9_test2`), `-ilutp_full 1`,
+`-ilutp_threshold 0.1`, RCM, row scaling and a 60-million factor-nonzero
+limit passed **15/15** linear systems. All obtained a physical relative
+residual below 2.84e-12 and used one FGMRES iteration. Largest observed
+stored L+U fill was 51,108,311 nonzeros; maximum observed peak RSS was
+799,024 KiB (~780 MiB). The most expensive setup cost 65.04 CPU seconds.
+The archive's spring counts are **not independently identified**; these
+15 cases are not claimed to be the separately named 187/256-spring inputs.
+
+This does **not** invalidate the limited-fill ILUTP failure above.
+It identifies a more expensive, numerically different optional mode
+that succeeded on the supplied series. Full CCX nonlinear analysis,
+memory exhaustion handling across all matrices, and reuse across changing
+Newton matrices are still untested.
+
+Details, exact commands, true residuals and limitations:
+[15-step native LIS Newton-series report](ilutp-native-contact-v2-15steps.md).
