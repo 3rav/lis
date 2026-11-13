@@ -54,6 +54,40 @@ iterations at rate=5 does *not* establish an improvement at equal memory.
 Native run + raw artifact:
 https://github.com/3rav/lis/actions/runs/43483544224
 
+## Extended native LIS sweep (2026-11-13)
+
+Native GitHub Actions: https://github.com/3rav/lis/actions/runs/43484101569
+
+Five column-unit contrasts (5, 10, 30, 100, 300), five ILUT drop
+thresholds (0.0001, 0.001, 0.005, 0.02, 0.05) and ten fill-rate
+settings (0.5 through 5) produce 250 parameter configurations.
+Each runs three LIS variants, for **750 successful solves**.
+
+Two-sided Equil used fewer GMRES iterations than row-only in 60/250
+parameter configurations. Only **three** comparisons also had
+<=10% more actual L+U nonzeros (two distinct numerical configurations;
+rate=1 and 1.25 share the same integer fill budget here).
+
+| Units | Drop | Rate | Mode | GMRES iterations | Actual L+U nonzeros | True relative residual |
+|---:|---:|---:|---|---:|---:|---:|
+| 100 | 0.05 | 1 | row | 10 | 533 | 4.7783e-7 |
+| 100 | 0.05 | 1 | both | 9 | 544 | 6.3871e-7 |
+| 5 | 0.0001 | 2 | row | 11 | 1027 | 3.5519e-7 |
+| 5 | 0.0001 | 2 | both | 10 | 986 | 8.3851e-7 |
+| 100 | 0.05 | 2 | row | 7 | 588 | 8.0587e-7 |
+| 100 | 0.05 | 2 | both | 4 | 759 | 3.7627e-8 |
+| 100 | 0.005 | 1 | row | 10 | 538 | 7.1469e-7 |
+| 100 | 0.005 | 1 | both | 13 | 549 | 8.2475e-7 |
+
+Interpretation: the 10->9 case shows a **small** improvement with
+only +2.1% factor fill, while the stronger 7->4 case requires
+**+29.1%** factor fill. There are also configurations where Equil
+**regresses**, including 10->13 iterations for +2% fill. These
+comparisons all meet the same 1e-6 original-system residual tolerance.
+The experiment is a controlled *manufactured* PDE and not a public
+reservoir or production FEA matrix. It establishes a possible
+setup/iteration trade-off, not a general time or memory advantage.
+
 ## Scope and caveats
 
 - The example shows an opt-in trade-off, not a general superiority of
