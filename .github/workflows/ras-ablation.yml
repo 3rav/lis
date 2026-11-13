@@ -48,6 +48,7 @@ jobs:
       - name: Zero overlap and raw-ordering ablation (no Schur, no row scale)
         run: |
           set -uo pipefail
+          set +e
           matrix="$(cat ablation/matrix.txt)"
           # Baseline ILUT, zero-overlap RAS and RAS+Schur share the same
           # original system and fill controls. The third variant is
