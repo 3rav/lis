@@ -1665,6 +1665,200 @@ done:
     return failed;
 }
 
+/* Optional, externally supplied Matrix Market comparison.
+ *
+ * ./test/testhalfilut --fea-ras A.mtx 8 8 8 0.005 8 1 1 1
+ *
+ * Rates are independent: base, RAS, RAS+Schur. The last four numbers
+ * specify RAS domains, overlap, RCM-ranked partition, OpenMP local
+ * apply. The benchmark measures wall time, NOT process CPU time.
+ * Fill entries are a storage proxy, not peak RSS; tune rates until
+ * the proxy fill_gap is <=5% before inferring cost/performance.
+ *
+ * No synthetic matrix is presented as a real contact-Newton snapshot.
+ */
+typedef struct {
+    LIS_INT iters,entries,ngamma,err;
+    LIS_REAL true_relres;
+    double setup_wall,solve_wall;
+    int converged;
+} LIS_RAS_BENCH_RESULT;
+
+static void
+run_fea_ras_case(LIS_MATRIX A,LIS_VECTOR b,int mode,
+                 double rate,double drop,LIS_INT domains,
+                 LIS_INT overlap,LIS_INT rcm,LIS_INT parallel,
+                 LIS_RAS_BENCH_RESULT *out)
+{
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_VECTOR x=NULL,r=NULL;
+    LIS_INT nl=0,nu=0,err=0;
+    LIS_REAL minpivot=0.0,maxpivot=0.0,bn=0.0,rn=0.0;
+    double t0=0.0,t1=0.0,t2=0.0;
+    char opts[512];
+    memset(out,0,sizeof(*out));
+    out->iters=-1;
+    out->true_relres=-1.0;
+    if(mode==0)
+        snprintf(opts,sizeof(opts),
+                 "-i fgmres -p ilut -scale none -print none "
+                 "-tol 1e-8 -maxiter 500 -restart 40 "
+                 "-ilu_pivot_tol 1e-10 -ilut_rate %.12g "
+                 "-ilut_drop %.12g",rate,drop);
+    else
+        snprintf(opts,sizeof(opts),
+                 "-i fgmres -p ilut -scale none -print none "
+                 "-tol 1e-8 -maxiter 500 -restart 40 "
+                 "-ilu_pivot_tol 1e-10 -ilut_rate %.12g "
+                 "-ilut_drop %.12g -ilut_ras_domains %ld "
+                 "-ilut_ras_overlap %ld -ilut_ras_rcm %ld "
+                 "-ilut_ras_parallel %ld -ilut_schur %d",
+                 rate,drop,(long)domains,(long)overlap,
+                 (long)rcm,(long)parallel,mode==2);
+    err=lis_solver_create(&solver);
+    if(err) goto done;
+    err=lis_solver_set_option(opts,solver);
+    if(err) goto done;
+    err=lis_solver_set_matrix(A,solver);
+    if(err) goto done;
+    err=lis_vector_duplicate(A,&x);
+    if(err) goto done;
+    err=lis_vector_duplicate(A,&r);
+    if(err) goto done;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,x);
+    if(err) goto done;
+    t0=lis_wtime();
+    err=lis_precon_create(solver,&pc);
+    t1=lis_wtime();
+    out->setup_wall=t1-t0;
+    if(err) { pc=NULL; goto done; }
+    solver->precon=pc;
+    if(mode==0)
+    {
+        err=lis_precon_ilut_factor_stats(pc,&nl,&nu,
+                                          &minpivot,&maxpivot);
+        if(err) goto done;
+        if(nl<0 || nu<0) { err=LIS_ERR_ILL_ARG; goto done; }
+        out->entries=nl+nu;
+    }
+    else
+    {
+        err=lis_precon_ilut_ras_factor_entries(pc,&out->entries);
+        if(err) goto done;
+        err=lis_precon_ilut_ras_interface_size(pc,&out->ngamma);
+        if(err) goto done;
+    }
+    err=lis_solve_kernel(A,b,x,solver,pc);
+    t2=lis_wtime();
+    out->solve_wall=t2-t1;
+    if(err) goto done;
+    err=lis_solver_get_iter(solver,&out->iters);
+    if(err) goto done;
+    err=lis_matvec(A,x,r);
+    if(err) goto done;
+    err=lis_vector_axpy((LIS_SCALAR)-1.0,b,r);
+    if(err) goto done;
+    err=lis_vector_nrm2(r,&rn);
+    if(err) goto done;
+    err=lis_vector_nrm2(b,&bn);
+    if(err || !(bn>0.0)) { err=LIS_ERR_ILL_ARG; goto done; }
+    out->true_relres=rn/bn;
+    out->converged=isfinite((double)out->true_relres) &&
+                    out->true_relres<=1.0e-7;
+done:
+    out->err=err;
+    if(pc)
+    {
+        if(solver) solver->precon=NULL;
+        lis_precon_destroy(pc);
+    }
+    if(solver) lis_solver_destroy(solver);
+    if(r) lis_vector_destroy(r);
+    if(x) lis_vector_destroy(x);
+}
+
+static int
+run_fea_ras_compare(const char *file,double base_rate,double ras_rate,
+                    double schur_rate,double drop,LIS_INT domains,
+                    LIS_INT overlap,LIS_INT rcm,LIS_INT parallel)
+{
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR truth=NULL,b=NULL;
+    LIS_RAS_BENCH_RESULT m[3];
+    double rates[3],gap;
+    LIS_INT i,err=0;
+    int failed=1,mode;
+    const char *names[3]={"baseline","ras","ras_schur"};
+    if(!file || !isfinite(base_rate) || !(base_rate>0.0) ||
+       !isfinite(ras_rate) || !(ras_rate>0.0) ||
+       !isfinite(schur_rate) || !(schur_rate>0.0) ||
+       !isfinite(drop) || drop<0.0 || drop>=1.0 ||
+       domains<2 || domains>64 || overlap<0 || overlap>2 ||
+       (rcm!=0 && rcm!=1) || (parallel!=0 && parallel!=1))
+        return 1;
+    rates[0]=base_rate; rates[1]=ras_rate; rates[2]=schur_rate;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    err=lis_input_matrix(A,(char *)file);
+    if(err) goto done;
+    if(A->nprocs!=1 || A->matrix_type!=LIS_MATRIX_CSR ||
+       A->n!=A->gn || A->n<domains)
+    {
+        err=LIS_ERR_NOT_IMPLEMENTED;
+        goto done;
+    }
+    err=lis_vector_duplicate(A,&truth);
+    if(err) goto done;
+    err=lis_vector_duplicate(A,&b);
+    if(err) goto done;
+    for(i=0;i<A->n;i++)
+        truth->value[i]=(LIS_SCALAR)(1.0+0.017*(double)((i*19)%29));
+    err=lis_matvec(A,truth,b);
+    if(err) goto done;
+    for(mode=0;mode<3;mode++)
+        run_fea_ras_case(A,b,mode,rates[mode],drop,domains,
+                         overlap,rcm,parallel,&m[mode]);
+    printf("FEA_RAS_MATRIX file=%s n=%ld nnz_A=%ld "
+           "domains=%ld overlap=%ld rcm=%ld parallel=%ld "
+           "OMP_NUM_THREADS=%s\n",
+           file,(long)A->n,(long)A->nnz,
+           (long)domains,(long)overlap,(long)rcm,(long)parallel,
+           getenv("OMP_NUM_THREADS") ? getenv("OMP_NUM_THREADS") : "(unset)");
+    printf("variant,rate,stored_entry_proxy,ngamma,iterations,"
+           "true_relres,setup_wall_s,solve_wall_s,total_wall_s,"
+           "fill_gap_vs_baseline,fair_fill,status,lis_error\n");
+    for(mode=0;mode<3;mode++)
+    {
+        gap=m[0].entries>0 && m[mode].entries>0 ?
+            fabs((double)m[mode].entries-(double)m[0].entries)/
+            (double)m[0].entries : -1.0;
+        printf("%s,%.9g,%ld,%ld,%ld,%.9g,%.6f,%.6f,%.6f,"
+               "%.5f,%s,%s,%ld\n",
+               names[mode],rates[mode],(long)m[mode].entries,
+               (long)m[mode].ngamma,(long)m[mode].iters,
+               (double)m[mode].true_relres,
+               m[mode].setup_wall,m[mode].solve_wall,
+               m[mode].setup_wall+m[mode].solve_wall,
+               gap,gap>=0.0 && gap<=0.05 ? "yes":"no",
+               m[mode].err==0 && m[mode].converged ? "converged" :
+               (m[mode].err ? "solver_error" : "not_converged"),
+               (long)m[mode].err);
+    }
+    failed=0;
+    for(mode=0;mode<3;mode++)
+        if(m[mode].err || !m[mode].converged) failed=1;
+done:
+    if(err) fprintf(stderr,"FEA_RAS_INPUT_ERROR file=%s rc=%ld\n",
+                    file,(long)err);
+    if(b) lis_vector_destroy(b);
+    if(truth) lis_vector_destroy(truth);
+    if(A) lis_matrix_destroy(A);
+    return failed;
+}
+
 
 int
 main(
@@ -1708,6 +1902,30 @@ main(
 	{
 		failed=check_ilut_sparse_schur_smoke(
 		    strcmp(argv[1],"--ras-rcm-smoke")==0);
+		lis_finalize();
+		return failed ? 1 : 0;
+	}
+
+	if(argc==11 && strcmp(argv[1],"--fea-ras")==0)
+	{
+		char *end[8],*value[8];
+		double br,rr,sr,drop;
+		long domains,overlap,rcm,parallel;
+		int j,valid=1;
+		for(j=0;j<8;j++) { value[j]=argv[j+3]; end[j]=NULL; }
+		br=strtod(value[0],&end[0]);
+		rr=strtod(value[1],&end[1]);
+		sr=strtod(value[2],&end[2]);
+		drop=strtod(value[3],&end[3]);
+		domains=strtol(value[4],&end[4],10);
+		overlap=strtol(value[5],&end[5],10);
+		rcm=strtol(value[6],&end[6],10);
+		parallel=strtol(value[7],&end[7],10);
+		for(j=0;j<8;j++)
+		    if(end[j]==value[j] || *end[j]!='\0') valid=0;
+		failed=valid ? run_fea_ras_compare(argv[2],br,rr,sr,drop,
+                    (LIS_INT)domains,(LIS_INT)overlap,
+                    (LIS_INT)rcm,(LIS_INT)parallel) : 1;
 		lis_finalize();
 		return failed ? 1 : 0;
 	}
