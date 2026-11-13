@@ -355,6 +355,94 @@ cleanup:
     return failed;
 }
 
+/* Complete-fill mode is an in-library alternative to incomplete LU;
+ * verify Ax and A^T x, a deliberately weak ILUTP control, and the
+ * explicit factor-memory budget without relying on external solvers. */
+static int check_full_fill(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_VECTOR truth=NULL,b=NULL,bt=NULL,x=NULL,r=NULL;
+    LIS_INT e,i,nnzl=0,nnzu=0;
+    double weak=0.0,bnorm=0.0,rnorm=0.0,maxerr=0.0;
+    int failed=1;
+
+    e=make_sparse_matrix(&A,0);if(e)goto done;
+    e=lis_vector_duplicate(A,&truth);if(e)goto done;
+    e=lis_vector_duplicate(A,&b);if(e)goto done;
+    e=lis_vector_duplicate(A,&bt);if(e)goto done;
+    e=lis_vector_duplicate(A,&x);if(e)goto done;
+    e=lis_vector_duplicate(A,&r);if(e)goto done;
+    for(i=0;i<REG_N;i++)truth->value[i]=1.0+0.3*sin((double)i*0.13);
+    e=lis_matvec(A,truth,b);if(e)goto done;
+    e=lis_matvech(A,truth,bt);if(e)goto done;
+    e=lis_vector_nrm2(b,&bnorm);if(e || !(bnorm>0))goto done;
+    e=lis_solver_create(&solver);if(e)goto done;
+    solver->A=A;
+    e=lis_solver_set_option(
+        "-i fgmres -p ilut -ilutp 1 -ilutp_threshold 1 "
+        "-ilut_drop 0.5 -ilut_rate 0.2 -ilu_pivot_tol 0 "
+        "-scale none -omp_num_threads 1",solver);if(e)goto done;
+    /* Incomplete control has the same pivot policy but tiny fill. */
+    e=lis_precon_create(solver,&pc);if(e){pc=NULL;goto done;}
+    solver->precon=pc;
+    e=lis_psolve_ilut_csr(solver,b,x);if(e)goto done;
+    e=lis_matvec(A,x,r);if(e)goto done;
+    e=lis_vector_axpy(-1.0,b,r);if(e)goto done;
+    e=lis_vector_nrm2(r,&rnorm);if(e)goto done;
+    weak=(double)rnorm/(double)bnorm;
+    solver->precon=NULL;
+    lis_precon_destroy(pc);pc=NULL;
+    if(weak<1e-4)goto done;
+
+    e=lis_solver_set_option("-ilutp_full 1 -ilutp_full_limit 1",solver);
+    if(e)goto done;
+    e=lis_precon_create(solver,&pc);
+    if(e!=LIS_OUT_OF_MEMORY)goto done;
+    pc=NULL; /* create destroys failed partial factors */
+    e=lis_solver_set_option("-ilutp_full_limit 5000",solver);if(e)goto done;
+    e=lis_precon_create(solver,&pc);if(e){pc=NULL;goto done;}
+    if(!solver->ilutp_full || pc->ilutp_colperm==NULL)goto done;
+    for(i=0;i<REG_N;i++){nnzl+=pc->L->nnz[i];nnzu+=pc->U->nnz[i];}
+    if(nnzl+nnzu<=0 || nnzl+nnzu>5000)goto done;
+    solver->precon=pc;
+    e=lis_psolve_ilut_csr(solver,b,x);if(e)goto done;
+    for(i=0;i<REG_N;i++) {
+        double d=fabs(x->value[i]-truth->value[i]);
+        if(d>maxerr)maxerr=d;
+    }
+    if(maxerr>1e-10)goto done;
+    e=lis_psolveh_ilut_csr(solver,bt,x);if(e)goto done;
+    for(i=0;i<REG_N;i++) {
+        double d=fabs(x->value[i]-truth->value[i]);
+        if(d>maxerr)maxerr=d;
+    }
+    if(maxerr>1e-10)goto done;
+    e=lis_matvec(A,x,r);if(e)goto done;
+    /* Physical transpose solved above; forward x equals the same truth. */
+    e=lis_vector_axpy(-1.0,b,r);if(e)goto done;
+    e=lis_vector_nrm2(r,&rnorm);if(e)goto done;
+    if((double)rnorm/(double)bnorm>1e-11)goto done;
+    printf("ILUTP_FULL n=%d weak_relres=%.9g full_relres=%.9g "
+           "maxerr=%.9g factor_nnz=%d\n",(int)REG_N,
+           weak,(double)rnorm/(double)bnorm,maxerr,(int)(nnzl+nnzu));
+    failed=0;
+done:
+    if(failed)fprintf(stderr,"ILUTP_FULL FAIL err=%d weak=%g fullmaxerr=%g\n",
+                       (int)e,weak,maxerr);
+    if(solver)solver->precon=NULL;
+    if(pc)lis_precon_destroy(pc);
+    if(solver)lis_solver_destroy(solver);
+    if(r)lis_vector_destroy(r);
+    if(x)lis_vector_destroy(x);
+    if(bt)lis_vector_destroy(bt);
+    if(b)lis_vector_destroy(b);
+    if(truth)lis_vector_destroy(truth);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     int failed=0;
@@ -373,16 +461,19 @@ int main(int argc,char **argv)
     failed|=check_tau_zero(0,1);
     failed|=check_tau_zero(1,1);
     failed|=check_fgmres_sequence();
+    failed|=check_full_fill();
     err=lis_solver_create(&solver);
     if(err)failed=1;
     else
     {
-        if(fabs(solver->ilutp_threshold-0.5)>1e-12)failed=1;
+        if(fabs(solver->ilutp_threshold-0.5)>1e-12 || solver->ilutp_full)failed=1;
         if(lis_solver_set_option("-p ilut -ilutp 1 -ilutp_threshold 0.5",
                                   solver)!=LIS_SUCCESS ||
            !solver->ilutp_enabled ||
            fabs(solver->ilutp_threshold-0.5)>1e-12 ||
-           lis_solver_set_option("-ilutp_threshold 2.0",solver)==LIS_SUCCESS)
+           lis_solver_set_option("-ilutp_threshold 2.0",solver)==LIS_SUCCESS ||
+           lis_solver_set_option("-ilutp_full_limit nope",solver)==LIS_SUCCESS ||
+           lis_solver_set_option("-ilutp_full 2",solver)==LIS_SUCCESS)
             failed=1;
         lis_solver_destroy(solver);
     }
