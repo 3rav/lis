@@ -83,6 +83,42 @@ jobs:
       - name: Run Automake test suite
         run: make -j2 check
 
+      - name: Compile and test optional SuperLU Direct preconditioner
+        if: matrix.mode == 'serial'
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y libsuperlu-dev libblas-dev
+          cc -std=c99 -Wall -Wextra -Werror -O2 \
+            -DHAVE_CONFIG_H -I./include -I./contrib/superlu_direct \
+            contrib/superlu_direct/testsuperlu_direct.c \
+            contrib/superlu_direct/lis_superlu_direct.c \
+            src/.libs/liblis.a \
+            $(pkg-config --cflags --libs superlu) -lblas -lm \
+            -o testsuperlu_direct
+          ./testsuperlu_direct | tee superlu-direct-smoke.log
+          grep -q '^SUPERLU_PLUGIN_TEST ' superlu-direct-smoke.log
+          cc -std=c99 -Wall -Wextra -Werror -O2 \
+            -DHAVE_CONFIG_H -I./include -I./contrib/superlu_direct \
+            contrib/superlu_direct/benchsuperlu.c \
+            contrib/superlu_direct/lis_superlu_direct.c \
+            src/.libs/liblis.a \
+            $(pkg-config --cflags --libs superlu) -lblas -lm \
+            -o benchsuperlu
+          ./benchsuperlu test/testmat2.mtx test/benchilutp_rhs_100.mtx \
+            | tee superlu-direct-bench.log
+          grep -q '^SUPERLU_LIS_NATIVE n=100 .*iter=1 status=0 ' superlu-direct-bench.log
+          cc -std=c99 -Wall -Wextra -Werror -O1 -g \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DHAVE_CONFIG_H -I./include -I./contrib/superlu_direct \
+            contrib/superlu_direct/testsuperlu_singular.c \
+            contrib/superlu_direct/lis_superlu_direct.c \
+            src/.libs/liblis.a \
+            $(pkg-config --cflags --libs superlu) -lblas -lm \
+            -o testsuperlu_singular_asan
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+            ./testsuperlu_singular_asan | tee superlu-singular-smoke.log
+          grep -q '^SUPERLU_SINGULAR ' superlu-singular-smoke.log
+
       - name: Smoke-test native ILUTP Matrix Market comparison
         if: matrix.mode == 'serial'
         run: |
