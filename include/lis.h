@@ -901,6 +901,8 @@ struct LIS_PRECON_STRUCT
 	LIS_SCALAR *ilut_row_scale; /* factor-space row weights */
 	LIS_VECTOR ilut_work_b, ilut_work_x;
 	LIS_INT ilut_apply_active;
+	/* Optional two-sided ILUT equilibration: factor-space column weights. */
+	LIS_SCALAR *ilut_col_scale;
 };
 typedef struct LIS_PRECON_STRUCT *LIS_PRECON;
 
@@ -1106,6 +1108,9 @@ struct LIS_SOLVER_STRUCT
 	LIS_INT ilut_row_scale;
 	LIS_INT sequence_precon_ilut_rcm;
 	LIS_INT sequence_precon_ilut_row_scale;
+	/* Opt-in two-sided R*A*C ILUT equilibration, disabled by default. */
+	LIS_INT ilut_equil;
+	LIS_INT sequence_precon_ilut_equil;
 };
 typedef struct LIS_SOLVER_STRUCT *LIS_SOLVER;
 

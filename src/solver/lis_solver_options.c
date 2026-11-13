@@ -96,6 +96,10 @@ lis_solver_set_option_replace(
     solver->mfamg_fine_agg_factor = fresh->mfamg_fine_agg_factor;
     solver->mfamg_vcycle_smooth_steps = fresh->mfamg_vcycle_smooth_steps;
     solver->mfamg_deep_sibling_merge = fresh->mfamg_deep_sibling_merge;
+    /* ILUT options live outside public options[] and must not be lost. */
+    solver->ilut_rcm = fresh->ilut_rcm;
+    solver->ilut_row_scale = fresh->ilut_row_scale;
+    solver->ilut_equil = fresh->ilut_equil;
 
     /* GCRO-DR configuration is stored outside options[] / params[]. */
     solver->recycle_target_dim = fresh->recycle_target_dim;
@@ -202,6 +206,10 @@ lis_solver_set_option_replace_if_changed(
     if(!different && solver->mfamg_vcycle_smooth_steps!=fresh->mfamg_vcycle_smooth_steps)
         different = LIS_TRUE;
     if(!different && solver->mfamg_deep_sibling_merge!=fresh->mfamg_deep_sibling_merge)
+        different = LIS_TRUE;
+    if(!different && (solver->ilut_rcm!=fresh->ilut_rcm ||
+                      solver->ilut_row_scale!=fresh->ilut_row_scale ||
+                      solver->ilut_equil!=fresh->ilut_equil))
         different = LIS_TRUE;
 
     /* Include solver-specific GCRO-DR profile fields in comparisons. */
