@@ -1,0 +1,66 @@
+name: Diagnose baseline eigensolver compiler flags
+
+on:
+  push:
+    branches:
+      - diagnostics/gcc15-esolver-base-flags-20261114
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    name: Baseline GCC 15 (${{ matrix.label }})
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: native-O3
+            flags: -O3 -fomit-frame-pointer -march=x86-64-v3
+          - label: gnu17
+            flags: -O3 -fomit-frame-pointer -march=x86-64-v3 -std=gnu17
+          - label: no-FMA
+            flags: -O3 -fomit-frame-pointer -march=x86-64-v3 -ffp-contract=off
+          - label: no-vectorization
+            flags: -O3 -fomit-frame-pointer -march=x86-64-v3 -fno-tree-vectorize
+          - label: O2
+            flags: -O2 -fomit-frame-pointer -march=x86-64-v3
+          - label: O0
+            flags: -O0 -march=x86-64-v3
+    env:
+      OMP_NUM_THREADS: '2'
+      OMP_DYNAMIC: FALSE
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          cat /etc/os-release
+          gcc --version
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build original code and execute the three failing regressions
+        env:
+          MATRIX_CFLAGS: ${{ matrix.flags }}
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --disable-fortran --disable-f90 \
+            --disable-saamg --disable-mpi CFLAGS="${MATRIX_CFLAGS}"
+          make -j2
+          make -C test -j2 check \
+            TESTS="testeigenbreakdown test_krylov_unified test_krylov_openmp"
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-${{ matrix.label }}-logs
+          path: |
+            config.log
+            test/test-suite.log
+            test/testeigenbreakdown.log
+            test/test_krylov_unified.log
+            test/test_krylov_openmp.log
+          if-no-files-found: ignore
