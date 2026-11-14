@@ -1,0 +1,58 @@
+name: Verify PR 229 + GCC 15 eigensolver regression fix
+
+on:
+  push:
+    branches:
+      - verify/pr229-gcc15-esolver-20261114
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  esolver-ubuntu-2604:
+    name: Ubuntu 26.04 GCC 15 (${{ matrix.mode }})
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: serial
+            configure_options: ''
+          - mode: openmp
+            configure_options: '--enable-omp'
+          - mode: half
+            configure_options: '--enable-half'
+    env:
+      OMP_NUM_THREADS: '2'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record environment
+        run: |
+          cat /etc/os-release
+          gcc --version
+          ldd --version | head -n 1
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build and run full regression suite
+        env:
+          CONFIGURE_OPTIONS: ${{ matrix.configure_options }}
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --disable-fortran --disable-f90 \
+            --disable-saamg --disable-mpi ${CONFIGURE_OPTIONS}
+          make -j2
+          make -j2 check
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcc15-esolver-${{ matrix.mode }}-logs
+          path: |
+            config.log
+            test/test-suite.log
+            test/*.log
+          if-no-files-found: ignore
