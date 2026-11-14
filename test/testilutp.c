@@ -610,6 +610,7 @@ static int check_hybrid_ilutp(void)
         "-hybrid_maxiter 40 -hybrid_restart 20 -hybrid_tol 1e-12 "
         "-ilutp 1 -ilutp_full 1 -ilutp_threshold 0.1 "
         "-ilutp_full_limit 5000 -ilut_rcm 1 -ilut_row_scale 1 "
+        "-ilut_equil 1 "
         "-ilut_drop 0.02 -ilut_rate 1.1 -ilu_pivot_tol 0 "
         "-scale none -omp_num_threads 1",solver);
     if(err)goto cleanup;
@@ -618,6 +619,7 @@ static int check_hybrid_ilutp(void)
     if(!inner || !inner->precon ||
        !inner->ilutp_enabled || !inner->ilutp_full ||
        !inner->ilut_rcm || !inner->ilut_row_scale ||
+       !inner->ilut_equil || !inner->precon->ilut_col_scale ||
        fabs(inner->ilutp_threshold-0.1)>1e-12 ||
        inner->ilutp_full_limit!=5000 ||
        !inner->precon->ilutp_colperm)
@@ -637,6 +639,30 @@ static int check_hybrid_ilutp(void)
     pc=NULL; /* LIS destroyed the failed nested object */
     err=lis_solver_set_precon_half(solver,LIS_PRECON_HALF_OFF);
     if(err)goto cleanup;
+
+    /* Equil by itself must also reach the inner ILUT even if
+     * ILUTP is disabled.  The outer solver must remain unaffected. */
+    err=lis_solver_set_option("-ilutp 0 -ilutp_full 0",solver);
+    if(err)goto cleanup;
+    err=lis_precon_create(solver,&pc);if(err){pc=NULL;goto cleanup;}
+    inner=pc->solver;
+    if(!inner || !inner->precon || inner->ilutp_enabled ||
+       !inner->ilut_equil || !inner->precon->ilut_col_scale ||
+       inner->precon->ilutp_colperm)
+        goto cleanup;
+    solver->precon=pc;
+    err=lis_psolve_hybrid(solver,b,x);
+    if(err || !solution_close(x,truth))goto cleanup;
+    solver->precon=NULL;
+    lis_precon_destroy(pc);pc=NULL;
+
+    /* Equil-only with a non-ILUT nested preconditioner must reject
+     * rather than silently ignore requested scaling. */
+    err=lis_solver_set_option("-hybrid_p none",solver);
+    if(err)goto cleanup;
+    err=lis_precon_create(solver,&pc);
+    if(err!=LIS_ERR_ILL_ARG)goto cleanup;
+    pc=NULL;
 
     /* An ILUTP request with a different Hybrid inner preconditioner
      * must fail instead of silently ignoring the option. */
