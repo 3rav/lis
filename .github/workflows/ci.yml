@@ -116,6 +116,14 @@ jobs:
 
       - name: Run Automake test suite
         run: make -j2 check
+      - name: Verify 1/2/4/8-thread MFAMG V-cycle determinism
+        if: matrix.mode == 'openmp'
+        run: |
+          set -euo pipefail
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testmfamgvcycle --omp-stress | tee mfamg-omp.log
+          grep -q 'MFAMG_OMP_STRESS mode=0 threads=8 .* PASS' mfamg-omp.log
+          grep -q 'MFAMG_OMP_STRESS mode=1 threads=8 .* PASS' mfamg-omp.log
+
 
       - name: Smoke-test native ILUTP Matrix Market comparison
         if: matrix.mode == 'serial'
@@ -542,6 +550,14 @@ jobs:
 
       - name: Run Automake test suite
         run: make -j2 check
+
+      - name: Verify 1/2/4/8-thread MFAMG V-cycle on MSYS2
+        if: matrix.mode == 'openmp'
+        run: |
+          set -euo pipefail
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testmfamgvcycle.exe --omp-stress | tee mfamg-omp-msys2.log
+          grep -q 'MFAMG_OMP_STRESS mode=0 threads=8 .* PASS' mfamg-omp-msys2.log
+          grep -q 'MFAMG_OMP_STRESS mode=1 threads=8 .* PASS' mfamg-omp-msys2.log
 
       - name: Upload failed test logs
         if: failure()
