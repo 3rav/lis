@@ -1352,6 +1352,58 @@ cleanup:
 
 
 /*
+ * Regression for option-tokenizer OOM: lis_text2args must clean up a
+ * partially constructed linked list and lis_solver_set_option must
+ * propagate the error, not dereference a null list.
+ */
+static int check_ilutp_options_oom(void)
+{
+#ifndef LIS_TEST_OOM
+    return 0;
+#else
+    LIS_SOLVER solver=NULL;
+    LIS_INT err=0;
+    size_t baseline,calls,fail_at,hit;
+    int failed=1;
+    const char *options=
+        "-i fgmres -p ilut -ilutp 1 -ilutp_threshold 0.5 "
+        "-ilut_ras_domains 8 -ilut_ras_overlap 1 -scale none";
+
+    err=lis_solver_create(&solver);
+    if(err) goto done;
+    baseline=lis_test_oom_live();
+    lis_test_oom_begin(0);
+    err=lis_solver_set_option((char *)options,solver);
+    lis_test_oom_end();
+    calls=lis_test_oom_calls();
+    if(err || calls<7 || lis_test_oom_live()!=baseline)
+        goto done;
+
+    for(fail_at=1;fail_at<=calls;fail_at++)
+    {
+        lis_test_oom_begin(fail_at);
+        err=lis_solver_set_option((char *)options,solver);
+        lis_test_oom_end();
+        hit=lis_test_oom_calls();
+        if(err!=LIS_OUT_OF_MEMORY || hit!=fail_at ||
+           lis_test_oom_live()!=baseline)
+        {
+            fprintf(stderr,
+                    "ILUT_OPTIONS_OOM_FAIL fail_at=%lu err=%ld count=%lu\n",
+                    (unsigned long)fail_at,(long)err,(unsigned long)hit);
+            goto done;
+        }
+    }
+    printf("ILUT_OPTIONS_OOM_PASS checked=%lu\n",(unsigned long)calls);
+    failed=0;
+done:
+    lis_test_oom_end();
+    if(solver) lis_solver_destroy(solver);
+    return failed;
+#endif
+}
+
+/*
  * Test-only fault injection: allow one local ILUTP worker to see OOM
  * while the other OpenMP workers are still active. The creator must join
  * all workers and free every partially constructed domain.
@@ -2062,6 +2114,7 @@ main(
 		failed=check_ilut_ras_local_ilutp();
 		failed |= check_ilut_ras_parallel_overlap();
 		failed |= check_ilut_ras_parallel_oom();
+		failed |= check_ilutp_options_oom();
 		lis_finalize();
 		return failed ? 1 : 0;
 	}
