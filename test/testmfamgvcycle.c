@@ -154,7 +154,8 @@ static int mfamg_omp_stress(void)
     if(A->nprocs!=1) { failed=0; goto done; }
     for(i=0;i<STRESS_N;i++)
     {
-        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)4,A);
+        /* Near-Poisson coupling stays strong across many AMG levels. */
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)2.001,A);
         if(err) goto done;
         if(i>0) {
             err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,(LIS_SCALAR)-1,A);
