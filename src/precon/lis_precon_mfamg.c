@@ -1,6 +1,6 @@
 /* Copyright (C) 2005 The Scalable Software Infrastructure Project.
  *
- * Serial two-level matrix-free aggregation preconditioner.
+ * Matrix-free aggregation preconditioner with optional OpenMP row kernels.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -10079,22 +10079,6 @@ lis_mfamg_prepare_terminal(
         ||
         state->coarse_x!=NULL)
     {
-        if(getenv("LIS_MFAMG_TRACE_SETUP"))
-            fprintf(stderr,
-                "MFAMG_TERMINAL_REJECT n=%ld gn=%ld type=%ld "
-                "limit=%ld levels=%ld state=%p coarse=%p lu=%p "
-                "pivots=%p rhs=%p x=%p\n",
-                A ? (long)A->n : -1L,
-                A ? (long)A->gn : -1L,
-                A ? (long)A->matrix_type : -1L,
-                (long)terminal_limit,
-                state ? (long)state->nlevels : -1L,
-                (void *)state,
-                state ? (void *)state->coarse : NULL,
-                state ? (void *)state->lu : NULL,
-                state ? (void *)state->pivots : NULL,
-                state ? (void *)state->coarse_rhs : NULL,
-                state ? (void *)state->coarse_x : NULL);
         return LIS_ERR_ILL_ARG;
     }
 
@@ -13671,7 +13655,7 @@ lis_precon_create_mfamg(
                 &capabilities);
 
         if(err)
-            do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+            return err;
 
         required =
             LIS_MATRIX_CAP_MATVEC
@@ -13890,7 +13874,7 @@ lis_precon_create_mfamg(
             }
 
             lis_mfamg_state_free(state);
-            do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+            return err;
         }
 
         if(row_nnz<0)
@@ -14009,7 +13993,7 @@ lis_precon_create_mfamg(
 
         lis_mfamg_state_free(state);
 
-        do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+        return err;
     }
 
 
@@ -14048,7 +14032,7 @@ lis_precon_create_mfamg(
 
         lis_mfamg_state_free(state);
 
-        do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+        return err;
     }
 
 
@@ -14100,7 +14084,7 @@ lis_precon_create_mfamg(
 
             lis_mfamg_state_free(state);
 
-            do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+            return err;
         }
 
 
@@ -14121,7 +14105,7 @@ lis_precon_create_mfamg(
 
             lis_mfamg_state_free(state);
 
-            do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+            return err;
         }
 
 
@@ -14148,7 +14132,7 @@ lis_precon_create_mfamg(
             }
 
             lis_mfamg_state_free(state);
-            do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+            return err;
         }
 
 
@@ -14217,7 +14201,7 @@ lis_precon_create_mfamg(
                 coarse_basis = NULL;
             }
             lis_mfamg_state_free(state);
-            do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+            return err;
         }
     }
 
@@ -14259,7 +14243,7 @@ lis_precon_create_mfamg(
         }
 
         lis_mfamg_state_free(state);
-        do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+        return err;
     }
 
 
@@ -14277,7 +14261,7 @@ lis_precon_create_mfamg(
         }
 
         lis_mfamg_state_free(state);
-        do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+        return err;
     }
 
 
@@ -14294,7 +14278,7 @@ lis_precon_create_mfamg(
         }
 
         lis_mfamg_state_free(state);
-        do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+        return err;
     }
 
 
@@ -14316,7 +14300,7 @@ lis_precon_create_mfamg(
 
         lis_mfamg_state_free(state);
 
-        do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+        return err;
     }
 
 
@@ -14340,7 +14324,7 @@ lis_precon_create_mfamg(
         }
 
         lis_mfamg_state_free(state);
-        do { if(err && getenv("LIS_MFAMG_TRACE_SETUP")) fprintf(stderr,"MFAMG_SETUP_FAIL line=%d rc=%d\n",__LINE__,(int)err); return err; } while(0);
+        return err;
     }
 
 
