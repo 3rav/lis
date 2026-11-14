@@ -58,6 +58,16 @@ experimental dense approximate interface Schur correction is limited to
   explicitly unsupported. Overlap values 0..2, domains 2..16.
 * The existing core partitioning is contiguous, not a graph partitioner.
   Performance and convergence may be sensitive to the matrix ordering.
+* Local factorization scheduling is dynamic (one domain per work item)
+  to balance unequal fill-in; apply uses static scheduling.
+* The global allocation registry is protected against concurrent mutations.
+  Large raw allocations and free() occur outside the registry lock, but
+  tracked reallocations and metadata updates remain serialized.
+* The shared error-printing/debug subsystem and other legacy code have not
+  been proven fully race-free under arbitrary concurrent failing operations.
+  Full end-to-end race analysis (e.g. Helgrind/TSan with runtime-compatible
+  OpenMP instrumentation) and real contact-system benchmarks remain review
+  tasks. Passing OpenMP regression tests is not a proof of race freedom.
 * RCM and row scaling operate on **each extracted local matrix**. They do not
   implement whole-system two-sided Equil in this branch.
 
@@ -71,13 +81,20 @@ relative residual and exact-solution error below 1e-10, and ensures the
 outer OpenMP thread budget is restored. It retains the negative test that
 full fill without ILUTP is rejected.
 
+A second 32x32 regression deliberately couples different owner cores using
+nonsymmetric off-diagonal links, with graph overlap 1 and 2, local RCM and
+row scaling, and both dropped ILUTP and bounded complete-fill ILUTP.
+For each mode it checks the original-system residual and requires an exactly
+identical preconditioner application result for 1/2/4/8 threads and repeated
+calls, including reads from overlapping imported RHS rows.
+
 Run, for example:
 
 ```sh
 autoreconf -fiv
 ./configure --enable-test --enable-omp --disable-fortran --disable-f90 --disable-mpi --disable-saamg
 make -j2
-OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testhalfilut
+OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testhalfilut --parallel-ras-ilutp
 make -j2 check
 ```
 
