@@ -10239,6 +10239,22 @@ lis_mfamg_prepare_terminal(
         ||
         state->coarse_x!=NULL)
     {
+        if(getenv("LIS_MFAMG_TRACE_SETUP"))
+            fprintf(stderr,
+                "MFAMG_TERMINAL_REJECT n=%ld gn=%ld type=%ld "
+                "limit=%ld levels=%ld state=%p coarse=%p lu=%p "
+                "pivots=%p rhs=%p x=%p\n",
+                A ? (long)A->n : -1L,
+                A ? (long)A->gn : -1L,
+                A ? (long)A->matrix_type : -1L,
+                (long)terminal_limit,
+                state ? (long)state->nlevels : -1L,
+                (void *)state,
+                state ? (void *)state->coarse : NULL,
+                state ? (void *)state->lu : NULL,
+                state ? (void *)state->pivots : NULL,
+                state ? (void *)state->coarse_rhs : NULL,
+                state ? (void *)state->coarse_x : NULL);
         return LIS_ERR_ILL_ARG;
     }
 
