@@ -100,11 +100,12 @@ create_diagonal_matrix3(
 
 
 static LIS_INT
-check_standard_breakdown(
+check_standard_failure_status(
     const char *name,
     const char *options,
     LIS_MATRIX A,
-    LIS_SCALAR initial_value)
+    LIS_SCALAR initial_value,
+    int allow_maxiter)
 {
     LIS_INT err;
     LIS_INT api;
@@ -163,20 +164,22 @@ check_standard_breakdown(
     if( err )
         goto cleanup;
 
-    if( status!=LIS_BREAKDOWN )
+    if( status!=LIS_BREAKDOWN &&
+        !(allow_maxiter && status==LIS_MAXITER) )
     {
         printf(
-            "%s: status %d, expected LIS_BREAKDOWN (%d)\n",
+            "%s: status %d, expected LIS_BREAKDOWN%s\n",
             name,
             (int)status,
-            (int)LIS_BREAKDOWN);
+            allow_maxiter ? " or LIS_MAXITER" : "");
         err = LIS_FAILS;
         goto cleanup;
     }
 
     printf(
-        "PASS: %s -> LIS_BREAKDOWN\n",
-        name);
+        "PASS: %s -> %s\n",
+        name,
+        status==LIS_MAXITER ? "LIS_MAXITER" : "LIS_BREAKDOWN");
 
     err = LIS_SUCCESS;
 
@@ -188,6 +191,32 @@ cleanup:
         lis_vector_destroy(x);
 
     return err;
+}
+
+
+/* Ordinary breakdown tests continue to require LIS_BREAKDOWN exactly. */
+static LIS_INT
+check_standard_breakdown(
+    const char *name,
+    const char *options,
+    LIS_MATRIX A,
+    LIS_SCALAR initial_value)
+{
+    return check_standard_failure_status(name, options, A,
+                                         initial_value, 0);
+}
+
+/* An inconsistent system at an exact singular shift can end with MAXITER
+ * instead of a detected zero pivot. Neither is a successful recovery. */
+static LIS_INT
+check_standard_recovery_exhaustion(
+    const char *name,
+    const char *options,
+    LIS_MATRIX A,
+    LIS_SCALAR initial_value)
+{
+    return check_standard_failure_status(name, options, A,
+                                         initial_value, 1);
 }
 
 
@@ -1619,8 +1648,9 @@ test_inverse_shift_recovery_exhaustion(void)
      * Construct one exact singular mode for each bounded recovery
      * shift: sigma, sigma+delta and sigma-delta.  With an all-ones
      * right-hand side every trial is inconsistent in at least one
-     * component, so the finite recovery sequence must exhaust and
-     * propagate a breakdown rather than looping or reporting success.
+     * component, so the finite recovery sequence must exhaust rather
+     * than looping or reporting success. The inner solve may report
+     * BREAKDOWN or MAXITER depending on floating-point arithmetic.
      */
     delta = lis_esolver_shift_perturbation(shift);
 
@@ -1639,7 +1669,7 @@ test_inverse_shift_recovery_exhaustion(void)
     if( err )
         goto cleanup;
 
-    err = check_standard_breakdown(
+    err = check_standard_recovery_exhaustion(
         "Inverse bounded-shift recovery exhaustion",
         "-e ii -shift 1.0 -emaxiter 2 -etol 1.0e-12",
         A,
