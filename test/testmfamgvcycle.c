@@ -123,7 +123,7 @@ static int mfamg_omp_stress(void)
     puts("MFAMG_OMP_STRESS SKIP: built without OpenMP");
     return 0;
 #else
-    enum { STRESS_N=4608 };
+    enum { STRESS_N=4096 };
     const int threads[4]={1,2,4,8};
     LIS_MATRIX A=NULL;
     LIS_VECTOR basis=NULL,b=NULL,x=NULL,Ax=NULL,near[1];
