@@ -28,7 +28,8 @@ def converged(row, limit):
         return (row["status"] == "converged"
                 and int(row["api_error"]) == 0
                 and int(row["solver_status"]) == 0
-                and float(row["physical_relres"]) <= limit)
+                and float(row["physical_relres"]) <= limit
+                and float(row.get("manufactured_relative_error", "inf")) <= 1e-3)
     except (KeyError, ValueError):
         return False
 
@@ -39,7 +40,8 @@ def run_bench(bench, matrix, rhs, output, args, rate, drop, row_scale, equil):
            "--rtol", str(args.rtol), "--drop", str(drop), "--rate", str(rate),
            "--pivot-tol", str(args.pivot_tol),
            "--rcm", "0", "--row-scale", str(row_scale),
-           "--equil", str(equil), "--csv", str(output)]
+           "--equil", str(equil), "--manufactured-truth", "1",
+           "--csv", str(output)]
     job = subprocess.run(cmd, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, text=True,
                          timeout=args.timeout)
@@ -79,6 +81,9 @@ def evaluate_variant(rows, limit):
         "equil_fill": factor_nnz(standalone_equil),
         "combined_fill": factor_nnz(combined),
         "combined_res": float(combined["physical_relres"]),
+        "combined_solution_error": float(combined["manufactured_relative_error"]),
+        "pivot_solution_error": float(standalone_pivot["manufactured_relative_error"]),
+        "equil_solution_error": float(standalone_equil["manufactured_relative_error"]),
     }
     answer["strict_synergy"] = c_ok and not p_ok and not e_ok
     answer["both_faster"] = (
