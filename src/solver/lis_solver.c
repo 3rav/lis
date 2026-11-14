@@ -257,6 +257,12 @@ LIS_INT lis_solver_init(LIS_SOLVER solver)
 	solver->ilut_row_scale = 0;
 	solver->sequence_precon_ilut_rcm = 0;
 	solver->sequence_precon_ilut_row_scale = 0;
+	solver->ilut_ras_overlap = -1;
+	solver->ilut_ras_domains = 2;
+	solver->ilut_schur = 0;
+	solver->sequence_precon_ilut_ras_overlap = -1;
+	solver->sequence_precon_ilut_ras_domains = 2;
+	solver->sequence_precon_ilut_schur = 0;
 	solver->ilutp_enabled = 0;
 	solver->ilutp_threshold = 0.5;
 	solver->sequence_precon_ilutp_enabled = 0;
@@ -265,6 +271,8 @@ LIS_INT lis_solver_init(LIS_SOLVER solver)
 	solver->ilutp_full_limit = 0;
 	solver->sequence_precon_ilutp_full = 0;
 	solver->sequence_precon_ilutp_full_limit = 0;
+	solver->ilut_equil = 0;
+	solver->sequence_precon_ilut_equil = 0;
 	solver->sequence_precon_half_mode = LIS_PRECON_HALF_OFF;
 	solver->sequence_initial_residual = 0.0;
 	solver->sequence_rhs_norm = 0.0;
@@ -2638,10 +2646,16 @@ static LIS_INT lis_solver_sequence_precon_config_matches(
 	   solver->sequence_precon_ilutp_enabled!=solver->ilutp_enabled ||
 	   solver->sequence_precon_ilutp_threshold!=solver->ilutp_threshold ||
 	   solver->sequence_precon_ilutp_full!=solver->ilutp_full ||
-	   solver->sequence_precon_ilutp_full_limit!=solver->ilutp_full_limit)
+	   solver->sequence_precon_ilutp_full_limit!=solver->ilutp_full_limit ||
+	   solver->sequence_precon_ilut_equil!=solver->ilut_equil)
 	{
 		return LIS_FALSE;
 	}
+
+	if(solver->sequence_precon_ilut_ras_overlap!=solver->ilut_ras_overlap ||
+	   solver->sequence_precon_ilut_ras_domains!=solver->ilut_ras_domains ||
+	   solver->sequence_precon_ilut_schur!=solver->ilut_schur)
+		return LIS_FALSE;
 
 	if( solver->sequence_precon_half_mode!=
 		solver->precon_half_mode )
@@ -2669,10 +2683,14 @@ static void lis_solver_sequence_precon_snapshot(
 		solver->precon_half_mode;
 	solver->sequence_precon_ilut_rcm = solver->ilut_rcm;
 	solver->sequence_precon_ilut_row_scale = solver->ilut_row_scale;
+	solver->sequence_precon_ilut_ras_overlap = solver->ilut_ras_overlap;
+	solver->sequence_precon_ilut_ras_domains = solver->ilut_ras_domains;
+	solver->sequence_precon_ilut_schur = solver->ilut_schur;
 	solver->sequence_precon_ilutp_enabled = solver->ilutp_enabled;
 	solver->sequence_precon_ilutp_threshold = solver->ilutp_threshold;
 	solver->sequence_precon_ilutp_full = solver->ilutp_full;
 	solver->sequence_precon_ilutp_full_limit = solver->ilutp_full_limit;
+	solver->sequence_precon_ilut_equil = solver->ilut_equil;
 }
 
 #undef __FUNC__
@@ -5469,6 +5487,18 @@ LIS_INT lis_solver_set_option2(char* arg1, char *arg2, LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 
+	/* Opt-in two-sided max-absolute-value scaling (rows, then columns). */
+	if(strcmp(arg1,"-ilut_equil")==0)
+	{
+		if(arg2 && (!strcmp(arg2,"0") || !strcmp(arg2,"1")))
+		{
+			solver->ilut_equil = (arg2[0]=='1');
+			return LIS_SUCCESS;
+		}
+		LIS_SETERR(LIS_ERR_ILL_ARG,"-ilut_equil expects 0 or 1\n");
+		return LIS_ERR_ILL_ARG;
+	}
+
 	/* ILUTP is opt-in and is limited to serial real-double CSR. */
 	if(strcmp(arg1,"-ilutp")==0)
 	{
@@ -5502,6 +5532,30 @@ LIS_INT lis_solver_set_option2(char* arg1, char *arg2, LIS_SOLVER solver)
 			return LIS_ERR_ILL_ARG;
 		}
 		solver->ilutp_threshold=(LIS_REAL)t;
+		return LIS_SUCCESS;
+	}
+
+	/* Opt-in serial overlapping restricted additive Schwarz and Schur. */
+	if(strcmp(arg1,"-ilut_ras_overlap")==0 ||
+	   strcmp(arg1,"-ilut_ras_domains")==0 ||
+	   strcmp(arg1,"-ilut_schur")==0)
+	{
+		int value=0;
+		char extra;
+		if(arg2==NULL || sscanf(arg2,"%d %c",&value,&extra)!=1 ||
+		   (strcmp(arg1,"-ilut_ras_overlap")==0 && (value<0 || value>2)) ||
+		   (strcmp(arg1,"-ilut_ras_domains")==0 && (value<2 || value>16)) ||
+		   (strcmp(arg1,"-ilut_schur")==0 && (value<0 || value>1)))
+		{
+			LIS_SETERR(LIS_ERR_ILL_ARG,
+			   "invalid ILUT RAS option (overlap 0..2, domains 2..16, schur 0/1)");
+			LIS_DEBUG_FUNC_OUT;
+			return LIS_ERR_ILL_ARG;
+		}
+		if(strcmp(arg1,"-ilut_ras_overlap")==0) solver->ilut_ras_overlap=value;
+		else if(strcmp(arg1,"-ilut_ras_domains")==0) solver->ilut_ras_domains=value;
+		else solver->ilut_schur=value;
+		LIS_DEBUG_FUNC_OUT;
 		return LIS_SUCCESS;
 	}
 
