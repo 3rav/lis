@@ -600,7 +600,7 @@ LIS_INT lis_precon_create_ilut(LIS_SOLVER solver, LIS_PRECON precon)
 	   solver->A->matrix_type!=LIS_MATRIX_CSR)
 	{
 		LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
-		    "ILUT RCM, row scaling and ILUTP require serial CSR input");
+		    "ILUT RCM, row scaling, Equil and ILUTP require serial CSR input");
 		return LIS_ERR_NOT_IMPLEMENTED;
 	}
 
