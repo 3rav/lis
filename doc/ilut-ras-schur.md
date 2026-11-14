@@ -97,7 +97,7 @@ Related PRs: [#226](https://github.com/anishida/lis/pull/226)
 (ILUTP), [#230](https://github.com/anishida/lis/pull/230)
 (two-sided equilibration). PR #229/#230 modify some shared ILUT
 and solver-option code; integration must be verified before merging
-these features together. This PR does **not** enable ILUTP or Equil in RAS.
+these features together. This branch enables genuine local ILUTP in RAS when `-ilutp 1` is set, by forwarding the pivoting and full-fill policies to each subdomain. The separate two-sided Equil option from #230 is **not** integrated or validated with RAS.
 
 The sparse-CSR Schur feasibility experiment in
 [fork PR #64](https://github.com/3rav/lis/pull/64) is separate and
@@ -132,10 +132,10 @@ The regression `testhalfilut` executes all overlaps 0/1/2 with and without Schur
 
 Reference: https://hypre.readthedocs.io/en/latest/solvers-ilu.html
 
-## ILUTP integration (requires upstream #229)
+## Local ILUTP integration (stacked on upstream #229)
 
-This *separate integration branch*, based on upstream #229, adds genuine
-local ILUTP support for RAS. With `-ilutp 1`, each overlapping
+This RAS/Schur branch now includes the exact native ILUTP commits from
+upstream PR #229 and adds genuine local ILUTP support for RAS. With `-ilutp 1`, each overlapping
 subdomain builds its own pivoted ILUTP factorization instead of silently
 falling back to ILUT. The local options `-ilutp_threshold`,
 `-ilutp_full`, `-ilutp_full_limit`, RCM and row scaling are
@@ -160,6 +160,8 @@ ILUTP requires **one OpenMP solver thread**, serial real-double CSR,
 and half-precision factor storage **disabled**. RAS retains its own
 serial-only and Schur interface-size limits.
 
-**Integration order:** #229 must be merged before adding this
-compatibility change to upstream #225. Do not merge the integration
-branch directly as a duplicate of #229.
+**Merge order:** merge upstream #229 into `develop` **before** #225.
+Because #225 already contains the same #229 commits as a stacked
+branch, its comparison should then narrow to the RAS/Schur-specific
+changes. Confirm the new comparison, full CI and merge status again
+before merging #225; neither PR should be merged out of order.
