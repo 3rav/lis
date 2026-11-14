@@ -3,7 +3,7 @@ AM_CPPFLAGS = -I$(top_builddir) -I$(top_srcdir)/include
 AM_FFLAGS = -I$(top_builddir) -I$(top_srcdir)/include
 AM_LDFLAGS = $(AMDEFS)
 
-EXTRA_DIST = gen_ilutp_fullfill_case.py benchilutp_rhs_100.mtx defs test.sh testmat.mtx testmat2.mtx testmat3.mtx testmat4.mtx testmat0.mtx testvec0.mtx
+EXTRA_DIST = gen_ilutp_fullfill_case.py gen_stokes_saddle.py benchilutp_rhs_100.mtx defs test.sh testmat.mtx testmat2.mtx testmat3.mtx testmat4.mtx testmat0.mtx testvec0.mtx
 
 testdir = ${prefix}/share/examples/lis
 
