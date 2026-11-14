@@ -648,6 +648,7 @@ jobs:
           set -euo pipefail
           ./test/testhalfilut --parallel-ras-ilutp | tee ilutp-ras-oom.log
           grep -q 'PARALLEL_RAS_OOM injected=.* PASS' ilutp-ras-oom.log
+          grep -q 'ILUT_OPTIONS_OOM_PASS checked=' ilutp-ras-oom.log
       - name: Upload OOM logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
