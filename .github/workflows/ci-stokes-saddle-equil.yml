@@ -35,12 +35,26 @@ jobs:
           test -s stokes-results/all_native_variants.csv
           test -s stokes-results/all_saddle_comparisons.csv
           cat stokes-results/summary.json
+      - name: Repeat on larger indefinite Stokes-like systems
+        run: |
+          set -euo pipefail
+          python3 test/run_stokes_saddle_sweep.py \
+            --bench ./test/benchilutp --output stokes-large-results \
+            --sides 8 10 --contrasts 30 300 \
+            --units pressure_checker pressure_weak mixed_checker \
+            --orderings pressure_first interleaved \
+            --gammas 0.3 1 --rates 1 3 --drops 0.005 0.05 \
+            --maxiter 180 --restart 70 \
+            | tee saddle-large-sweep.log
+          cat stokes-large-results/summary.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: native-stokes-saddle-ilutp-equil
           path: |
             stokes-results/
+            stokes-large-results/
             saddle-sweep.log
+            saddle-large-sweep.log
             stokes-A.mtx
             stokes-b.mtx
