@@ -6,6 +6,7 @@ endif
 SUBDIRS = include src $(MAYBE_TEST)
 
 EXTRA_DIST = doc/ilutp.md \
+             doc/ilutp-equil-integration.md \
              doc/ilutp_contact_ccx_v2_benchmarks.md \
              tools/run_native_ilutp_contact.py \
              tools/test_run_native_ilutp_contact.py \
