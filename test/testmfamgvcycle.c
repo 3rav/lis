@@ -132,7 +132,7 @@ static int mfamg_omp_stress(void)
     LIS_SCALAR *reference=NULL;
     LIS_REAL rel=0.0,normb,normr,diff;
     LIS_INT err=0,i;
-    int failed=1,mode,t,repeat;
+    int failed=1,mode=-1,t=-1,repeat=0;
     const char *stage="init";
     int original_threads=omp_get_max_threads();
     int original_dynamic=omp_get_dynamic();
