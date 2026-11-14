@@ -450,7 +450,9 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
 #ifdef _OPENMP
     workers=omp_get_max_threads();
     if(workers>s->ndomains) workers=(int)s->ndomains;
-#pragma omp parallel for schedule(static) num_threads(workers) if(workers>1)
+/* Domain costs differ with pivoting/fill; distribute excess domains
+ * to the next available worker instead of binding adjacent heavy blocks. */
+#pragma omp parallel for schedule(dynamic,1) num_threads(workers) if(workers>1)
 #endif
     for(d=0;d<s->ndomains;d++)
     {
