@@ -43,68 +43,91 @@ per-method modification. LIS computes the physical true residual
 FGMRES `-tol 1e-6`). The latter guards against ill-conditioning
 masking solution error in the physical residual.
 
-## Reproducible positive cases (native LIS, Linux GCC, 2026-11-14)
+## Strong six-profile positive saddle examples (native LIS, 2026-11-14)
 
-Common parameters: Equil flag 0/1, ILUTP flag 0/1 with `tau=0.5`,
-`-ilut_rcm 0 -ilut_row_scale 0 -ilut_drop 0.005 -ilut_rate 3
--ilu_pivot_tol 0.001 -restart 70 -maxiter 180 -tol 1e-6`.
-The factor size below is actual stored off-diagonal L+U, **not**
-a memory budget estimate.
+These selected cases compare six numerical methods at exactly the
+same `-ilut_drop 0.005 -ilut_rate 3 -ilu_pivot_tol 0.001
+-restart 70 -maxiter 180 -tol 1e-6 -ilut_rcm 0`, with
+`-ilutp_threshold 0.5` for the pivoting variants.
 
-| Grid, unknowns | Mode | Iterations | L+U nnz | Status |
-|---|---|---:|---:|---|
-| 8×8, n=192 | ILUTP only | >180 | 2,646 | fails |
-| 8×8, n=192 | Equil-only ILUT | >180 | 2,675 | fails |
-| 8×8, n=192 | **ILUTP + Equil** | **10** | **2,883** | **converges** |
-| 10×10, n=300 | ILUTP only | >180 | 4,169 | fails |
-| 10×10, n=300 | Equil-only ILUT | >180 | 4,192 | fails |
-| 10×10, n=300 | **ILUTP + Equil** | **11** | **4,576** | **converges** |
+At `--side 8 --contrast 30 --units mixed_checker
+--ordering interleaved --gamma 0.3 --delta 0`,
+**n=192 (64 pressure unknowns, 64 zero diagonal entries)**:
 
-The combined preconditioner gives:
-- n=192: true relative residual **3.909e-7**, relative solution
-  error **3.365e-5**; +7.8% and +9.0% L+U fill compared with
-  Equil-only and ILUTP-only.
-- n=300: true relative residual **5.736e-7**, relative solution
-  error **6.613e-5**; +9.2% and +9.8% L+U fill.
+| Mode | Native status | Iterations | L+U offdiag nnz |
+|---|---|---:|---:|
+| Ordinary ILUT | not converged | >180 | 2,534 |
+| Row-scaled ILUT | not converged | >180 | 2,534 |
+| ILUTP without scaling | not converged | >180 | 2,618 |
+| Row-scaled ILUTP | not converged | >180 | 2,586 |
+| Two-sided Equil ILUT (no pivoting) | not converged | >180 | 2,734 |
+| **ILUTP + two-sided Equil** | **converged** | **9** | **2,889** |
 
-An independent NumPy/SciPy eigenvalue check of the *input matrices*
-confirmed: n=192 has 128 positive and 64 negative eigenvalues with
-64 exactly zero diagonal entries; n=300 has 200 positive and 100
-negative eigenvalues with 100 exactly zero diagonal entries.
-Both input matrices have full numerical rank.
+Combined: true physical residual **4.778e-7**, relative error
+against the known exact solution **5.378e-4**, and **+5.7%**
+actual factor nnz compared with the largest control.
 
-These are robust **numerical synergy** examples where column pivoting
-and row/column Equil together enable convergence at modest extra fill.
-This does **not** show a speedup in total setup+solve time. It also
-does not demonstrate the same result on a genuine Stokes FE export
-or CalculiX contact matrix.
+At `--side 10 --contrast 30 --units mixed_checker
+--ordering interleaved --gamma 1 --delta 0`,
+**n=300 (100 pressure unknowns, 100 zero diagonal entries)**:
 
-## Reproduce n=192
+| Mode | Native status | Iterations | L+U offdiag nnz |
+|---|---|---:|---:|
+| Ordinary ILUT | not converged | >180 | 3,984 |
+| Row-scaled ILUT | not converged | >180 | 3,984 |
+| ILUTP without scaling | not converged | >180 | 4,244 |
+| Row-scaled ILUTP | not converged | >180 | 4,245 |
+| Two-sided Equil ILUT | not converged | >180 | 4,318 |
+| **ILUTP + two-sided Equil** | **converged** | **11** | **4,575** |
+
+Combined: true physical residual **3.143e-7**, relative
+manufactured-solution error **1.362e-4**, **+6.0%** actual
+factor nnz compared with the largest control.
+
+The `2m²` positive and `m²` negative eigenvalues follow
+analytically from K SPD, B full row rank and D positive.
+The original matrices are symmetric **indefinite and nonsingular**,
+even though pressure diagonal entries are exactly zero.
+
+These are **selected manufactured examples**: evidence of a
+numerical benefit from combining the methods, not proof of a
+general overall speedup or success on a real Stokes/CCX FEM matrix.
+The measurements use the same original A and b across all variants.
+
+## Reproduce the n=192 case
 
 ```sh
-python3 test/gen_stokes_saddle.py --side 8 --contrast 30 \
-  --units pressure_weak --ordering interleaved --gamma 1 \
+python3 test/gen_stokes_saddle.py --side 8 --contrast 30 \\
+  --units mixed_checker --ordering interleaved --gamma 0.3 \\
   --delta 0 --matrix A.mtx --rhs b.mtx
-./test/benchilutp A.mtx b.mtx --maxiter 180 --restart 70 \
-  --rtol 1e-6 --drop 0.005 --rate 3 --pivot-tol 0.001 \
-  --rcm 0 --row-scale 0 --manufactured-truth 1 --equil 0 \
-  --csv controls.csv
-./test/benchilutp A.mtx b.mtx --maxiter 180 --restart 70 \
-  --rtol 1e-6 --drop 0.005 --rate 3 --pivot-tol 0.001 \
-  --rcm 0 --row-scale 0 --manufactured-truth 1 --equil 1 \
-  --csv scaled.csv
+
+./test/benchilutp A.mtx b.mtx --maxiter 180 --restart 70 \\
+  --rtol 1e-6 --drop 0.005 --rate 3 --pivot-tol 0.001 \\
+  --rcm 0 --row-scale 0 --manufactured-truth 1 --equil 0 \\
+  --csv no-scale.csv
+
+./test/benchilutp A.mtx b.mtx --maxiter 180 --restart 70 \\
+  --rtol 1e-6 --drop 0.005 --rate 3 --pivot-tol 0.001 \\
+  --rcm 0 --row-scale 1 --manufactured-truth 1 --equil 0 \\
+  --csv row-only.csv
+
+./test/benchilutp A.mtx b.mtx --maxiter 180 --restart 70 \\
+  --rtol 1e-6 --drop 0.005 --rate 3 --pivot-tol 0.001 \\
+  --rcm 0 --row-scale 0 --manufactured-truth 1 --equil 1 \\
+  --csv two-sided.csv
 ```
 
-From `controls.csv` compare `variant=ilutp_0p5` (ILUTP-only).
-From `scaled.csv` compare `variant=legacy_ilut` (Equil-only)
-and `variant=ilutp_0p5` (combined).
+The `legacy_ilut` rows are ordinary or Equil-only ILUT;
+`ilutp_0p5` rows provide the pivoting controls and combination.
 
-This branch carries an *experimental-only* `--manufactured-truth 1`
-extension to `benchilutp`. The base #230 provides `--equil 0|1`
-and the physical residual but does not carry this extra
-manufactured-solution audit flag.
+This experimental branch carries an **optional**
+`--manufactured-truth 1` flag which is not part of upstream #230.
+The generic `benchilutp` in #230 supports `--equil 0|1`
+and true original-system residuals. The manufactured exact
+solution test additionally verifies `||x-x_true||/||x_true||`
+against an independent `1e-3` acceptance threshold.
 
-For the complete deterministic sweep:
+Run the full deterministic parameter sweep with
 
 ```sh
 python3 test/run_stokes_saddle_sweep.py --bench ./test/benchilutp
