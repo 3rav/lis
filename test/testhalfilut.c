@@ -893,7 +893,7 @@ cleanup:
  * the additional Schur step should recover the solution to roundoff.
  */
 static int
-check_ilut_ras_exact_interface_one(LIS_INT n,LIS_INT coupled)
+check_ilut_ras_exact_interface_one(LIS_INT n,LIS_INT coupled,LIS_INT local_ilutp)
 {
     const LIS_INT ei[3]={2,3,4},ej[3]={3,4,5};
     LIS_MATRIX A=NULL;
@@ -947,8 +947,10 @@ check_ilut_ras_exact_interface_one(LIS_INT n,LIS_INT coupled)
         snprintf(opts,sizeof(opts),
             "-i gmres -p ilut -scale none -print none "
             "-iluc_drop 0 -iluc_rate 8 -ilu_pivot_tol 1e-12 "
-            "-ilut_ras_domains 2 -ilut_ras_overlap 0 -ilut_schur %d",
-            (int)v);
+            "-ilut_ras_domains 2 -ilut_ras_overlap 0 -ilut_schur %d %s",
+            (int)v,local_ilutp ?
+            "-ilutp 1 -ilutp_threshold 0.5 -ilutp_full 1 "
+            "-ilutp_full_limit 128" : "");
         err=lis_solver_set_option(opts,solver);
         if(err) goto done;
         err=lis_solver_set_matrix(A,solver);
@@ -974,8 +976,10 @@ check_ilut_ras_exact_interface_one(LIS_INT n,LIS_INT coupled)
                 if(delta>xerr) xerr=delta;
             }
         }
-        printf("ILUT_RAS_INTERFACE n=%ld coupled=%d schur=%d true_rel_res=%.9e\n",
-               (long)n,(int)coupled,(int)v,(double)(rn/bn));
+        printf("ILUT_RAS_INTERFACE n=%ld coupled=%d ilutp=%d "
+               "schur=%d true_rel_res=%.9e\n",
+               (long)n,(int)coupled,(int)local_ilutp,
+               (int)v,(double)(rn/bn));
         solver->precon=NULL;
         lis_precon_destroy(pc);pc=NULL;
         lis_solver_destroy(solver);solver=NULL;
@@ -991,7 +995,8 @@ check_ilut_ras_exact_interface_one(LIS_INT n,LIS_INT coupled)
                 (long)n,(int)coupled,(double)baseline,(double)schur,(double)xerr);
         goto done;
     }
-    printf("ILUT_RAS_INTERFACE n=%ld coupled=%d PASSED\n",(long)n,(int)coupled);
+    printf("ILUT_RAS_INTERFACE n=%ld coupled=%d ilutp=%d PASSED\n",
+           (long)n,(int)coupled,(int)local_ilutp);
     failed=0;
 done:
     if(pc)
@@ -1011,10 +1016,24 @@ done:
 static int
 check_ilut_ras_exact_interface(void)
 {
-    int failed=check_ilut_ras_exact_interface_one(8,0);
-    failed |= check_ilut_ras_exact_interface_one(9,0);
-    failed |= check_ilut_ras_exact_interface_one(8,1);
-    failed |= check_ilut_ras_exact_interface_one(9,1);
+#ifdef _OPENMP
+    int original_threads;
+#endif
+    int failed=check_ilut_ras_exact_interface_one(8,0,0);
+    failed |= check_ilut_ras_exact_interface_one(9,0,0);
+    failed |= check_ilut_ras_exact_interface_one(8,1,0);
+    failed |= check_ilut_ras_exact_interface_one(9,1,0);
+#ifdef _OPENMP
+    original_threads=omp_get_max_threads();
+    /* Native ILUTP (including nested RAS factors) is single-thread only. */
+    omp_set_num_threads(1);
+#endif
+    /* Schur on/off with genuinely coupled interior and local ILUTP. */
+    failed |= check_ilut_ras_exact_interface_one(8,1,1);
+    failed |= check_ilut_ras_exact_interface_one(9,1,1);
+#ifdef _OPENMP
+    omp_set_num_threads(original_threads);
+#endif
     return failed;
 }
 
