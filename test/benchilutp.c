@@ -37,6 +37,7 @@ int main(void)
 typedef struct
 {
     LIS_INT maxiter,restart,rcm,row_scale,equil,full,only_full,full_limit;
+    LIS_INT manufactured_truth;
     double rtol,drop,rate,pivot_tol,full_tau;
 } BENCH_ARGS;
 
@@ -111,6 +112,7 @@ static int run_case(FILE *csv,const char *name,LIS_MATRIX A,LIS_VECTOR b,
     long long nnz_l=0,nnz_u=0,permuted=0;
     char opts[1024];
     double setup_s=0.0,solve_s=0.0,t,relative=-1.0,rnorm;
+    double manufactured_error=-1.0;
     const char *status="internal_error";
 
     err=lis_solver_create(&solver);
@@ -173,15 +175,27 @@ static int run_case(FILE *csv,const char *name,LIS_MATRIX A,LIS_VECTOR b,
         if(!v_err)v_err=lis_vector_nrm2(resid,&rnorm);
         if(v_err)err=v_err;
         else relative=rnorm/norm_b;
+        if(!err && args->manufactured_truth)
+        {
+            double e2=0.0,exact2=0.0;
+            for(i=0;i<A->n;i++)
+            {
+                double exact=cos((double)i*0.17)+0.25*sin((double)i*0.11);
+                double diff=(double)x->value[i]-exact;
+                e2+=diff*diff;
+                exact2+=exact*exact;
+            }
+            manufactured_error=exact2>0?sqrt(e2/exact2):-1.0;
+        }
     }
     status=err?"api_failed":retcode==LIS_SUCCESS?"converged":"not_converged";
 
 report:
     if(solver && iter==0)iter=solver->iter;
-    fprintf(csv,"%s,%d,%lld,%.6g,%s,%lld,%lld,%lld,%lld,%.8g,%.8g,%.15g,%d,%lld\n",
+    fprintf(csv,"%s,%d,%lld,%.6g,%s,%lld,%lld,%lld,%lld,%.8g,%.8g,%.15g,%d,%lld,%.15g\n",
            name,use_ilutp,(long long)args->equil,tau,status,(long long)iter,
            nnz_l,nnz_u,permuted,setup_s,solve_s,relative,
-           (int)err,(long long)retcode);
+           (int)err,(long long)retcode,manufactured_error);
     fflush(csv);
     if(solver)lis_solver_destroy(solver);
     return 0; /* Solver failure is measured, not a benchmark crash. */
@@ -224,6 +238,7 @@ int main(int argc,char **argv)
             "Usage: %s A.mtx b.mtx [--maxiter N] [--restart N] "
             "[--rtol V] [--drop V] [--rate V] [--pivot-tol V] "
             "[--rcm 0|1] [--row-scale 0|1] [--equil 0|1] "
+            "[--manufactured-truth 0|1] "
             "[--full 0|1] [--only-full 0|1] [--full-limit N] [--full-tau 0..1] "
             "[--csv FILE]\n",argv[0]);
         return 2;
@@ -231,6 +246,7 @@ int main(int argc,char **argv)
     a.maxiter=1000;a.restart=120;
     a.rtol=1e-5;a.drop=0.005;a.rate=12.0;
     a.pivot_tol=1e-9;a.rcm=1;a.row_scale=1;a.equil=0;
+    a.manufactured_truth=0;
     a.full=0;a.only_full=0;a.full_limit=0;a.full_tau=1.0;
     for(i=3;i<argc;i+=2)
     {
@@ -261,6 +277,7 @@ int main(int argc,char **argv)
            strcmp(argv[i],"--rcm")==0 ||
            strcmp(argv[i],"--row-scale")==0 ||
            strcmp(argv[i],"--equil")==0 ||
+           strcmp(argv[i],"--manufactured-truth")==0 ||
            strcmp(argv[i],"--full")==0 ||
            strcmp(argv[i],"--only-full")==0)
         {
@@ -269,6 +286,7 @@ int main(int argc,char **argv)
                ((strcmp(argv[i],"--rcm")==0 ||
                  strcmp(argv[i],"--row-scale")==0 ||
                  strcmp(argv[i],"--equil")==0 ||
+                 strcmp(argv[i],"--manufactured-truth")==0 ||
                  strcmp(argv[i],"--full")==0 ||
                  strcmp(argv[i],"--only-full")==0) && value>1))
             {
@@ -281,6 +299,7 @@ int main(int argc,char **argv)
             else if(strcmp(argv[i],"--rcm")==0)a.rcm=value;
             else if(strcmp(argv[i],"--row-scale")==0)a.row_scale=value;
             else if(strcmp(argv[i],"--equil")==0)a.equil=value;
+            else if(strcmp(argv[i],"--manufactured-truth")==0)a.manufactured_truth=value;
             else if(strcmp(argv[i],"--full")==0)a.full=value;
             else a.only_full=value;
             continue;
@@ -306,6 +325,7 @@ int main(int argc,char **argv)
        (a.rcm!=0 && a.rcm!=1) ||
        (a.row_scale!=0 && a.row_scale!=1) ||
        (a.equil!=0 && a.equil!=1) ||
+       (a.manufactured_truth!=0 && a.manufactured_truth!=1) ||
        (a.only_full && !a.full) ||
        a.full_tau<0.0 || a.full_tau>1.0)
         return 2;
@@ -347,7 +367,7 @@ int main(int argc,char **argv)
     }
     fprintf(csv,"variant,ilutp,equil,tau,status,iterations,nnz_L,nnz_U,"
            "moved_columns,setup_cpu_s,solve_cpu_s,physical_relres,"
-           "api_error,solver_status\n");
+           "api_error,solver_status,manufactured_relative_error\n");
     if(!a.only_full)
     {
         run_case(csv,"legacy_ilut",A,b,x,resid,(double)bnorm,&a,0,0,0);
