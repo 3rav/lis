@@ -133,6 +133,7 @@ static int mfamg_omp_stress(void)
     LIS_REAL rel=0.0,normb,normr,diff;
     LIS_INT err=0,i;
     int failed=1,mode,t,repeat;
+    const char *stage="init";
     int original_threads=omp_get_max_threads();
     int original_dynamic=omp_get_dynamic();
     const char *options[2]={
@@ -145,6 +146,7 @@ static int mfamg_omp_stress(void)
     omp_set_num_threads(1);
     reference=(LIS_SCALAR *)malloc((size_t)STRESS_N*sizeof(LIS_SCALAR));
     if(!reference) goto done;
+    stage="matrix-create";
     err=lis_matrix_create(LIS_COMM_WORLD,&A);
     if(err) goto done;
     err=lis_matrix_set_size(A,0,STRESS_N);
@@ -163,10 +165,13 @@ static int mfamg_omp_stress(void)
             if(err) goto done;
         }
     }
+    stage="matrix-set-type";
     err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
     if(err) goto done;
+    stage="matrix-assemble";
     err=lis_matrix_assemble(A);
     if(err) goto done;
+    stage="vector-duplicate";
     if(lis_vector_duplicate(A,&basis) || lis_vector_duplicate(A,&b) ||
        lis_vector_duplicate(A,&x) || lis_vector_duplicate(A,&Ax))
         goto done;
@@ -181,20 +186,26 @@ static int mfamg_omp_stress(void)
         for(t=0;t<4;t++)
         {
             omp_set_num_threads(threads[t]);
+            stage="solver-create";
             err=lis_solver_create(&solver);
             if(err) goto done;
+            stage="solver-options";
             err=lis_solver_set_option((char *)options[mode],solver);
             if(err) goto done;
+            stage="near-nullspace";
             err=lis_solver_set_near_nullspace(solver,1,near);
             if(err) goto done;
+            stage="solver-matrix";
             err=lis_solver_set_matrix(A,solver);
             if(err) goto done;
+            stage="preconditioner-create";
             err=lis_precon_create(solver,&precon);
             if(err) {precon=NULL;goto done;}
             solver->precon=precon;
 
             for(repeat=0;repeat<3;repeat++)
             {
+                stage="psolve";
                 err=lis_psolve(solver,b,x);
                 if(err) goto done;
                 err=lis_matvec(A,x,Ax);
@@ -246,7 +257,7 @@ static int mfamg_omp_stress(void)
     }
     failed=0;
 done:
-    if(err) fprintf(stderr,"MFAMG_OMP_STRESS rc=%ld\n",(long)err);
+    if(failed || err) fprintf(stderr,"MFAMG_OMP_STRESS stage=%s rc=%ld mode=%d threads=%d\n",stage,(long)err,mode,(mode>=0 && t>=0 && t<4)?threads[t]:-1);
     if(solver) solver->precon=NULL;
     if(precon) lis_precon_destroy(precon);
     if(solver) lis_solver_destroy(solver);
