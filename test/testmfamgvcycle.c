@@ -137,9 +137,9 @@ static int mfamg_omp_stress(void)
     int original_threads=omp_get_max_threads();
     int original_dynamic=omp_get_dynamic();
     const char *options[2]={
-        "-i fgmres -p mfamg -scale none -print none "
+        "-i gmres -p mfamg -scale none -print none "
         "-mfamg_vcycle_smooth_steps 2",
-        "-i fgmres -p mfamg -scale none -print none "
+        "-i gmres -p mfamg -scale none -print none "
         "-mfamg_block_size 4 -mfamg_vcycle_smooth_steps 2"
     };
     omp_set_dynamic(0);
