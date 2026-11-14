@@ -2184,6 +2184,7 @@ lis_mfamg_smoother_apply(
     LIS_SCALAR *lu;
     const uint16_t *half;
     LIS_SCALAR *work;
+    LIS_INT block_error = LIS_SUCCESS;
 
 
     if(
@@ -2232,6 +2233,9 @@ lis_mfamg_smoother_apply(
 
         if(initial_zero)
         {
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if(level->n>=4096)
+#endif
             for(i=0;i<level->n;i++)
             {
                 xv[i] =
@@ -2260,7 +2264,9 @@ lis_mfamg_smoother_apply(
         av =
             level->ax->value;
 
-
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) private(residual) if(level->n>=4096)
+#endif
         for(i=0;i<level->n;i++)
         {
             residual =
@@ -2322,15 +2328,22 @@ lis_mfamg_smoother_apply(
         }
 
 
-        work =
-            level->block_work;
-
-
+        /*
+         * Every diagonal block owns a disjoint slice of x and L/U.
+         * The legacy shared block_work buffer is unsuitable for OMP.
+         * Give each block its own small, stack-allocated RHS instead.
+         */
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) private(i,start,width,err,correction,lu,half,work) reduction(max:block_error) if(level->n>=4096)
+#endif
         for(
             block=0;
             block<level->block_count;
             block++)
         {
+            LIS_SCALAR local_work[LIS_MFAMG_BLOCK_MAX_SIZE];
+            work=local_work;
+
             start =
                 block
                 *
@@ -2404,7 +2417,10 @@ lis_mfamg_smoother_apply(
                         work);
 
                 if(err)
-                    return err;
+                {
+                    if(err>block_error) block_error=err;
+                    continue;
+                }
 
 
                 for(i=0;i<width;i++)
@@ -2451,6 +2467,8 @@ lis_mfamg_smoother_apply(
             }
         }
 
+        if(block_error!=LIS_SUCCESS)
+            return block_error;
 
         return LIS_SUCCESS;
 
@@ -6952,6 +6970,9 @@ lis_mfamg_build_prolongation(
     }
 
 
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) private(a,denom) if(level->n>=4096)
+#endif
     for(i=0;i<level->n;i++)
     {
         a =
@@ -10774,65 +10795,43 @@ lis_mfamg_v_cycle(
 
 
     /*
-     * Prolongation:
-     *
-     *     x_l <- x_l + P_l x_(l+1)
+     * Prolongation is a row-wise gather, unlike the restriction scatter:
+     * every i writes exactly one x[i]. Validate all offsets first on the
+     * caller thread so parallel workers neither return from an OpenMP
+     * construct nor report errors through the legacy shared diagnostic
+     * path. Within a row, retain the original addition order bit-for-bit.
      */
     if(level->prolong_row_ptr)
     {
+        if(level->aggregate_count<=0 ||
+           level->aggregate_rank==NULL ||
+           level->aggregate_offset==NULL)
+            return LIS_ERR_ILL_ARG;
         for(i=0;i<level->n;i++)
         {
-            a =
-                level->aggregate[i];
-
-            if(
-                a<0
-                ||
-                a>=level->aggregate_count)
-            {
+            a=level->aggregate[i];
+            if(a<0 || a>=level->aggregate_count)
                 return LIS_ERR_ILL_ARG;
-            }
-
-
-            rank =
-                level->aggregate_rank[a];
-
-            row_start =
-                level->prolong_row_ptr[i];
-
-
-            if(
-                rank<0
-                ||
-                level->aggregate_offset[a]<0
-                ||
-                level->aggregate_offset[a]+rank
-                    >
-                next_level->n
-                ||
-                row_start<0
-                ||
-                level->prolong_row_ptr[i+1]
-                    -
-                row_start
-                    !=
-                rank)
-            {
+            rank=level->aggregate_rank[a];
+            row_start=level->prolong_row_ptr[i];
+            if(rank<0 || level->aggregate_offset[a]<0 ||
+               level->aggregate_offset[a]+rank>next_level->n ||
+               row_start<0 ||
+               level->prolong_row_ptr[i+1]-row_start!=rank)
                 return LIS_ERR_ILL_ARG;
-            }
-
-
+        }
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) private(a,rank,row_start,q,p) if(level->n>=4096)
+#endif
+        for(i=0;i<level->n;i++)
+        {
+            a=level->aggregate[i];
+            rank=level->aggregate_rank[a];
+            row_start=level->prolong_row_ptr[i];
             for(q=0;q<rank;q++)
             {
-                p =
-                    level->aggregate_offset[a]
-                    +
-                    q;
-
-                xv[i] +=
-                    lis_mfamg_prolong_value(level,row_start+q)
-                    *
-                    coarse_x[p];
+                p=level->aggregate_offset[a]+q;
+                xv[i]+=lis_mfamg_prolong_value(level,row_start+q)*coarse_x[p];
             }
         }
     }
@@ -10840,24 +10839,19 @@ lis_mfamg_v_cycle(
     {
         for(i=0;i<level->n;i++)
         {
-            a =
-                level->aggregate[i];
-
-            if(
-                a<0
-                ||
-                a>=next_level->n)
-            {
+            a=level->aggregate[i];
+            if(a<0 || a>=next_level->n)
                 return LIS_ERR_ILL_ARG;
-            }
-
-            xv[i] +=
-                lis_mfamg_prolong_value(level,i)
-                *
-                coarse_x[a];
+        }
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) private(a) if(level->n>=4096)
+#endif
+        for(i=0;i<level->n;i++)
+        {
+            a=level->aggregate[i];
+            xv[i]+=lis_mfamg_prolong_value(level,i)*coarse_x[a];
         }
     }
-
 
     /* Each post-smoothing pass corrects the prolongated solution. */
     for(smooth_pass=0;
