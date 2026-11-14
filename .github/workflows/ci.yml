@@ -6,6 +6,7 @@ on:
       - develop
       - ci/linux-mingw
       - feature/ilutp-parallel-ras-20261114
+      - audit/ilutp-helgrind-20261114
   pull_request:
     branches:
       - develop
@@ -576,6 +577,41 @@ jobs:
             test/*.log
           if-no-files-found: ignore
 
+
+  helgrind-ilutp-race-audit:
+    name: Experimental ILUTP RAS Helgrind audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '8'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build toolchain and Helgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin valgrind
+      - name: Configure, build and link OpenMP RAS regressions
+        run: |
+          autoreconf -fiv
+          ./configure --enable-test --enable-omp --enable-half \
+            --disable-fortran --disable-f90 --disable-saamg --disable-mpi
+          make -j2
+          make -C test testhalfilut
+      - name: Audit independent RAS workers using Helgrind
+        run: |
+          set -o pipefail
+          valgrind --tool=helgrind --error-exitcode=75 --history-level=approx \
+            --num-callers=18 --log-file=helgrind-ras.log \
+            ./test/testhalfilut --parallel-ras-ilutp
+          grep -E 'ERROR SUMMARY|data race' helgrind-ras.log | tail -40
+      - name: Upload Helgrind log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helgrind-ras-audit
+          path: helgrind-ras.log
+          if-no-files-found: ignore
 
   native-oom-parallel-ilutp:
     name: Native ILUTP parallel RAS injected-OOM regression
