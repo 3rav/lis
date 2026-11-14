@@ -73,6 +73,7 @@ jobs:
               'test/benchilutpequil.c',
               'test/benchilutp_rhs_100.mtx',
               'test/gen_ilutp_fullfill_case.py',
+              'test/gen_stokes_saddle.py',
               'tools/run_native_ilutp_contact.py',
               'tools/test_run_native_ilutp_contact.py',
               'doc/ilutp.md',
@@ -164,6 +165,41 @@ jobs:
           for mode in ilut equil ilutp ilutp_equil row_only; do
             grep -q "^ILUTP_EQUIL_BENCH mode=$mode " benchilutp-combined.log
           done
+
+      - name: Reproduce indefinite Stokes saddle-point control
+        if: matrix.mode == 'serial'
+        run: |
+          set -euo pipefail
+          python3 test/gen_stokes_saddle.py \
+            --side 8 --contrast 30 --units pressure_weak \
+            --ordering interleaved --gamma 1 --delta 0 \
+            --matrix stokes-saddle-A.mtx --rhs stokes-saddle-b.mtx
+          for equil in 0 1; do
+            ./test/benchilutp stokes-saddle-A.mtx stokes-saddle-b.mtx \
+              --maxiter 180 --restart 70 --rtol 1e-6 \
+              --drop 0.005 --rate 3 --pivot-tol 0.001 \
+              --rcm 0 --row-scale 0 --equil "$equil" \
+              --csv "stokes-saddle-$equil.csv"
+          done
+          python3 - <<'PY'
+          import csv
+          def read(flag):
+              with open(f"stokes-saddle-{flag}.csv", newline="") as f:
+                  return {r["variant"]: r for r in csv.DictReader(f)}
+          plain, scaled = read(0), read(1)
+          ilutp = plain["ilutp_0p5"]
+          equil = scaled["legacy_ilut"]
+          combo = scaled["ilutp_0p5"]
+          for name, row in (("ILUTP", ilutp), ("Equil", equil),
+                            ("ILUTP+Equil", combo)):
+              print(f"SADDLE_STOKES {name}: status={row['status']} "
+                    f"iterations={row['iterations']} "
+                    f"fill={int(row['nnz_L'])+int(row['nnz_U'])} "
+                    f"physical_relres={row['physical_relres']}")
+          assert combo["equil"] == "1"
+          assert combo["status"] == "converged", combo
+          assert float(combo["physical_relres"]) < 1e-5, combo
+          PY
 
       - name: Audit native Matrix Market tool option propagation
         if: matrix.mode == 'serial'
