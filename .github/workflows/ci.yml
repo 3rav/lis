@@ -5,6 +5,7 @@ on:
     branches:
       - develop
       - ci/linux-mingw
+      - ci/ilutp-equil-stokes-strong-20261114
   pull_request:
     branches:
       - develop
