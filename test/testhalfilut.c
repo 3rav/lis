@@ -1767,6 +1767,15 @@ main(
 		return failed ? 1 : 0;
 	}
 
+	/* Isolate parallel ILUTP from unrelated legacy half-ILUT tests:
+	 * the latter were not originally designed for OMP_NUM_THREADS=8. */
+	if(argc==2 && strcmp(argv[1],"--parallel-ras-ilutp")==0)
+	{
+		failed=check_ilut_ras_local_ilutp();
+		lis_finalize();
+		return failed ? 1 : 0;
+	}
+
 	err = create_matrix(&A);
 
 	if( err )
