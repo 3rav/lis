@@ -84,62 +84,69 @@ swaps alone establishes total-time or memory superiority.
 
 ### Reproducible Stokes-type indefinite saddle point
 
-For a small test requiring **both** pivoting and equilibration, the
-included `test/gen_stokes_saddle.py` constructs a **manufactured**
-two-velocity/one-pressure saddle problem with zero pressure diagonal:
+The included \`test/gen_stokes_saddle.py\` manufactures a nonsingular,
+**symmetric-indefinite** pressure/velocity saddle matrix with *exactly
+zero* pressure diagonal. This is a Stokes-inspired finite-difference
+model, **not** a real IFISS, PETSc or CalculiX export.
 
-```text
+\`\`\`text
 H = [ 0    B  ]
     [ B^T  K  ]
 A = D H D
-```
+\`\`\`
 
-`K` is a positive definite five-point diffusion matrix and `B`
-is a full-row-rank divergence-like operator. Thus the symmetric
-`A` is nonsingular and indefinite, with `2m²` positive and
-`m²` negative eigenvalues on an `m × m` cell grid. `D`
-represents physical-unit scaling. These matrices are NOT exported
-from IFISS, PETSc or CalculiX.
+\`K\` is a positive-definite five-point velocity stiffness operator,
+\`B\` a full-row-rank discrete divergence-like constraint matrix,
+and the positive diagonal \`D\` introduces a manufactured unit contrast.
+On an \`m × m\` grid, \`A\` has \`3m²\` unknowns, \`m²\` zero
+pressure pivots, \`2m²\` positive and \`m²\` negative eigenvalues.
 
-```sh
+\`\`\`sh
 python3 test/gen_stokes_saddle.py --side 8 --contrast 30 \
-  --units pressure_weak --ordering interleaved --gamma 1 \
+  --units mixed_checker --ordering interleaved --gamma 0.3 \
   --delta 0 --matrix stokes-A.mtx --rhs stokes-b.mtx
 
 ./test/benchilutp stokes-A.mtx stokes-b.mtx \
   --maxiter 180 --restart 70 --rtol 1e-6 --drop 0.005 \
   --rate 3 --pivot-tol 0.001 --rcm 0 --row-scale 0 \
-  --equil 0 --csv stokes-no-equil.csv
+  --equil 0 --csv no-scale.csv
+
+./test/benchilutp stokes-A.mtx stokes-b.mtx \
+  --maxiter 180 --restart 70 --rtol 1e-6 --drop 0.005 \
+  --rate 3 --pivot-tol 0.001 --rcm 0 --row-scale 1 \
+  --equil 0 --csv row-only.csv
 
 ./test/benchilutp stokes-A.mtx stokes-b.mtx \
   --maxiter 180 --restart 70 --rtol 1e-6 --drop 0.005 \
   --rate 3 --pivot-tol 0.001 --rcm 0 --row-scale 0 \
-  --equil 1 --csv stokes-equil.csv
-```
+  --equil 1 --csv two-sided.csv
+\`\`\`
 
-Compare `ilutp_0p5` from `stokes-no-equil.csv` (ILUTP only),
-`legacy_ilut` from `stokes-equil.csv` (Equil only), and
-`ilutp_0p5` from `stokes-equil.csv` (combined).
-In native Linux GCC testing, neither standalone method converged
-within 180 iterations, whereas the combined method converged in
-**10 iterations** with true relative residual **3.91e-7**:
-L+U entries were respectively **2646**, **2675**, and **2883**.
+For the native LIS n=192 example, the following five controls all
+exhausted 180 GMRES iterations: ordinary ILUT, row-scaled ILUT,
+unscaled ILUTP, row-scaled ILUTP and Equil-only ILUT. By contrast,
+**ILUTP+Equil converged in 9 iterations**, with original-system
+relative residual **4.78e-7** and 2889 stored L+U off-diagonal
+coefficients (versus at most 2734 for the controls). These controls
+use the same \`-ilut_rate 3\` and \`-ilut_drop 0.005\` settings.
 
-On the same model at `--side 10` (300 unknowns), ILUTP+Equil
-converged in **11 iterations**, while the two controls did not
-reach tolerance in 180; its factor fill was **4576** versus
-**4169** (pivoting alone) and **4192** (Equil alone). The
-manufactured-solution error was independently verified
-(**3.37e-5** at n=192, **6.61e-5** at n=300) using an
-experimental-only accuracy check, not part of this generic MM tool.
+At n=300 (\`--side 10 --gamma 1\`, other parameters unchanged)
+the same five controls failed at 180, while **ILUTP+Equil
+converged in 11 iterations** and used 4575 L+U nonzeros (the
+largest control: 4318). Original-system relative residual was
+**3.14e-7**. Independent manufactured exact-solution comparisons
+also confirmed relative solution errors **5.38e-4** and
+**1.36e-4**, respectively, against an acceptance threshold of
+\`1e-3\`. That optional accuracy audit resides on the experimental
+branch and is not part of the generic Matrix Market benchmark.
 
-The broader experimental study, including scripts and exact-solution
-checks, is in
-[the reproducible Stokes benchmark](https://github.com/3rav/lis/blob/experiment/stokes-saddle-ilutp-equil-20261114/doc/stokes-saddle-equil-benchmark.md).
-These experiments demonstrate that the two numerical mechanisms
-**can complement one another**, not that they are universally better
-or faster overall. Total setup+solve time and genuine FE contact/Stokes
-matrices need independent study.
+These results demonstrate actual **numerical complementarity**:
+neither pivoting nor two-sided Equil (nor row-only scaling) suffices
+alone for these *selected* saddle systems. They are not claims
+about general wall-clock speed, memory optimality or a real
+Stokes/contact FEM dataset. The sweep, raw controls and accuracy
+check are documented in the
+[reproducible experiment](https://github.com/3rav/lis/blob/experiment/stokes-saddle-ilutp-equil-20261114/doc/stokes-saddle-equil-benchmark.md).
 
 ### Example: complete-fill mode
 
