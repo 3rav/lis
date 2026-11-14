@@ -5,9 +5,11 @@ on:
     branches:
       - develop
       - ci/linux-mingw
+      - feature/ilutp-parallel-ras-20261114
   pull_request:
     branches:
       - develop
+      - feature/ilut-ras-schur
   workflow_dispatch:
 
 # CI reproducibility: on 2026-11-14 the three unchanged eigensolver
@@ -116,6 +118,12 @@ jobs:
 
       - name: Run Automake test suite
         run: make -j2 check
+
+      - name: Verify 8-thread pivoted RAS ILUTP regression
+        if: matrix.mode == 'openmp'
+        run: |
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testhalfilut | tee parallel-ras-ilutp.log
+          grep -q 'ILUT_RAS_LOCAL_ILUTP threads=8 .* PASSED' parallel-ras-ilutp.log
 
       - name: Smoke-test native ILUTP Matrix Market comparison
         if: matrix.mode == 'serial'
