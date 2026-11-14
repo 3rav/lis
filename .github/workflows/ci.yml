@@ -5,11 +5,9 @@ on:
     branches:
       - develop
       - ci/linux-mingw
-      - feature/ilutp-parallel-ras-20261114
   pull_request:
     branches:
       - develop
-      - feature/ilut-ras-schur
   workflow_dispatch:
 
 # CI reproducibility: on 2026-11-14 the three unchanged eigensolver
