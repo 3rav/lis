@@ -1299,7 +1299,7 @@ static int check_ilut_ras_parallel_overlap(void)
             {
                 fprintf(stderr,
                     "RAS_OVERLAP_BAD_RESIDUAL overlap=%d full=%d "
-                    "threads=%d repeat=%d relres=%.8e\\n",
+                    "threads=%d repeat=%d relres=%.8e\n",
                     (int)overlap,(int)full,expected_threads,
                     (int)repeat,(double)(rn/bn));
                 goto cleanup;
@@ -1310,7 +1310,7 @@ static int check_ilut_ras_parallel_overlap(void)
             {
                 fprintf(stderr,
                     "RAS_OVERLAP_NONDETERMINISTIC overlap=%d full=%d "
-                    "threads=%d repeat=%d\\n",
+                    "threads=%d repeat=%d\n",
                     (int)overlap,(int)full,expected_threads,(int)repeat);
                 goto cleanup;
             }
@@ -1318,12 +1318,12 @@ static int check_ilut_ras_parallel_overlap(void)
 #ifdef _OPENMP
         if(omp_get_max_threads()!=expected_threads)
         {
-            fprintf(stderr,"RAS_OVERLAP leaked OpenMP thread setting\\n");
+            fprintf(stderr,"RAS_OVERLAP leaked OpenMP thread setting\n");
             goto cleanup;
         }
 #endif
         printf("ILUT_RAS_OVERLAP overlap=%d full=%d threads=%d "
-               "residual=%.9e DETERMINISTIC PASS\\n",
+               "residual=%.9e DETERMINISTIC PASS\n",
                (int)overlap,(int)full,expected_threads,(double)(rn/bn));
         solver->precon=NULL;
         lis_precon_destroy(pc);pc=NULL;
