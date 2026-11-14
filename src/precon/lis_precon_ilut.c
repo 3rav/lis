@@ -569,11 +569,18 @@ LIS_INT lis_precon_create_ilut(LIS_SOLVER solver, LIS_PRECON precon)
 			lis_ilut_ordered_create(solver,precon) :
 			lis_precon_create_ilut_csr(solver,precon);
 
-		lis_psolve_xxx[LIS_PRECON_TYPE_ILUT] =
-			lis_psolve_ilut_csr;
-
-		lis_psolveh_xxx[LIS_PRECON_TYPE_ILUT] =
-			lis_psolveh_ilut_csr;
+		/* Independent RAS domains may construct their local ILUTP
+		 * factors concurrently. Synchronize the shared dispatch-table
+		 * registrations; setup and apply never run simultaneously. */
+#ifdef _OPENMP
+#pragma omp critical(lis_ilut_dispatch_registration)
+#endif
+		{
+			lis_psolve_xxx[LIS_PRECON_TYPE_ILUT] =
+				lis_psolve_ilut_csr;
+			lis_psolveh_xxx[LIS_PRECON_TYPE_ILUT] =
+				lis_psolveh_ilut_csr;
+		}
 
 		break;
 
