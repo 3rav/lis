@@ -67,7 +67,9 @@ experimental dense approximate interface Schur correction is limited to
   been proven fully race-free under arbitrary concurrent failing operations.
   Full end-to-end race analysis (e.g. Helgrind/TSan with runtime-compatible
   OpenMP instrumentation) and real contact-system benchmarks remain review
-  tasks. Passing OpenMP regression tests is not a proof of race freedom.
+  tasks. The new native OOM+OpenMP CI job injects allocation failures while
+  eight local factors are being constructed and verifies that all partial
+  subdomain allocations are released after the worker join. Passing OpenMP regression tests is not a proof of race freedom.
 * RCM and row scaling operate on **each extracted local matrix**. They do not
   implement whole-system two-sided Equil in this branch.
 
