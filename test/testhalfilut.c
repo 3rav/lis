@@ -1059,15 +1059,15 @@ static int check_ilut_ras_local_ilutp(void)
     char opts[350];
 
 #ifdef _OPENMP
-    /* Local ILUTP explicitly supports only one OpenMP solver thread. */
+    /* Test serial and genuinely parallel independent ILUTP subdomains. */
     omp_set_num_threads(1);
 #endif
     err=lis_matrix_create(LIS_COMM_WORLD,&A);
     if(err) goto cleanup;
-    err=lis_matrix_set_size(A,0,8);
+    err=lis_matrix_set_size(A,0,32);
     if(err) goto cleanup;
     if(A->nprocs!=1) { failed=0; goto cleanup; }
-    for(i=0;i<8;i+=2)
+    for(i=0;i<32;i+=2)
     {
         err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,(LIS_SCALAR)1.0,A);
         if(err) goto cleanup;
@@ -1082,22 +1082,29 @@ static int check_ilut_ras_local_ilutp(void)
     if(lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x) ||
        lis_vector_duplicate(A,&exact) || lis_vector_duplicate(A,&r))
         goto cleanup;
-    for(i=0;i<8;i++) exact->value[i]=(LIS_SCALAR)(1.0+0.125*i);
+    for(i=0;i<32;i++) exact->value[i]=(LIS_SCALAR)(1.0+0.125*i);
     err=lis_matvec(A,exact,b);
     if(err) goto cleanup;
     err=lis_vector_nrm2(b,&bn);
     if(err || !(bn>0.0)) goto cleanup;
-    for(variant=0;variant<=1;variant++)
+    for(variant=0;variant<=4;variant++)
     {
+#ifdef _OPENMP
+        /* Positive variants exercise 1, 2, 4 and 8 OpenMP workers.
+         * Eight domains of four rows give eight independent pivoted LU
+         * factorizations with a zero diagonal in every 2x2 block. */
+        omp_set_num_threads(variant ? (1 << (variant-1)) : 1);
+#endif
+        exerr=0.0;
         err=lis_solver_create(&solver);
         if(err) goto cleanup;
         snprintf(opts,sizeof(opts),
             "-i fgmres -p ilut -scale none -print none "
             "-iluc_drop 0 -iluc_rate 8 "
-            "-ilut_ras_domains 2 -ilut_ras_overlap 0 -ilut_schur 0 "
+            "-ilut_ras_domains 8 -ilut_ras_overlap 0 -ilut_schur 0 "
             "-ilutp %d -ilutp_threshold 0.5 -ilutp_full 1 "
             "-ilutp_full_limit 128",
-            (int)variant);
+            (int)(variant!=0));
         err=lis_solver_set_option(opts,solver);
         if(err) goto cleanup;
         err=lis_solver_set_matrix(A,solver);
@@ -1125,7 +1132,7 @@ static int check_ilut_ras_local_ilutp(void)
         if(err) goto cleanup;
         err=lis_vector_nrm2(r,&rn);
         if(err) goto cleanup;
-        for(i=0;i<8;i++)
+        for(i=0;i<32;i++)
         {
             LIS_REAL v=fabs(x->value[i]-exact->value[i]);
             if(v>exerr) exerr=v;
@@ -1137,8 +1144,16 @@ static int check_ilut_ras_local_ilutp(void)
                 (double)(rn/bn),(double)exerr);
             goto cleanup;
         }
-        printf("ILUT_RAS_LOCAL_ILUTP residual=%.9e xerr=%.9e PASSED\n",
-                (double)(rn/bn),(double)exerr);
+        printf("ILUT_RAS_LOCAL_ILUTP threads=%d residual=%.9e xerr=%.9e PASSED\n",
+               variant ? (1 << (variant-1)) : 1,
+               (double)(rn/bn),(double)exerr);
+#ifdef _OPENMP
+        if(omp_get_max_threads()!=(1 << (variant-1)))
+        {
+            fprintf(stderr,"ILUT RAS altered outer OpenMP thread budget\n");
+            goto cleanup;
+        }
+#endif
         solver->precon=NULL;
         lis_precon_destroy(pc);pc=NULL;
         lis_solver_destroy(solver);solver=NULL;
