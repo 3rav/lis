@@ -122,6 +122,8 @@ jobs:
       - name: Verify 8-thread pivoted RAS ILUTP regression
         if: matrix.mode == 'openmp'
         run: |
+          set -euo pipefail
+          make -C test testhalfilut
           OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testhalfilut | tee parallel-ras-ilutp.log
           grep -q 'ILUT_RAS_LOCAL_ILUTP threads=8 .* PASSED' parallel-ras-ilutp.log
 
@@ -550,6 +552,14 @@ jobs:
 
       - name: Run Automake test suite
         run: make -j2 check
+
+      - name: Verify pivoted eight-domain parallel ILUTP on MSYS2
+        if: matrix.mode == 'openmp'
+        run: |
+          set -euo pipefail
+          make -C test testhalfilut
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testhalfilut.exe | tee parallel-ras-ilutp-msys2.log
+          grep -q 'ILUT_RAS_LOCAL_ILUTP threads=8 .* PASSED' parallel-ras-ilutp-msys2.log
 
       - name: Upload failed test logs
         if: failure()
