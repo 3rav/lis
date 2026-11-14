@@ -46,16 +46,16 @@ class NativeContactAuditTest(unittest.TestCase):
             rhs.write_text("rhs fixture", encoding="utf-8")
             bench = root / "fake_bench.py"
             bench.write_text(
-                "#!" + sys.executable + "\\n"
-                "import csv,sys\\n"
-                "from pathlib import Path\\n"
-                "args=sys.argv[1:]\\n"
-                "mode=args[args.index('--equil')+1]\\n"
-                "p=Path(args[args.index('--csv')+1])\\n"
+                "#!" + sys.executable + "\n"
+                "import csv,sys\n"
+                "from pathlib import Path\n"
+                "args=sys.argv[1:]\n"
+                "mode=args[args.index('--equil')+1]\n"
+                "p=Path(args[args.index('--csv')+1])\n"
                 "p.write_text('variant,equil,status,iterations,nnz_L,nnz_U,'"
                 "+'moved_columns,api_error,solver_status,setup_cpu_s,'"
                 "+'solve_cpu_s,physical_relres\\n'"
-                "+'ilutp_full,'+mode+',converged,2,4,4,0,0,0,0.01,0.02,1e-9\\n')\\n",
+                "+'ilutp_full,'+mode+',converged,2,4,4,0,0,0,0.01,0.02,1e-9\\n')\n",
                 encoding="utf-8")
             bench.chmod(0o755)
             args = argparse.Namespace(
