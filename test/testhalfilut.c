@@ -890,14 +890,14 @@ cleanup:
  * the additional Schur step should recover the solution to roundoff.
  */
 static int
-check_ilut_ras_exact_interface_one(LIS_INT n)
+check_ilut_ras_exact_interface_one(LIS_INT n,LIS_INT coupled)
 {
     const LIS_INT ei[3]={2,3,4},ej[3]={3,4,5};
     LIS_MATRIX A=NULL;
     LIS_VECTOR exact=NULL,b=NULL,x=NULL,r=NULL;
     LIS_SOLVER solver=NULL;
     LIS_PRECON pc=NULL;
-    LIS_INT err=0,i,v;
+    LIS_INT err=0,i,v,edge_count;
     LIS_REAL bn=0.0,rn=0.0,baseline=0.0,schur=0.0,xerr=0.0;
     char opts[256];
     int failed=1;
@@ -912,11 +912,13 @@ check_ilut_ras_exact_interface_one(LIS_INT n)
         err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)4.0,A);
         if(err) goto done;
     }
-    for(i=0;i<3;i++)
+    edge_count=coupled ? n-1 : 3;
+    for(i=0;i<edge_count;i++)
     {
-        err=lis_matrix_set_value(LIS_INS_VALUE,ei[i],ej[i],(LIS_SCALAR)-1.0,A);
+        LIS_INT u=coupled ? i : ei[i],v=coupled ? i+1 : ej[i];
+        err=lis_matrix_set_value(LIS_INS_VALUE,u,v,(LIS_SCALAR)-1.0,A);
         if(err) goto done;
-        err=lis_matrix_set_value(LIS_INS_VALUE,ej[i],ei[i],(LIS_SCALAR)-1.0,A);
+        err=lis_matrix_set_value(LIS_INS_VALUE,v,u,(LIS_SCALAR)-1.0,A);
         if(err) goto done;
     }
     err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
@@ -969,21 +971,24 @@ check_ilut_ras_exact_interface_one(LIS_INT n)
                 if(delta>xerr) xerr=delta;
             }
         }
-        printf("ILUT_RAS_EXACT_INTERFACE n=%ld schur=%d true_rel_res=%.9e\n",
-               (long)n,(int)v,(double)(rn/bn));
+        printf("ILUT_RAS_INTERFACE n=%ld coupled=%d schur=%d true_rel_res=%.9e\n",
+               (long)n,(int)coupled,(int)v,(double)(rn/bn));
         solver->precon=NULL;
         lis_precon_destroy(pc);pc=NULL;
         lis_solver_destroy(solver);solver=NULL;
     }
+    /* Exact diagonal interior or >=5x improvement with coupled interior. */
     if(!(baseline>0.20 && baseline<0.26 &&
-         schur<1e-10 && xerr<1e-10))
+         (coupled ? (schur>0.001 && schur<0.05 &&
+                     schur<baseline/5.0) :
+                    (schur<1e-10 && xerr<1e-10))))
     {
-        fprintf(stderr,"ILUT_RAS_EXACT_INTERFACE_FAILED n=%ld baseline=%.9e "
+        fprintf(stderr,"ILUT_RAS_INTERFACE_FAILED n=%ld coupled=%d baseline=%.9e "
                 "schur=%.9e xerr=%.9e\n",
-                (long)n,(double)baseline,(double)schur,(double)xerr);
+                (long)n,(int)coupled,(double)baseline,(double)schur,(double)xerr);
         goto done;
     }
-    printf("ILUT_RAS_EXACT_INTERFACE n=%ld PASSED\n",(long)n);
+    printf("ILUT_RAS_INTERFACE n=%ld coupled=%d PASSED\n",(long)n,(int)coupled);
     failed=0;
 done:
     if(pc)
@@ -1003,8 +1008,10 @@ done:
 static int
 check_ilut_ras_exact_interface(void)
 {
-    int failed=check_ilut_ras_exact_interface_one(8);
-    failed |= check_ilut_ras_exact_interface_one(9);
+    int failed=check_ilut_ras_exact_interface_one(8,0);
+    failed |= check_ilut_ras_exact_interface_one(9,0);
+    failed |= check_ilut_ras_exact_interface_one(8,1);
+    failed |= check_ilut_ras_exact_interface_one(9,1);
     return failed;
 }
 

@@ -60,6 +60,27 @@ correctness witnesses.
 No corresponding Schur exactness, convergence advantage, or FEA
 performance benefit is claimed when `A_II` is not diagonal.
 
+## Coupled-interior witness: inexact yet useful Schur correction
+
+The same owner partitions and manufactured solution are also tested
+with the symmetric tridiagonal matrix `A=tridiag(-1,4,-1)` for n=8
+and n=9. Here `A_II` contains **nonzero interior off-diagonals**,
+so the diagonal inverse is genuinely approximate.
+
+Independent double-precision block calculation gives:
+
+| Size | Schur off, relative residual | Schur on, relative residual |
+|---|---:|---:|
+| 8×8 | 0.2314968813 | 0.0210451710 |
+| 9×9 | 0.2314959114 | 0.0210450829 |
+
+The new native regression checks that a **single** Schur-corrected
+preconditioner application reduces the true residual by at least 5×
+and achieves a relative residual below 0.05. It does not assert exact
+solution recovery for this coupled case. This is a limited example
+of a useful interface correction, **not** a claim about Krylov iteration
+counts, wall time, or real-world contact mechanics.
+
 ## Synthetic contact-KKT regression
 
 `testhalfilut` now assembles an indefinite **48×48 stabilized saddle-point system** with a 36×36 spring-stiffness block, twelve displacement-difference constraints, and a negative 0.1 multiplier diagonal. It compares the legacy ILUT control with the opt-in variant, requiring convergence to a **true relative residual below 1e-7** and printing Krylov iterations and residuals. This is an algebraic contact-style regression, **not** a production nonlinear FEA benchmark and not evidence of a speedup.
