@@ -54,8 +54,11 @@ jobs:
         run: |
           set -euo pipefail
           test -x test/testilutp
+          test -x test/testilutequil
           test -x test/benchilutp
+          test -x test/benchilutpequil
           ./test/testilutp
+          ./test/testilutequil
           make distdir
           python3 - <<'PY'
           from pathlib import Path
@@ -66,6 +69,9 @@ jobs:
           required=[
               'src/precon/lis_precon_ilutp.inc',
               'test/testilutp.c',
+              'test/testilutequil.c',
+              'test/benchilutpequil.c',
+              'doc/ilutp-equil-integration.md',
               'test/benchilutp.c',
               'test/benchilutp_rhs_100.mtx',
               'test/gen_ilutp_fullfill_case.py',
