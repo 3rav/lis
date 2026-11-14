@@ -5,6 +5,7 @@ on:
     branches:
       - develop
       - ci/linux-mingw
+      - ci/ilutp-equil-pr229-20261114
   pull_request:
     branches:
       - develop
@@ -116,6 +117,24 @@ jobs:
 
       - name: Run Automake test suite
         run: make -j2 check
+
+      - name: Check integrated Equil and ILUTP profiles
+        if: matrix.mode == 'serial'
+        run: |
+          set -euo pipefail
+          for amp in 5 10 30; do
+            ./test/benchilutpequil "$amp" 5 0.005 | tee "ilutp-equil-$amp.log"
+            for mode in ilut equil ilutp ilutp_equil row_only; do
+              grep -q "^ILUTP_EQUIL_BENCH mode=$mode " "ilutp-equil-$amp.log"
+            done
+          done
+
+      - name: Export regenerated Automake test Makefile.in
+        if: matrix.mode == 'serial'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ilutp-equil-pr229-generated-automake
+          path: test/Makefile.in
 
       - name: Smoke-test native ILUTP Matrix Market comparison
         if: matrix.mode == 'serial'
