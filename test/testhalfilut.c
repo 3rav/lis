@@ -1039,7 +1039,8 @@ check_ilut_ras_exact_interface(void)
 
 /*
  * Integration regression for #225 RAS with #229 ILUTP.
- * Four reversible 2x2 off-diagonal blocks have zero diagonals.
+ * Sixteen reversible 2x2 off-diagonal blocks have zero diagonals.
+ * Eight independent four-row domains exercise up to eight OpenMP workers.
  * Dynamic column pivoting is required for exact local complete-fill LU.
  * Without propagating -ilutp from the outer solver, this deliberately
  * difficult local factorization cannot pass the true residual test.
