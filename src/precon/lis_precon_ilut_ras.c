@@ -155,6 +155,18 @@ lis_ilut_ras_make_subdomain(LIS_SOLVER outer, struct LIS_ILUT_RAS_STRUCT *s,
         outer->params[LIS_PARAMS_GAMMA-LIS_OPTIONS_LEN];
     p->solver->params[LIS_PARAMS_ILU_PIVOT_TOL-LIS_OPTIONS_LEN] =
         outer->params[LIS_PARAMS_ILU_PIVOT_TOL-LIS_OPTIONS_LEN];
+    /*
+     * ILUTP is a local factorization policy, not a global RAS Schur
+     * algorithm. Forward it explicitly, including its pivot threshold
+     * and bounded full-fill controls; otherwise -ilutp 1 on the outer
+     * solver would silently select plain local ILUT.
+     */
+    p->solver->ilutp_enabled=outer->ilutp_enabled;
+    p->solver->ilutp_threshold=outer->ilutp_threshold;
+    p->solver->ilutp_full=outer->ilutp_full;
+    p->solver->ilutp_full_limit=outer->ilutp_full_limit;
+    p->solver->ilut_rcm=outer->ilut_rcm;
+    p->solver->ilut_row_scale=outer->ilut_row_scale;
     err=lis_solver_set_precon_half(p->solver,outer->precon_half_mode);
     if(err) goto done;
     err=lis_solver_set_matrix(p->A,p->solver);
@@ -370,6 +382,19 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
        solver->ilut_ras_domains<2 || solver->ilut_ras_domains>16 ||
        solver->ilut_ras_domains>n)
         return LIS_ERR_ILL_ARG;
+    if(solver->ilutp_full && !solver->ilutp_enabled)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "ILUT RAS: -ilutp_full requires -ilutp 1");
+        return LIS_ERR_ILL_ARG;
+    }
+    if(solver->ilutp_enabled &&
+       solver->precon_half_mode!=LIS_PRECON_HALF_OFF)
+    {
+        LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+            "ILUTP local factors do not support half storage");
+        return LIS_ERR_NOT_IMPLEMENTED;
+    }
     s=(struct LIS_ILUT_RAS_STRUCT *)lis_malloc(sizeof(*s),"ILUT RAS state");
     if(!s) return LIS_OUT_OF_MEMORY;
     memset(s,0,sizeof(*s));

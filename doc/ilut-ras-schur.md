@@ -131,3 +131,35 @@ runner compares only baseline with RCM-scaled ILUT, **not** RAS/Schur.
 The regression `testhalfilut` executes all overlaps 0/1/2 with and without Schur, checking a substantial residual decrease and explicit rejection of unsupported adjoint applies. The current code is a foundation for later **MPI-distributed** RAS plus iterative Schur and ddPQ pivot-matching work, not a claim that these have already been delivered.
 
 Reference: https://hypre.readthedocs.io/en/latest/solvers-ilu.html
+
+## ILUTP integration (requires upstream #229)
+
+This *separate integration branch*, based on upstream #229, adds genuine
+local ILUTP support for RAS. With `-ilutp 1`, each overlapping
+subdomain builds its own pivoted ILUTP factorization instead of silently
+falling back to ILUT. The local options `-ilutp_threshold`,
+`-ilutp_full`, `-ilutp_full_limit`, RCM and row scaling are
+forwarded from the outer solver.
+
+For example:
+
+```sh
+-i fgmres -p ilut -scale none -ilut_ras_domains 2 \\
+-ilut_ras_overlap 1 -ilut_schur 1 -ilutp 1 \\
+-ilutp_threshold 0.5 -ilut_drop 0.005 -ilut_rate 8
+```
+
+The integration regression `ILUT_RAS_LOCAL_ILUTP` uses independent
+zero-diagonal 2x2 sparse blocks to force dynamic column pivoting inside
+RAS subdomains, with `-ilutp_full 1`. It checks both the original-system
+residual and a manufactured exact solution, and rejects full-fill when
+`-ilutp 0`. This does **not** mean other algorithm combinations or
+production FEA problems are automatically safe or efficient.
+
+ILUTP requires **one OpenMP solver thread**, serial real-double CSR,
+and half-precision factor storage **disabled**. RAS retains its own
+serial-only and Schur interface-size limits.
+
+**Integration order:** #229 must be merged before adding this
+compatibility change to upstream #225. Do not merge the integration
+branch directly as a duplicate of #229.
