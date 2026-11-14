@@ -577,6 +577,45 @@ jobs:
           if-no-files-found: ignore
 
 
+  native-oom-parallel-ilutp:
+    name: Native ILUTP parallel RAS injected-OOM regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '8'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install autotools and OpenMP toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Configure OpenMP and native OOM injection together
+        run: |
+          autoreconf -fiv
+          ./configure --enable-oom-tests --enable-test --enable-omp --enable-half \
+            --disable-fortran --disable-f90 --disable-saamg --disable-mpi
+      - name: Build LIS and the isolated fault-injection test
+        run: |
+          make -j2
+          make -C test testhalfilut
+      - name: Inject OOM while ILUTP domains factor concurrently
+        run: |
+          set -euo pipefail
+          ./test/testhalfilut --parallel-ras-ilutp | tee ilutp-ras-oom.log
+          grep -q 'PARALLEL_RAS_OOM injected=.* PASS' ilutp-ras-oom.log
+      - name: Upload OOM logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-oom-parallel-ras-logs
+          path: |
+            config.log
+            test/test-suite.log
+            test/*.log
+            ilutp-ras-oom.log
+          if-no-files-found: ignore
+
   native-oom:
     name: Native OOM regressions (serial)
     runs-on: ubuntu-24.04
