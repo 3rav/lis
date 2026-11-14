@@ -626,7 +626,7 @@ static int check_hybrid_equil_user_rejection(void)
     pc=NULL;
     failed=0;
 cleanup:
-    if(failed)fprintf(stderr,"Hybrid Equil USER guard failed err=%d\\n",(int)err);
+    if(failed)fprintf(stderr,"Hybrid Equil USER guard failed err=%d\n",(int)err);
     if(pc)lis_precon_destroy(pc);
     if(solver)lis_solver_destroy(solver);
     if(A)lis_matrix_destroy(A);
