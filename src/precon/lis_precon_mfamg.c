@@ -18,6 +18,9 @@
 #endif
 #include <stdlib.h>
 #include <string.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "lislib.h"
 
@@ -1508,325 +1511,162 @@ lis_mfamg_block_solve(
 
 
 static LIS_INT
-lis_mfamg_block_refresh(
-    struct LIS_MFAMG_LEVEL *level)
+lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
 {
-    LIS_INT i;
-    LIS_INT k;
-    LIS_INT row;
-    LIS_INT block;
-    LIS_INT start;
-    LIS_INT width;
-    LIS_INT nnz;
-    LIS_INT max_row_nnz;
-    LIS_INT usable;
-    LIS_INT err;
+    LIS_INT i, nnz, max_row_nnz=0, err;
+    LIS_INT block, workers=1, parallel_error=LIS_SUCCESS;
+    LIS_INT *cols=NULL;
+    LIS_SCALAR *vals=NULL;
+    size_t total_rows;
 
-    LIS_INT *cols;
-
-    LIS_SCALAR *vals;
-    LIS_SCALAR *lu;
-
-    LIS_REAL mag;
-
-    LIS_INT global_start;
-
-
-    if(
-        level==NULL
-        ||
-        level->A==NULL
-        ||
-        level->diagonal==NULL
-        ||
-        level->n<=0
-        ||
-        level->block_size<=1
-        ||
-        level->block_size>LIS_MFAMG_BLOCK_MAX_SIZE
-        ||
-        level->block_count<=0
-        ||
-        level->block_lu==NULL
-        ||
-        level->block_pivots==NULL
-        ||
-        level->block_valid==NULL
-        ||
-        level->block_row_scale==NULL)
-    {
+    if(level==NULL || level->A==NULL || level->diagonal==NULL ||
+       level->n<=0 || level->block_size<=1 ||
+       level->block_size>LIS_MFAMG_BLOCK_MAX_SIZE ||
+       level->block_count<=0 || level->block_lu==NULL ||
+       level->block_pivots==NULL || level->block_valid==NULL ||
+       level->block_row_scale==NULL)
         return LIS_ERR_ILL_ARG;
-    }
 
+    err=lis_matrix_get_diagonal(level->A,level->diagonal);
+    if(err) return err;
 
-    err =
-        lis_matrix_get_diagonal(
-            level->A,
-            level->diagonal);
-
-    if(err)
-        return err;
-
-
-    /*
-     * Use the historical MFAMG damping as a conservative
-     * block-Jacobi damping factor.  Scalar adaptive damping
-     * remains unchanged for the default smoother.
-     */
-    level->omega =
-        LIS_MFAMG_DEFAULT_OMEGA;
-
-
-    max_row_nnz =
-        0;
-
+    /* Keep the previous conservative damping and pivot policy. */
+    level->omega=LIS_MFAMG_DEFAULT_OMEGA;
 
     for(i=0;i<level->n;i++)
     {
-        nnz =
-            0;
-
-        err =
-            lis_mfamg_row_query(
-                level->A,
-                i,
-                &nnz);
-
-        if(err)
-            return err;
-
-
-        if(nnz>max_row_nnz)
-        {
-            max_row_nnz =
-                nnz;
-        }
+        nnz=0;
+        err=lis_mfamg_row_query(level->A,i,&nnz);
+        if(err) return err;
+        if(nnz>max_row_nnz) max_row_nnz=nnz;
     }
-
-
     if(max_row_nnz<=0)
     {
-        LIS_SETERR(
-            LIS_BREAKDOWN,
-            "MFAMG block smoother matrix has no row entries\n");
-
+        LIS_SETERR(LIS_BREAKDOWN,
+                   "MFAMG block smoother matrix has no row entries\n");
         return LIS_BREAKDOWN;
     }
 
-
-    cols =
-        (LIS_INT *)lis_malloc(
-            (size_t)max_row_nnz
-            *
-            sizeof(LIS_INT),
-            "lis_mfamg_block_refresh::cols");
-
-    vals =
-        (LIS_SCALAR *)lis_malloc(
-            (size_t)max_row_nnz
-            *
-            sizeof(LIS_SCALAR),
-            "lis_mfamg_block_refresh::vals");
-
-
-    if(
-        cols==NULL
-        ||
-        vals==NULL)
+#ifdef _OPENMP
+    /*
+     * LIS_MATRIX_USER callbacks may keep mutable application state.
+     * Never invoke callbacks concurrently. CSR row inspection is read-only
+     * and all scratch buffers are allocated BEFORE starting workers.
+     */
+    if(level->A->matrix_type==LIS_MATRIX_CSR &&
+       level->n>=4096 && level->block_count>=64)
     {
-        if(cols)
-            lis_free(cols);
-
-        if(vals)
-            lis_free(vals);
-
-        LIS_SETERR_MEM(
-            (size_t)max_row_nnz
-            *
-            (
-                sizeof(LIS_INT)
-                +
-                sizeof(LIS_SCALAR)
-            ));
-
+        workers=omp_get_max_threads();
+        if(workers>level->block_count) workers=level->block_count;
+    }
+#endif
+    if(workers<1) workers=1;
+    if((size_t)max_row_nnz>SIZE_MAX/(size_t)workers ||
+       (size_t)max_row_nnz*(size_t)workers>
+           SIZE_MAX/sizeof(LIS_INT) ||
+       (size_t)max_row_nnz*(size_t)workers>
+           SIZE_MAX/sizeof(LIS_SCALAR))
+    {
+        LIS_SETERR(LIS_OUT_OF_MEMORY,
+                   "MFAMG parallel block scratch size overflow\n");
+        return LIS_OUT_OF_MEMORY;
+    }
+    total_rows=(size_t)max_row_nnz*(size_t)workers;
+    cols=(LIS_INT *)lis_malloc(total_rows*sizeof(LIS_INT),
+                               "lis_mfamg_block_refresh::cols");
+    vals=(LIS_SCALAR *)lis_malloc(total_rows*sizeof(LIS_SCALAR),
+                                 "lis_mfamg_block_refresh::vals");
+    if(cols==NULL || vals==NULL)
+    {
+        if(vals) lis_free(vals);
+        if(cols) lis_free(cols);
+        LIS_SETERR_MEM(total_rows*(sizeof(LIS_INT)+sizeof(LIS_SCALAR)));
         return LIS_OUT_OF_MEMORY;
     }
 
-
-    for(
-        block=0;
-        block<level->block_count;
-        block++)
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) num_threads(workers) if(workers>1) reduction(max:parallel_error)
+#endif
+    for(block=0;block<level->block_count;block++)
     {
-        start =
-            block
-            *
-            level->block_size;
+        LIS_INT local_i,k,row,local_nnz,local_err,usable=LIS_FALSE;
+        LIS_INT start=block*level->block_size;
+        LIS_INT width=level->n-start;
+        LIS_INT global_start=level->A->is+start;
+        LIS_INT tid=0;
+        LIS_REAL row_scale[LIS_MFAMG_BLOCK_MAX_SIZE];
+        LIS_INT *my_cols;
+        LIS_SCALAR *my_vals, *lu;
+#ifdef _OPENMP
+        tid=(LIS_INT)omp_get_thread_num();
+#endif
+        my_cols=cols+(size_t)tid*(size_t)max_row_nnz;
+        my_vals=vals+(size_t)tid*(size_t)max_row_nnz;
+        if(width>level->block_size) width=level->block_size;
+        lu=level->block_lu+(size_t)block*(size_t)level->block_size*
+                              (size_t)level->block_size;
+        memset(lu,0,(size_t)level->block_size*
+                    (size_t)level->block_size*sizeof(LIS_SCALAR));
 
-        width =
-            level->n
-            -
-            start;
-
-        if(width>level->block_size)
+        local_err=LIS_SUCCESS;
+        for(local_i=0;local_i<width;local_i++)
         {
-            width =
-                level->block_size;
-        }
-
-
-        lu =
-            level->block_lu
-            +
-            (size_t)block
-            *
-            (size_t)level->block_size
-            *
-            (size_t)level->block_size;
-
-
-        memset(
-            lu,
-            0,
-            (size_t)level->block_size
-            *
-            (size_t)level->block_size
-            *
-            sizeof(LIS_SCALAR));
-
-
-        global_start =
-            level->A->is
-            +
-            start;
-
-
-        for(i=0;i<width;i++)
-        {
-            row =
-                start
-                +
-                i;
-
-            nnz =
-                max_row_nnz;
-
-            err =
-                lis_mfamg_row_fill(
-                    level->A,
-                    row,
-                    max_row_nnz,
-                    &nnz,
-                    cols,
-                    vals);
-
-            if(err)
+            row=start+local_i;
+            local_nnz=max_row_nnz;
+            local_err=lis_mfamg_row_fill(level->A,row,max_row_nnz,
+                                          &local_nnz,my_cols,my_vals);
+            if(local_err) break;
+            for(k=0;k<local_nnz;k++)
             {
-                lis_free(vals);
-                lis_free(cols);
-
-                return err;
-            }
-
-
-            for(k=0;k<nnz;k++)
-            {
-                if(
-                    cols[k]>=global_start
-                    &&
-                    cols[k]<global_start+width)
+                if(my_cols[k]>=global_start &&
+                   my_cols[k]<global_start+width)
                 {
-                    lu[
-                        i*level->block_size
-                        +
-                        (
-                            cols[k]
-                            -
-                            global_start
-                        )]
-                        +=
-                        vals[k];
+                    lu[local_i*level->block_size+
+                       (my_cols[k]-global_start)] += my_vals[k];
                 }
             }
         }
-
-
-        usable =
-            LIS_FALSE;
-
-        err =
-            lis_mfamg_block_factor(
-                width,
-                level->block_size,
-                lu,
-                level->block_pivots
-                    +
-                    block
-                    *
-                    level->block_size,
-                level->block_row_scale,
-                &usable);
-
-        if(err)
+        if(!local_err)
         {
-            lis_free(vals);
-            lis_free(cols);
-
-            return err;
+            local_err=lis_mfamg_block_factor(
+                width,level->block_size,lu,
+                level->block_pivots+block*level->block_size,
+                row_scale,&usable);
         }
-
-
-        level->block_valid[block] =
-            usable;
-
-
-        /*
-         * A singular or numerically deficient diagonal block
-         * is not fatal if all scalar diagonal entries in that
-         * block remain valid.  Such a block uses the existing
-         * weighted-Jacobi correction.
-         */
+        if(local_err)
+        {
+            if(local_err>parallel_error) parallel_error=local_err;
+            continue;
+        }
+        level->block_valid[block]=usable;
         if(!usable)
         {
-            for(i=0;i<width;i++)
+            for(local_i=0;local_i<width;local_i++)
             {
-                mag =
-                    fabs(
-                        level->diagonal->value[
-                            start+i]);
-
-                if(
-                    mag!=mag
-                    ||
-                    mag>LIS_SCALAR_MAX
-                    ||
-                    mag==0.0)
+                LIS_REAL mag=fabs(level->diagonal->value[start+local_i]);
+                if(mag!=mag || mag>LIS_SCALAR_MAX || mag==0.0)
                 {
-                    lis_free(vals);
-                    lis_free(cols);
-
-                    LIS_SETERR(
-                        LIS_BREAKDOWN,
-                        "MFAMG block fallback requires finite nonzero diagonal entries\n");
-
-                    return LIS_BREAKDOWN;
+                    if(LIS_BREAKDOWN>parallel_error)
+                        parallel_error=LIS_BREAKDOWN;
+                    break;
                 }
             }
         }
     }
 
+    /* No preconditioner allocation is released before every worker joins. */
+    lis_free(vals);
+    lis_free(cols);
 
-    lis_free(
-        vals);
-
-    lis_free(
-        cols);
-
-
+    if(parallel_error)
+    {
+        if(parallel_error==LIS_BREAKDOWN)
+            LIS_SETERR(LIS_BREAKDOWN,
+               "MFAMG parallel block factorization/fallback failed\n");
+        return parallel_error;
+    }
     return LIS_SUCCESS;
 }
-
-
 
 
 static LIS_INT
