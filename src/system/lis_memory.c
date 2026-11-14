@@ -366,7 +366,15 @@ void lis_test_oom_raw_free(void *p)
 }
 #endif
 
-void *lis_malloc( size_t size, char *tag )
+/*
+ * The global LIS allocation list/hash predates OpenMP-parallel local
+ * preconditioner setup. Its lookup, rehash, insertion and deletion are
+ * mutable shared state. Preserve legacy allocation semantics while
+ * serializing each complete tracking transaction. Do not call the
+ * *_tracked_body helpers outside the public lock-protected wrappers.
+ * lis_free_all() is a finalize-only operation after worker quiescence.
+ */
+static void * lis_malloc_tracked_body(size_t size, char *tag)
 {
 	union {
 		void *ptr;
@@ -425,7 +433,20 @@ void *lis_malloc( size_t size, char *tag )
   return addr.ptr;
 }
 
-void *lis_calloc( size_t size, char *tag )
+void * lis_malloc(size_t size, char *tag)
+{
+    void * result;
+#ifdef _OPENMP
+#pragma omp critical(lis_memory_registry)
+#endif
+    {
+        result=lis_malloc_tracked_body(size,tag);
+    }
+    return result;
+}
+
+
+static void * lis_calloc_tracked_body(size_t size, char *tag)
 {
   union {
     void *ptr;
@@ -485,7 +506,20 @@ void *lis_calloc( size_t size, char *tag )
   return addr.ptr;
 }
 
-void *lis_realloc( void *p, size_t size )
+void * lis_calloc(size_t size, char *tag)
+{
+    void * result;
+#ifdef _OPENMP
+#pragma omp critical(lis_memory_registry)
+#endif
+    {
+        result=lis_calloc_tracked_body(size,tag);
+    }
+    return result;
+}
+
+
+static void * lis_realloc_tracked_body(void *p, size_t size)
 {
 	union {
 		void *ptr;
@@ -531,7 +565,20 @@ void *lis_realloc( void *p, size_t size )
 	return address;
 }
 
-void lis_free(void *p)
+void * lis_realloc(void *p, size_t size)
+{
+    void * result;
+#ifdef _OPENMP
+#pragma omp critical(lis_memory_registry)
+#endif
+    {
+        result=lis_realloc_tracked_body(p,size);
+    }
+    return result;
+}
+
+
+static void lis_free_tracked_body(void *p)
 {
   malloc_address *ma;
 
@@ -555,7 +602,18 @@ void lis_free(void *p)
   return;
 }
 
-void lis_free_mat(LIS_MATRIX A)
+void lis_free(void *p)
+{
+#ifdef _OPENMP
+#pragma omp critical(lis_memory_registry)
+#endif
+    {
+        lis_free_tracked_body(p);
+    }
+}
+
+
+static void lis_free_mat_tracked_body(LIS_MATRIX A)
 {
 	malloc_address *ma;
 	malloc_address *ma_bak;
@@ -609,6 +667,17 @@ void lis_free_mat(LIS_MATRIX A)
 	return;
 }
 
+void lis_free_mat(LIS_MATRIX A)
+{
+#ifdef _OPENMP
+#pragma omp critical(lis_memory_registry)
+#endif
+    {
+        lis_free_mat_tracked_body(A);
+    }
+}
+
+
 void lis_free2(LIS_INT n, ...)
 {
 	va_list vvlist;
@@ -655,7 +724,7 @@ void lis_free_all()
 	return;
 }
 
-LIS_INT lis_is_malloc( void *p )
+static LIS_INT lis_is_malloc_tracked_body(void *p)
 {
 	if( lis_malloc_address_find(p)!=NULL )
 	{
@@ -664,3 +733,16 @@ LIS_INT lis_is_malloc( void *p )
 
 	return LIS_FALSE;
 }
+
+LIS_INT lis_is_malloc(void *p)
+{
+    LIS_INT result;
+#ifdef _OPENMP
+#pragma omp critical(lis_memory_registry)
+#endif
+    {
+        result=lis_is_malloc_tracked_body(p);
+    }
+    return result;
+}
+
