@@ -1049,18 +1049,21 @@ static int check_ilut_ras_local_ilutp(void)
 {
 #ifdef _OPENMP
     int original_threads=omp_get_max_threads();
+    int original_dynamic=omp_get_dynamic();
 #endif
     LIS_MATRIX A=NULL;
     LIS_SOLVER solver=NULL;
     LIS_PRECON pc=NULL;
     LIS_VECTOR b=NULL,x=NULL,exact=NULL,r=NULL;
-    LIS_INT err=0,i,variant;
+    LIS_INT err=0,i,variant,limit;
+    int expected_threads;
     LIS_REAL bn=0.0,rn=0.0,exerr=0.0;
     int failed=1;
     char opts[350];
 
 #ifdef _OPENMP
     /* Test serial and genuinely parallel independent ILUTP subdomains. */
+    omp_set_dynamic(0);
     omp_set_num_threads(1);
 #endif
     err=lis_matrix_create(LIS_COMM_WORLD,&A);
@@ -1088,20 +1091,29 @@ static int check_ilut_ras_local_ilutp(void)
     if(err) goto cleanup;
     err=lis_vector_nrm2(b,&bn);
     if(err || !(bn>0.0)) goto cleanup;
-    for(variant=0;variant<=4;variant++)
+#ifdef _OPENMP
+    limit=4;
+#else
+    limit=1; /* Never report 2/4/8 threads when OpenMP is disabled. */
+#endif
+    for(variant=0;variant<=limit;variant++)
     {
 #ifdef _OPENMP
         /* Positive variants exercise 1, 2, 4 and 8 OpenMP workers.
          * Eight domains of four rows give eight independent pivoted LU
          * factorizations with a zero diagonal in every 2x2 block. */
-        omp_set_num_threads(variant ? (1 << (variant-1)) : 1);
+        expected_threads=variant ? (1 << (variant-1)) : 1;
+        omp_set_num_threads(expected_threads);
+#endif
+#ifndef _OPENMP
+        expected_threads=1;
 #endif
         exerr=0.0;
         err=lis_solver_create(&solver);
         if(err) goto cleanup;
         snprintf(opts,sizeof(opts),
             "-i fgmres -p ilut -scale none -print none "
-            "-iluc_drop 0 -iluc_rate 8 "
+            "-ilut_drop 0 -ilut_rate 8 "
             "-ilut_ras_domains 8 -ilut_ras_overlap 0 -ilut_schur 0 "
             "-ilutp %d -ilutp_threshold 0.5 -ilutp_full 1 "
             "-ilutp_full_limit 128",
@@ -1146,10 +1158,10 @@ static int check_ilut_ras_local_ilutp(void)
             goto cleanup;
         }
         printf("ILUT_RAS_LOCAL_ILUTP threads=%d residual=%.9e xerr=%.9e PASSED\n",
-               variant ? (1 << (variant-1)) : 1,
+               expected_threads,
                (double)(rn/bn),(double)exerr);
 #ifdef _OPENMP
-        if(omp_get_max_threads()!=(1 << (variant-1)))
+        if(omp_get_max_threads()!=expected_threads)
         {
             fprintf(stderr,"ILUT RAS altered outer OpenMP thread budget\n");
             goto cleanup;
@@ -1174,6 +1186,7 @@ cleanup:
     if(A) lis_matrix_destroy(A);
 #ifdef _OPENMP
     omp_set_num_threads(original_threads);
+    omp_set_dynamic(original_dynamic);
 #endif
     return failed;
 }
