@@ -25,6 +25,63 @@ when `-ilutp 0` (the default). No SuperLU library or plugin is needed.
   max-entry row scaling inside the preconditioner; GMRES still
   solves the **original** `Ax=b`.
 
+## Optional two-sided ILUT equilibration
+
+`-ilut_equil 1` enables two-sided maximum-absolute-value scaling in
+serial real-double CSR ILUT, including the dynamic-column-pivoting and
+bounded complete-fill variants. It is **disabled by default**.
+The option applies one row pass and then one column pass to the
+row-scaled matrix. `-ilut_row_scale 1` remains available as an
+independent row-only baseline; when Equil is enabled, the row pass
+is performed only once. `-ilut_rcm 1` may be combined with either.
+
+With symmetric ordering `P`, diagonal row weights `R`, diagonal
+column weights `C`, and dynamic **column** permutation `Q`:
+
+```text
+B = P A P^T
+S = R B C
+S Q ~= L U
+forward: P^T C Q (LU)^-1 R P
+adjoint: P^T R^H (LU)^-H Q^T C^H P
+```
+
+Importantly, `C` is indexed in the **pre-pivot** column coordinates,
+so the outgoing forward and incoming adjoint factors use `C[Q[i]]`.
+The original Krylov operator `A` remains unchanged. Row/column
+maximum passes take `O(nnz)` and the column weights cost `O(n)`
+additional memory. Empty rows/columns retain unit scaling; nonfinite
+input or transformed coefficients are rejected. Equil is not
+a substitute for numerical pivoting, and it can increase incomplete
+factor fill.
+
+The nested solver supports `-p hybrid -hybrid_p ilut -ilut_equil 1`
+with and without `-ilutp 1`. Equil with a non-ILUT nested
+preconditioner is rejected rather than silently ignored. The
+combined path requires serial CSR input and one active OpenMP thread
+when ILUTP is enabled.
+
+To compare Equil with its controls on the **same original** sparse
+Matrix Market matrix and RHS, use:
+
+```sh
+./test/benchilutp A.mtx b.mtx --equil 0 --rcm 1 --row-scale 1 --csv row.csv
+./test/benchilutp A.mtx b.mtx --equil 1 --rcm 1 --row-scale 1 --csv equil.csv
+```
+
+The `equil` CSV column records the requested mode. The
+`physical_relres` field is measured against the original `A`
+and `b`. `tools/run_native_ilutp_contact.py` also accepts
+`--equil 0|1` and forwards it to this benchmark.
+For a small manufactured-system control with five profiles, run
+`./test/benchilutpequil 30 5 0.005`.
+
+Regression coverage is provided by `testilutequil` and
+`testilutp`, including forward/transpose solves, sequence
+invalidations, Hybrid forwarding and bounded complete-fill.
+Neither lower GMRES iteration counts nor a reduction in pivot
+swaps alone establishes total-time or memory superiority.
+
 ### Example: complete-fill mode
 
 ```sh
