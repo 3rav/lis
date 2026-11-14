@@ -588,6 +588,51 @@ cleanup:
 
 /* Hybrid must preserve an opt-in ILUTP policy in its inner ILUT
  * preconditioner. The ordinary Hybrid/USER default remains untouched. */
+/* Equil is defined for assembled CSR, not matrix-free USER matrices.
+ * Hybrid must fail closed before attempting any nested factorization. */
+static LIS_INT hybrid_equil_user_matvec(
+    void *user_data, const LIS_SCALAR *x, LIS_SCALAR *y)
+{
+    LIS_INT i;
+    (void)user_data;
+    for(i=0;i<REG_N;i++)y[i]=x[i];
+    return LIS_SUCCESS;
+}
+static int check_hybrid_equil_user_rejection(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_INT err=0;
+    int failed=1;
+
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err)goto cleanup;
+    err=lis_matrix_set_size(A,0,REG_N);if(err)goto cleanup;
+    err=lis_matrix_set_user(A,NULL,hybrid_equil_user_matvec,NULL);
+    if(err || A->matrix_type!=LIS_MATRIX_USER)goto cleanup;
+    err=lis_solver_create(&solver);if(err)goto cleanup;
+    solver->A=A;
+    err=lis_solver_set_option(
+        "-i fgmres -p hybrid -hybrid_i gmres -hybrid_p ilut "
+        "-hybrid_maxiter 3 -ilutp 0 -ilut_equil 1 "
+        "-scale none -omp_num_threads 1",solver);
+    if(err)goto cleanup;
+    err=lis_precon_create(solver,&pc);
+    if(err!=LIS_ERR_NOT_IMPLEMENTED)goto cleanup;
+    pc=NULL;
+    err=lis_solver_set_option("-hybrid_p none",solver);if(err)goto cleanup;
+    err=lis_precon_create(solver,&pc);
+    if(err!=LIS_ERR_ILL_ARG)goto cleanup;
+    pc=NULL;
+    failed=0;
+cleanup:
+    if(failed)fprintf(stderr,"Hybrid Equil USER guard failed err=%d\\n",(int)err);
+    if(pc)lis_precon_destroy(pc);
+    if(solver)lis_solver_destroy(solver);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
 static int check_hybrid_ilutp(void)
 {
     LIS_MATRIX A=NULL;
@@ -845,6 +890,7 @@ int main(int argc,char **argv)
     failed|=check_no_swap_kernel();
     failed|=check_option_replace();
     failed|=check_hybrid_ilutp();
+    failed|=check_hybrid_equil_user_rejection();
     failed|=check_ilutp_half_guard();
     failed|=check_full_fill();
     err=lis_solver_create(&solver);
