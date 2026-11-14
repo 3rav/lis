@@ -10,6 +10,11 @@ on:
       - develop
   workflow_dispatch:
 
+# CI reproducibility: on 2026-11-14 the three unchanged eigensolver
+# regressions passed on Ubuntu 24.04/GCC 13.3 and failed on Ubuntu
+# 26.04/GCC 15.2 for BOTH upstream develop and PR #229.
+# Keep the full unmodified tests on the validated image while GCC 15
+# compatibility is investigated separately; do not silently skip tests.
 permissions:
   contents: read
 
@@ -20,7 +25,7 @@ concurrency:
 jobs:
   generated-makefiles:
     name: Build from tracked Makefile.in (no autoreconf)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +51,7 @@ jobs:
 
   linux:
     name: Linux GCC (${{ matrix.mode }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -245,7 +250,7 @@ jobs:
 
   linux-longlong:
     name: Linux GCC (64-bit LIS_INT RCO overflow)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -282,7 +287,7 @@ jobs:
 
   fgcrodr-maxiter-lsan:
     name: FGCRO-DR MAXITER leak red/green proof
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
@@ -358,7 +363,7 @@ jobs:
 
   fgcrodr-sanitizer:
     name: FGCRO-DR AddressSanitizer and LeakSanitizer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
       ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
@@ -398,7 +403,7 @@ jobs:
 
   linux-mpi:
     name: Linux GCC (MPI, 2 ranks)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
       OMP_NUM_THREADS: '1'
@@ -518,7 +523,7 @@ jobs:
 
   native-oom:
     name: Native OOM regressions (serial)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -546,7 +551,7 @@ jobs:
 
   native-oom-mpi:
     name: Native OOM regressions (MPI)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
