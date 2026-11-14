@@ -82,6 +82,65 @@ invalidations, Hybrid forwarding and bounded complete-fill.
 Neither lower GMRES iteration counts nor a reduction in pivot
 swaps alone establishes total-time or memory superiority.
 
+### Reproducible Stokes-type indefinite saddle point
+
+For a small test requiring **both** pivoting and equilibration, the
+included `test/gen_stokes_saddle.py` constructs a **manufactured**
+two-velocity/one-pressure saddle problem with zero pressure diagonal:
+
+```text
+H = [ 0    B  ]
+    [ B^T  K  ]
+A = D H D
+```
+
+`K` is a positive definite five-point diffusion matrix and `B`
+is a full-row-rank divergence-like operator. Thus the symmetric
+`A` is nonsingular and indefinite, with `2m²` positive and
+`m²` negative eigenvalues on an `m × m` cell grid. `D`
+represents physical-unit scaling. These matrices are NOT exported
+from IFISS, PETSc or CalculiX.
+
+```sh
+python3 test/gen_stokes_saddle.py --side 8 --contrast 30 \
+  --units pressure_weak --ordering interleaved --gamma 1 \
+  --delta 0 --matrix stokes-A.mtx --rhs stokes-b.mtx
+
+./test/benchilutp stokes-A.mtx stokes-b.mtx \
+  --maxiter 180 --restart 70 --rtol 1e-6 --drop 0.005 \
+  --rate 3 --pivot-tol 0.001 --rcm 0 --row-scale 0 \
+  --equil 0 --csv stokes-no-equil.csv
+
+./test/benchilutp stokes-A.mtx stokes-b.mtx \
+  --maxiter 180 --restart 70 --rtol 1e-6 --drop 0.005 \
+  --rate 3 --pivot-tol 0.001 --rcm 0 --row-scale 0 \
+  --equil 1 --csv stokes-equil.csv
+```
+
+Compare `ilutp_0p5` from `stokes-no-equil.csv` (ILUTP only),
+`legacy_ilut` from `stokes-equil.csv` (Equil only), and
+`ilutp_0p5` from `stokes-equil.csv` (combined).
+In native Linux GCC testing, neither standalone method converged
+within 180 iterations, whereas the combined method converged in
+**10 iterations** with true relative residual **3.91e-7**:
+L+U entries were respectively **2646**, **2675**, and **2883**.
+
+On the same model at `--side 10` (300 unknowns), ILUTP+Equil
+converged in **11 iterations**, while the two controls did not
+reach tolerance in 180; its factor fill was **4576** versus
+**4169** (pivoting alone) and **4192** (Equil alone). The
+manufactured-solution error was independently verified
+(**3.37e-5** at n=192, **6.61e-5** at n=300) using an
+experimental-only accuracy check, not part of this generic MM tool.
+
+The broader experimental study, including scripts and exact-solution
+checks, is in
+[the reproducible Stokes benchmark](https://github.com/3rav/lis/blob/experiment/stokes-saddle-ilutp-equil-20261114/doc/stokes-saddle-equil-benchmark.md).
+These experiments demonstrate that the two numerical mechanisms
+**can complement one another**, not that they are universally better
+or faster overall. Total setup+solve time and genuine FE contact/Stokes
+matrices need independent study.
+
 ### Example: complete-fill mode
 
 ```sh
