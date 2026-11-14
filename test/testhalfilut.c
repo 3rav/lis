@@ -1350,6 +1350,122 @@ cleanup:
     return failed;
 }
 
+
+/*
+ * Test-only fault injection: allow one local ILUTP worker to see OOM
+ * while the other OpenMP workers are still active. The creator must join
+ * all workers and free every partially constructed domain.
+ *
+ * LIS_TEST_OOM is not compiled into production libraries.
+ */
+static int check_ilut_ras_parallel_oom(void)
+{
+#if !defined(LIS_TEST_OOM) || !defined(_OPENMP)
+    return 0;
+#else
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_INT err=0,i;
+    size_t baseline,calls,targets[3],t,hit;
+    int failed=1,old_threads=omp_get_max_threads();
+    int old_dynamic=omp_get_dynamic();
+
+    omp_set_dynamic(0);
+    omp_set_num_threads(8);
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto cleanup;
+    err=lis_matrix_set_size(A,0,32);
+    if(err) goto cleanup;
+    if(A->nprocs!=1) { failed=0; goto cleanup; }
+    for(i=0;i<32;i++)
+    {
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
+                                 (LIS_SCALAR)4.0,A);
+        if(err) goto cleanup;
+        if(i>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,
+                                     (LIS_SCALAR)-0.15,A);
+            if(err) goto cleanup;
+        }
+        if(i+1<32)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
+                                     (LIS_SCALAR)-0.1,A);
+            if(err) goto cleanup;
+        }
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto cleanup;
+    err=lis_matrix_assemble(A);
+    if(err) goto cleanup;
+    err=lis_solver_create(&solver);
+    if(err) goto cleanup;
+    err=lis_solver_set_option(
+        "-i fgmres -p ilut -scale none -print none "
+        "-ilutp 1 -ilutp_full 1 -ilutp_full_limit 512 "
+        "-ilut_ras_domains 8 -ilut_ras_overlap 1 -ilut_schur 0",
+        solver);
+    if(err) goto cleanup;
+    err=lis_solver_set_matrix(A,solver);
+    if(err) goto cleanup;
+
+    baseline=lis_test_oom_live();
+    lis_test_oom_begin(0);
+    err=lis_precon_create(solver,&pc);
+    lis_test_oom_end();
+    calls=lis_test_oom_calls();
+    if(err) { pc=NULL; goto cleanup; }
+    lis_precon_destroy(pc);pc=NULL;
+    if(calls<20 || lis_test_oom_live()!=baseline)
+    {
+        fprintf(stderr,"PARALLEL_RAS_OOM baseline invalid calls=%lu\n",
+                (unsigned long)calls);
+        goto cleanup;
+    }
+    targets[0]=calls/3;
+    targets[1]=(2*calls)/3;
+    targets[2]=calls-1;
+    for(t=0;t<3;t++)
+    {
+        lis_test_oom_begin(targets[t]);
+        err=lis_precon_create(solver,&pc);
+        lis_test_oom_end();
+        hit=lis_test_oom_calls();
+        /* The constructor frees the partially initialized PC on error. */
+        if(err==LIS_SUCCESS)
+        {
+            if(pc) { lis_precon_destroy(pc);pc=NULL; }
+            fprintf(stderr,"PARALLEL_RAS_OOM did not fail at %lu\n",
+                    (unsigned long)targets[t]);
+            goto cleanup;
+        }
+        pc=NULL;
+        if(err!=LIS_OUT_OF_MEMORY || hit<targets[t] ||
+           lis_test_oom_live()!=baseline)
+        {
+            fprintf(stderr,
+                    "PARALLEL_RAS_OOM leak/status at %lu err=%ld hit=%lu\n",
+                    (unsigned long)targets[t],(long)err,
+                    (unsigned long)hit);
+            goto cleanup;
+        }
+        printf("PARALLEL_RAS_OOM injected=%lu live=0 PASS\n",
+               (unsigned long)targets[t]);
+    }
+    failed=0;
+cleanup:
+    lis_test_oom_end();
+    if(pc) lis_precon_destroy(pc);
+    if(solver) lis_solver_destroy(solver);
+    if(A) lis_matrix_destroy(A);
+    omp_set_num_threads(old_threads);
+    omp_set_dynamic(old_dynamic);
+    return failed;
+#endif
+}
+
 /*
  * Deterministic stabilized contact-KKT-like system:
  * [ K  B^T ][u] = [f]
@@ -1945,6 +2061,7 @@ main(
 	{
 		failed=check_ilut_ras_local_ilutp();
 		failed |= check_ilut_ras_parallel_overlap();
+		failed |= check_ilut_ras_parallel_oom();
 		lis_finalize();
 		return failed ? 1 : 0;
 	}
