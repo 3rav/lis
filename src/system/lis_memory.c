@@ -373,8 +373,22 @@ void lis_test_oom_raw_free(void *p)
  * serializing each complete tracking transaction. Do not call the
  * *_tracked_body helpers outside the public lock-protected wrappers.
  * lis_free_all() is a finalize-only operation after worker quiescence.
+ * malloc/calloc initialization and free() are outside the lock; only the
+ * shared list/hash mutations, lookups and tracked realloc are serialized.
  */
-static void * lis_malloc_tracked_body(size_t size, char *tag)
+static void
+lis_malloc_address_register(malloc_address *ma)
+{
+    lis_malloc_address_hash_prepare();
+    ma->next=&malloc_address_top;
+    ma->prev=malloc_address_top.prev;
+    ma->prev->next=ma;
+    ma->next->prev=ma;
+    lis_malloc_address_hash_insert(ma);
+    malloc_address_count++;
+}
+
+static void * lis_malloc_tracked_body(size_t size, char *tag, malloc_address **entry)
 {
 	union {
 		void *ptr;
@@ -402,7 +416,6 @@ static void * lis_malloc_tracked_body(size_t size, char *tag)
 		free(addr.ptr);
 		return NULL;
 	}
-	lis_malloc_address_hash_prepare();
 	ma->hash_next = NULL;
 	ma->real_address = addr.ptr;
 	ma->size = size;
@@ -422,31 +435,31 @@ static void * lis_malloc_tracked_body(size_t size, char *tag)
 		strcpy(ma->tag,tag);
 	#endif
  
-	ma->next = &malloc_address_top;
-	ma->prev = malloc_address_top.prev;
-	ma->prev->next = ma;
-	ma->next->prev = ma;
-
-  lis_malloc_address_hash_insert(ma);
-  malloc_address_count++;
-
-  return addr.ptr;
+	*entry=ma;
+	return addr.ptr;
 }
 
 void * lis_malloc(size_t size, char *tag)
 {
-    void * result;
+    malloc_address *entry=NULL;
+    /* Allocate/copy/zero potentially large storage without holding the
+     * global registry lock. Only publish the fully initialized entry
+     * while holding the lock; no external caller has this pointer yet. */
+    void *result=lis_malloc_tracked_body(size,tag,&entry);
+    if(entry)
+    {
 #ifdef _OPENMP
 #pragma omp critical(lis_memory_registry)
 #endif
-    {
-        result=lis_malloc_tracked_body(size,tag);
+        {
+            lis_malloc_address_register(entry);
+        }
     }
     return result;
 }
 
 
-static void * lis_calloc_tracked_body(size_t size, char *tag)
+static void * lis_calloc_tracked_body(size_t size, char *tag, malloc_address **entry)
 {
   union {
     void *ptr;
@@ -474,7 +487,6 @@ static void * lis_calloc_tracked_body(size_t size, char *tag)
 		free(addr.ptr);
 		return NULL;
 	}
-	lis_malloc_address_hash_prepare();
 	ma->hash_next = NULL;
 	ma->real_address = addr.ptr;
 	ma->size = size;
@@ -495,25 +507,22 @@ static void * lis_calloc_tracked_body(size_t size, char *tag)
 		strcpy(ma->tag,tag);
 	#endif
 
-	ma->next = &malloc_address_top;
-	ma->prev = malloc_address_top.prev;
-	ma->prev->next = ma;
-	ma->next->prev = ma;
-
-  lis_malloc_address_hash_insert(ma);
-  malloc_address_count++;
-
-  return addr.ptr;
+	*entry=ma;
+	return addr.ptr;
 }
 
 void * lis_calloc(size_t size, char *tag)
 {
-    void * result;
+    malloc_address *entry=NULL;
+    void *result=lis_calloc_tracked_body(size,tag,&entry);
+    if(entry)
+    {
 #ifdef _OPENMP
 #pragma omp critical(lis_memory_registry)
 #endif
-    {
-        result=lis_calloc_tracked_body(size,tag);
+        {
+            lis_malloc_address_register(entry);
+        }
     }
     return result;
 }
@@ -578,38 +587,38 @@ void * lis_realloc(void *p, size_t size)
 }
 
 
-static void lis_free_tracked_body(void *p)
+/* Detach under the lock, release potentially large pages afterwards. */
+static malloc_address *lis_free_tracked_body(void *p)
 {
-  malloc_address *ma;
-
-  ma = lis_malloc_address_find(p);
-	if( ma!=NULL ) {
-    lis_malloc_address_hash_remove(ma);
-		if( malloc_address_count>0 )
-		{
-			malloc_address_count--;
-		}
-		ma->next->prev = ma->prev;
-    ma->prev->next = ma->next;
-    free(ma->real_address);
-#ifdef USE_MALLOC_TAG
-    free(ma->tag);
-#endif
-    free(ma); 
-    return;
-  }
-  free(p);
-  return;
+    malloc_address *ma=lis_malloc_address_find(p);
+    if(ma!=NULL)
+    {
+        lis_malloc_address_hash_remove(ma);
+        if(malloc_address_count>0) malloc_address_count--;
+        ma->next->prev=ma->prev;
+        ma->prev->next=ma->next;
+    }
+    return ma;
 }
 
 void lis_free(void *p)
 {
+    malloc_address *ma;
 #ifdef _OPENMP
 #pragma omp critical(lis_memory_registry)
 #endif
     {
-        lis_free_tracked_body(p);
+        ma=lis_free_tracked_body(p);
     }
+    if(ma!=NULL)
+    {
+        free(ma->real_address);
+#ifdef USE_MALLOC_TAG
+        free(ma->tag);
+#endif
+        free(ma);
+    }
+    else free(p);
 }
 
 
