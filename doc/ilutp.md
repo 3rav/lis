@@ -84,24 +84,24 @@ swaps alone establishes total-time or memory superiority.
 
 ### Reproducible Stokes-type indefinite saddle point
 
-The included \`test/gen_stokes_saddle.py\` manufactures a nonsingular,
+The included `test/gen_stokes_saddle.py` manufactures a nonsingular,
 **symmetric-indefinite** pressure/velocity saddle matrix with *exactly
 zero* pressure diagonal. This is a Stokes-inspired finite-difference
 model, **not** a real IFISS, PETSc or CalculiX export.
 
-\`\`\`text
+```text
 H = [ 0    B  ]
     [ B^T  K  ]
 A = D H D
-\`\`\`
+```
 
-\`K\` is a positive-definite five-point velocity stiffness operator,
-\`B\` a full-row-rank discrete divergence-like constraint matrix,
-and the positive diagonal \`D\` introduces a manufactured unit contrast.
-On an \`m × m\` grid, \`A\` has \`3m²\` unknowns, \`m²\` zero
-pressure pivots, \`2m²\` positive and \`m²\` negative eigenvalues.
+`K` is a positive-definite five-point velocity stiffness operator,
+`B` a full-row-rank discrete divergence-like constraint matrix,
+and the positive diagonal `D` introduces a manufactured unit contrast.
+On an `m × m` grid, `A` has `3m²` unknowns, `m²` zero
+pressure pivots, `2m²` positive and `m²` negative eigenvalues.
 
-\`\`\`sh
+```sh
 python3 test/gen_stokes_saddle.py --side 8 --contrast 30 \
   --units mixed_checker --ordering interleaved --gamma 0.3 \
   --delta 0 --matrix stokes-A.mtx --rhs stokes-b.mtx
@@ -120,7 +120,7 @@ python3 test/gen_stokes_saddle.py --side 8 --contrast 30 \
   --maxiter 180 --restart 70 --rtol 1e-6 --drop 0.005 \
   --rate 3 --pivot-tol 0.001 --rcm 0 --row-scale 0 \
   --equil 1 --csv two-sided.csv
-\`\`\`
+```
 
 For the native LIS n=192 example, the following five controls all
 exhausted 180 GMRES iterations: ordinary ILUT, row-scaled ILUT,
@@ -128,16 +128,16 @@ unscaled ILUTP, row-scaled ILUTP and Equil-only ILUT. By contrast,
 **ILUTP+Equil converged in 9 iterations**, with original-system
 relative residual **4.78e-7** and 2889 stored L+U off-diagonal
 coefficients (versus at most 2734 for the controls). These controls
-use the same \`-ilut_rate 3\` and \`-ilut_drop 0.005\` settings.
+use the same `-ilut_rate 3` and `-ilut_drop 0.005` settings.
 
-At n=300 (\`--side 10 --gamma 1\`, other parameters unchanged)
+At n=300 (`--side 10 --gamma 1`, other parameters unchanged)
 the same five controls failed at 180, while **ILUTP+Equil
 converged in 11 iterations** and used 4575 L+U nonzeros (the
 largest control: 4318). Original-system relative residual was
 **3.14e-7**. Independent manufactured exact-solution comparisons
 also confirmed relative solution errors **5.38e-4** and
 **1.36e-4**, respectively, against an acceptance threshold of
-\`1e-3\`. That optional accuracy audit resides on the experimental
+`1e-3`. That optional accuracy audit resides on the experimental
 branch and is not part of the generic Matrix Market benchmark.
 
 These results demonstrate actual **numerical complementarity**:
