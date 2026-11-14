@@ -1192,6 +1192,165 @@ cleanup:
 }
 
 /*
+ * Real cross-domain coupling regression for parallel local ILUTP:
+ * nonzero links connect the eight contiguous four-row RAS cores.
+ * With overlap 1/2, local subdomains share imported RHS rows while
+ * correction writes remain restricted to disjoint owner cores.
+ * Test both complete-fill and dropped ILUTP with RCM/row scaling, and
+ * demand bitwise deterministic RAS apply across 1/2/4/8 workers.
+ */
+static int check_ilut_ras_parallel_overlap(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_VECTOR b=NULL,x=NULL,exact=NULL,r=NULL;
+    LIS_SCALAR reference[32];
+    LIS_INT err=0,i,overlap,full,trial,repeat;
+    LIS_REAL bn=0.0,rn=0.0;
+    int failed=1,expected_threads,limit;
+    char opts[384];
+#ifdef _OPENMP
+    int original_threads=omp_get_max_threads();
+    int original_dynamic=omp_get_dynamic();
+    omp_set_dynamic(0);
+    omp_set_num_threads(1);
+    limit=3;
+#else
+    limit=0;
+#endif
+
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto cleanup;
+    err=lis_matrix_set_size(A,0,32);
+    if(err) goto cleanup;
+    if(A->nprocs!=1) { failed=0; goto cleanup; }
+    for(i=0;i<32;i++)
+    {
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)0.2,A);
+        if(err) goto cleanup;
+        if((i%2)==0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
+                                     (LIS_SCALAR)1.0,A);
+            if(err) goto cleanup;
+            err=lis_matrix_set_value(LIS_INS_VALUE,i+1,i,
+                                     (LIS_SCALAR)1.0,A);
+            if(err) goto cleanup;
+        }
+        /* Deliberately nonsymmetric couplings across owner boundaries. */
+        if((i%4)==3 && i+1<32)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
+                                     (LIS_SCALAR)0.04,A);
+            if(err) goto cleanup;
+            err=lis_matrix_set_value(LIS_INS_VALUE,i+1,i,
+                                     (LIS_SCALAR)0.025,A);
+            if(err) goto cleanup;
+        }
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto cleanup;
+    err=lis_matrix_assemble(A);
+    if(err) goto cleanup;
+    if(lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x) ||
+       lis_vector_duplicate(A,&exact) || lis_vector_duplicate(A,&r))
+        goto cleanup;
+    for(i=0;i<32;i++) exact->value[i]=(LIS_SCALAR)(0.7+0.03125*i);
+    err=lis_matvec(A,exact,b);
+    if(err) goto cleanup;
+    err=lis_vector_nrm2(b,&bn);
+    if(err || !(bn>0.0)) goto cleanup;
+
+    for(overlap=1;overlap<=2;overlap++)
+    for(full=0;full<=1;full++)
+    for(trial=0;trial<=limit;trial++)
+    {
+        expected_threads=1<<trial;
+#ifdef _OPENMP
+        omp_set_num_threads(expected_threads);
+#endif
+        err=lis_solver_create(&solver);
+        if(err) goto cleanup;
+        snprintf(opts,sizeof(opts),
+            "-i fgmres -p ilut -scale none -print none "
+            "-ilut_drop 0.001 -ilut_rate 24 -ilu_pivot_tol 1e-9 "
+            "-ilut_ras_domains 8 -ilut_ras_overlap %d -ilut_schur 0 "
+            "-ilut_rcm 1 -ilut_row_scale 1 -ilutp 1 "
+            "-ilutp_threshold 0.5 -ilutp_full %d -ilutp_full_limit 1024",
+            (int)overlap,(int)full);
+        err=lis_solver_set_option(opts,solver);
+        if(err) goto cleanup;
+        err=lis_solver_set_matrix(A,solver);
+        if(err) goto cleanup;
+        err=lis_precon_create(solver,&pc);
+        if(err) { pc=NULL; goto cleanup; }
+        solver->precon=pc;
+        for(repeat=0;repeat<3;repeat++)
+        {
+            err=lis_psolve(solver,b,x);
+            if(err) goto cleanup;
+            err=lis_matvec(A,x,r);
+            if(err) goto cleanup;
+            err=lis_vector_axpy((LIS_SCALAR)-1.0,b,r);
+            if(err) goto cleanup;
+            err=lis_vector_nrm2(r,&rn);
+            if(err || !(rn>=0.0 && rn/bn<0.30))
+            {
+                fprintf(stderr,
+                    "RAS_OVERLAP_BAD_RESIDUAL overlap=%d full=%d "
+                    "threads=%d repeat=%d relres=%.8e\\n",
+                    (int)overlap,(int)full,expected_threads,
+                    (int)repeat,(double)(rn/bn));
+                goto cleanup;
+            }
+            if(trial==0 && repeat==0)
+                memcpy(reference,x->value,sizeof(reference));
+            else if(memcmp(reference,x->value,sizeof(reference))!=0)
+            {
+                fprintf(stderr,
+                    "RAS_OVERLAP_NONDETERMINISTIC overlap=%d full=%d "
+                    "threads=%d repeat=%d\\n",
+                    (int)overlap,(int)full,expected_threads,(int)repeat);
+                goto cleanup;
+            }
+        }
+#ifdef _OPENMP
+        if(omp_get_max_threads()!=expected_threads)
+        {
+            fprintf(stderr,"RAS_OVERLAP leaked OpenMP thread setting\\n");
+            goto cleanup;
+        }
+#endif
+        printf("ILUT_RAS_OVERLAP overlap=%d full=%d threads=%d "
+               "residual=%.9e DETERMINISTIC PASS\\n",
+               (int)overlap,(int)full,expected_threads,(double)(rn/bn));
+        solver->precon=NULL;
+        lis_precon_destroy(pc);pc=NULL;
+        lis_solver_destroy(solver);solver=NULL;
+    }
+    failed=0;
+
+cleanup:
+    if(pc)
+    {
+        if(solver) solver->precon=NULL;
+        lis_precon_destroy(pc);
+    }
+    if(solver) lis_solver_destroy(solver);
+    if(r) lis_vector_destroy(r);
+    if(exact) lis_vector_destroy(exact);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(A) lis_matrix_destroy(A);
+#ifdef _OPENMP
+    omp_set_num_threads(original_threads);
+    omp_set_dynamic(original_dynamic);
+#endif
+    return failed;
+}
+
+/*
  * Deterministic stabilized contact-KKT-like system:
  * [ K  B^T ][u] = [f]
  * [ B -0.1I][λ]   [g]
@@ -1785,6 +1944,7 @@ main(
 	if(argc==2 && strcmp(argv[1],"--parallel-ras-ilutp")==0)
 	{
 		failed=check_ilut_ras_local_ilutp();
+		failed |= check_ilut_ras_parallel_overlap();
 		lis_finalize();
 		return failed ? 1 : 0;
 	}
@@ -1818,6 +1978,7 @@ main(
 	failed |= check_ilut_ras_schur(A);
 	failed |= check_ilut_ras_exact_interface();
 	failed |= check_ilut_ras_local_ilutp();
+	failed |= check_ilut_ras_parallel_overlap();
 	failed |= check_ilut_ras_unsafe_interior();
 	failed |= check_ilut_ras_contact_kkt();
 
