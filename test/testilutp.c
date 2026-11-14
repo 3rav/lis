@@ -30,7 +30,7 @@ static const LIS_SCALAR a[N][N] = {
 };
 static const LIS_SCALAR truth[N] = {1.25,-0.5,2.0,0.75};
 
-static int run_one(LIS_INT rcm, LIS_INT scale)
+static int run_one(LIS_INT rcm, LIS_INT scale, LIS_INT equil, LIS_INT full)
 {
     LIS_MATRIX A=NULL;
     LIS_SOLVER solver=NULL;
@@ -69,18 +69,23 @@ static int run_one(LIS_INT rcm, LIS_INT scale)
     solver->A=A;
     snprintf(options,sizeof(options),
         "-i fgmres -p ilut -ilutp 1 -ilutp_threshold 1 "
-        "-ilut_rcm %d -ilut_row_scale %d "
+        "-ilut_rcm %d -ilut_row_scale %d -ilut_equil %d "
+        "-ilutp_full %d -ilutp_full_limit 2000 "
         "-ilut_drop 0 -ilut_rate 100 "
         "-ilu_pivot_tol 0 -scale none -omp_num_threads 1",
-        (int)rcm,(int)scale);
+        (int)rcm,(int)scale,(int)equil,(int)full);
     err=lis_solver_set_option(options,solver);if(err)goto cleanup;
     err=lis_precon_create(solver,&pc);if(err){pc=NULL;goto cleanup;}
     if(!pc->ilutp_colperm || !pc->ilut_perm || !pc->D)
         goto cleanup;
+    if(equil && !pc->ilut_col_scale)goto cleanup;
+    if(!equil && pc->ilut_col_scale)goto cleanup;
     if(!rcm && !scale)
         for(i=0;i<N;i++)
             if(pc->ilutp_colperm[i]!=i) swaps++;
     if(!rcm && !scale && !swaps)
+        goto cleanup;
+    if(!rcm && !scale && pc->ilutp_swap_count<=0)
         goto cleanup;
 
     solver->precon=pc;
@@ -91,8 +96,8 @@ static int run_one(LIS_INT rcm, LIS_INT scale)
         if(!isfinite((double)diff) || diff>1e-9)
         {
             fprintf(stderr,
-                "ILUTP forward mismatch rcm=%d scale=%d i=%d diff=%g\n",
-                (int)rcm,(int)scale,(int)i,(double)diff);
+                "ILUTP forward mismatch rcm=%d scale=%d equil=%d full=%d i=%d diff=%g\n",
+                (int)rcm,(int)scale,(int)equil,(int)full,(int)i,(double)diff);
             goto cleanup;
         }
     }
@@ -104,8 +109,8 @@ static int run_one(LIS_INT rcm, LIS_INT scale)
         if(!isfinite((double)diff) || diff>1e-9)
         {
             fprintf(stderr,
-                "ILUTP adjoint mismatch rcm=%d scale=%d i=%d diff=%g\n",
-                (int)rcm,(int)scale,(int)i,(double)diff);
+                "ILUTP adjoint mismatch rcm=%d scale=%d equil=%d full=%d i=%d diff=%g\n",
+                (int)rcm,(int)scale,(int)equil,(int)full,(int)i,(double)diff);
             goto cleanup;
         }
     }
@@ -126,8 +131,8 @@ static int run_one(LIS_INT rcm, LIS_INT scale)
 
 cleanup:
     if(failed)
-        fprintf(stderr,"ILUTP test failed (rcm=%d scale=%d err=%d)\n",
-            (int)rcm,(int)scale,(int)err);
+        fprintf(stderr,"ILUTP test failed (rcm=%d scale=%d equil=%d full=%d err=%d)\n",
+            (int)rcm,(int)scale,(int)equil,(int)full,(int)err);
     if(solver)solver->precon=NULL;
     if(pc)lis_precon_destroy(pc);
     if(solver)lis_solver_destroy(solver);
@@ -197,7 +202,7 @@ static int close_scalar(LIS_SCALAR x,LIS_SCALAR y)
  * retained coefficients in ascending magnitude, native ILUTP in descending
  * magnitude. Truncated factors are NOT required to be continuous at zero.
  * Check the underlying elimination separately from this policy difference. */
-static int check_tau_zero(int rcm,int scale,double tau)
+static int check_tau_zero(int rcm,int scale,int equil,double tau)
 {
     LIS_MATRIX A=NULL;
     LIS_SOLVER base=NULL,pivot=NULL;
@@ -211,10 +216,10 @@ static int check_tau_zero(int rcm,int scale,double tau)
     err=lis_solver_create(&pivot);if(err)goto cleanup;
     base->A=pivot->A=A;
     snprintf(options,sizeof(options),
-        "-p ilut -ilut_rcm %d -ilut_row_scale %d "
+        "-p ilut -ilut_rcm %d -ilut_row_scale %d -ilut_equil %d "
         "-ilut_drop %.17g -ilut_rate %.17g "
         "-ilu_pivot_tol 1e-9 -scale none -omp_num_threads 1",
-        rcm,scale,tau>0 ? 0.0 : 0.02,tau>0 ? 100.0 : 1.1);
+        rcm,scale,equil,tau>0 ? 0.0 : 0.02,tau>0 ? 100.0 : 1.1);
     err=lis_solver_set_option(options,base);if(err)goto cleanup;
     err=lis_solver_set_option(options,pivot);if(err)goto cleanup;
     snprintf(options,sizeof(options),"-ilutp 1 -ilutp_threshold %.17g",tau);
@@ -273,8 +278,8 @@ static int check_tau_zero(int rcm,int scale,double tau)
     failed=0;
 cleanup:
     if(failed)fprintf(stderr,
-        "ILUTP zero/near-zero factor parity failed (tau=%.17g rcm=%d scale=%d err=%d)\\n",
-        tau,rcm,scale,(int)err);
+        "ILUTP zero/near-zero factor parity failed (tau=%.17g rcm=%d scale=%d equil=%d err=%d)\\n",
+        tau,rcm,scale,equil,(int)err);
     if(ppivot)lis_precon_destroy(ppivot);
     if(pbase)lis_precon_destroy(pbase);
     if(pivot)lis_solver_destroy(pivot);
@@ -348,6 +353,28 @@ static int check_fgmres_sequence(void)
     if(solver->retcode!=LIS_SUCCESS || !solution_close(x,truth) ||
        solver->sequence_precon==NULL ||
        fabs(solver->sequence_precon_ilutp_threshold-0.25)>1e-12)
+        goto cleanup;
+
+    /* An Equil toggle changes the numerical factor and its column
+       weights; even an unchanged sparsity pattern must invalidate it. */
+    err=lis_solver_set_option("-ilut_equil 1",solver);if(err)goto cleanup;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,x);if(err)goto cleanup;
+    err=lis_solve_sequence(A,b,x,solver);if(err)goto cleanup;
+    if(solver->retcode!=LIS_SUCCESS || !solution_close(x,truth) ||
+       solver->sequence_precon==NULL ||
+       solver->sequence_precon->ilutp_colperm==NULL ||
+       solver->sequence_precon->ilut_col_scale==NULL ||
+       solver->sequence_precon_ilut_equil!=1)
+        goto cleanup;
+
+    err=lis_solver_set_option("-ilut_equil 0",solver);if(err)goto cleanup;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,x);if(err)goto cleanup;
+    err=lis_solve_sequence(A,b,x,solver);if(err)goto cleanup;
+    if(solver->retcode!=LIS_SUCCESS || !solution_close(x,truth) ||
+       solver->sequence_precon==NULL ||
+       solver->sequence_precon->ilutp_colperm==NULL ||
+       solver->sequence_precon->ilut_col_scale!=NULL ||
+       solver->sequence_precon_ilut_equil!=0)
         goto cleanup;
 
     /*
@@ -773,24 +800,21 @@ int main(int argc,char **argv)
     int failed=0;
     LIS_INT err;
     LIS_SOLVER solver=NULL;
+    LIS_INT rcm,scale,equil;
     err=lis_initialize(&argc,&argv);if(err)return 1;
 #ifdef _OPENMP
     omp_set_num_threads(1);
 #endif
-    failed|=run_one(0,0);
-    failed|=run_one(1,0);
-    failed|=run_one(0,1);
-    failed|=run_one(1,1);
-    failed|=check_tau_zero(0,0,0.0);
-    failed|=check_tau_zero(1,0,0.0);
-    failed|=check_tau_zero(0,1,0.0);
-    failed|=check_tau_zero(1,1,0.0);
-    /* Tiny positive tau takes the native kernel without swapping: compare
-     * actual factors against legacy rather than convergence alone. */
-    failed|=check_tau_zero(0,0,1e-300);
-    failed|=check_tau_zero(1,0,1e-300);
-    failed|=check_tau_zero(0,1,1e-300);
-    failed|=check_tau_zero(1,1,1e-300);
+    /* Full-fill mode is independently tested with Equil and with RCM. */
+    for(rcm=0;rcm<=1;rcm++)
+        for(scale=0;scale<=1;scale++)
+            for(equil=0;equil<=1;equil++)
+            {
+                failed|=run_one(rcm,scale,equil,0);
+                failed|=run_one(rcm,scale,equil,1);
+                failed|=check_tau_zero(rcm,scale,equil,0.0);
+                failed|=check_tau_zero(rcm,scale,equil,1e-300);
+            }
     failed|=check_fgmres_sequence();
     failed|=check_no_swap_kernel();
     failed|=check_option_replace();
@@ -801,14 +825,16 @@ int main(int argc,char **argv)
     if(err)failed=1;
     else
     {
-        if(fabs(solver->ilutp_threshold-0.5)>1e-12 || solver->ilutp_full)failed=1;
+        if(fabs(solver->ilutp_threshold-0.5)>1e-12 || solver->ilutp_full ||
+           solver->ilut_equil)failed=1;
         if(lis_solver_set_option("-p ilut -ilutp 1 -ilutp_threshold 0.5",
                                   solver)!=LIS_SUCCESS ||
            !solver->ilutp_enabled ||
            fabs(solver->ilutp_threshold-0.5)>1e-12 ||
            lis_solver_set_option("-ilutp_threshold 2.0",solver)==LIS_SUCCESS ||
            lis_solver_set_option("-ilutp_full_limit nope",solver)==LIS_SUCCESS ||
-           lis_solver_set_option("-ilutp_full 2",solver)==LIS_SUCCESS)
+           lis_solver_set_option("-ilutp_full 2",solver)==LIS_SUCCESS ||
+           lis_solver_set_option("-ilut_equil 2",solver)==LIS_SUCCESS)
             failed=1;
         lis_solver_destroy(solver);
     }
