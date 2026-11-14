@@ -1,0 +1,46 @@
+name: Experimental Stokes saddle-point Equil+ILUTP benchmark
+on:
+  push:
+    branches:
+      - experiment/stokes-saddle-ilutp-equil-20261114
+permissions:
+  contents: read
+jobs:
+  saddle-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure and compile native LIS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libtool libtool-bin
+          ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi
+          make -j2
+          ./test/testilutp
+          ./test/testilutequil
+      - name: Validate full-rank indefinite saddle matrix generation
+        run: |
+          set -euo pipefail
+          python3 test/gen_stokes_saddle.py --side 6 --contrast 100 \
+            --units pressure_checker --ordering pressure_first \
+            --matrix stokes-A.mtx --rhs stokes-b.mtx
+          test "$(sed -n '3p' stokes-A.mtx | cut -d' ' -f1)" = "108"
+      - name: Native ILUT and ILUTP + Equil comparison sweep
+        run: |
+          set -euo pipefail
+          python3 test/run_stokes_saddle_sweep.py \
+            --bench ./test/benchilutp --output stokes-results \
+            | tee saddle-sweep.log
+          test -s stokes-results/all_native_variants.csv
+          test -s stokes-results/all_saddle_comparisons.csv
+          cat stokes-results/summary.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-stokes-saddle-ilutp-equil
+          path: |
+            stokes-results/
+            saddle-sweep.log
+            stokes-A.mtx
+            stokes-b.mtx
