@@ -299,9 +299,22 @@ static int lis_test_oom_active;
 
 static int lis_test_oom_should_fail(void)
 {
-	if( !lis_test_oom_active ) return 0;
-	++lis_test_oom_count;
-	return lis_test_oom_at!=0 && lis_test_oom_count==lis_test_oom_at;
+    int fail=0;
+    /* Fault injection is test-only. Setup/teardown of the injector must
+     * be done with all worker threads quiescent. Counting must still be
+     * atomic when the OOM target is inside parallel RAS construction. */
+#ifdef _OPENMP
+#pragma omp critical(lis_test_oom_counter)
+#endif
+    {
+        if(lis_test_oom_active)
+        {
+            ++lis_test_oom_count;
+            fail=(lis_test_oom_at!=0 &&
+                  lis_test_oom_count==lis_test_oom_at);
+        }
+    }
+    return fail;
 }
 
 void lis_test_oom_begin(size_t fail_at)
@@ -371,7 +384,9 @@ void lis_test_oom_raw_free(void *p)
  * preconditioner setup. Its lookup, rehash, insertion and deletion are
  * mutable shared state. Preserve legacy allocation semantics while
  * serializing each complete tracking transaction. Do not call the
- * *_tracked_body helpers outside the public lock-protected wrappers.
+ * registry functions or call public lis_* allocation wrappers from
+ * within a registry critical section. malloc/calloc helpers intentionally
+ * allocate raw memory before acquiring the registry lock.
  * lis_free_all() is a finalize-only operation after worker quiescence.
  * malloc/calloc initialization and free() are outside the lock; only the
  * shared list/hash mutations, lookups and tracked realloc are serialized.
