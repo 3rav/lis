@@ -53,8 +53,11 @@ jobs:
         run: |
           set -euo pipefail
           test -x test/testilutp
+          test -x test/testilutequil
           test -x test/benchilutp
+          test -x test/benchilutpequil
           ./test/testilutp
+          ./test/testilutequil
           make distdir
           python3 - <<'PY'
           from pathlib import Path
@@ -65,7 +68,9 @@ jobs:
           required=[
               'src/precon/lis_precon_ilutp.inc',
               'test/testilutp.c',
+              'test/testilutequil.c',
               'test/benchilutp.c',
+              'test/benchilutpequil.c',
               'test/benchilutp_rhs_100.mtx',
               'test/gen_ilutp_fullfill_case.py',
               'tools/run_native_ilutp_contact.py',
@@ -137,6 +142,32 @@ jobs:
               assert int(r["iterations"]) >= 1
               assert float(r["physical_relres"]) < 1e-5, r
           PY
+
+      - name: Smoke-test two-sided Equil on original Matrix Market A/b
+        if: matrix.mode == 'serial'
+        run: |
+          set -euo pipefail
+          ./test/benchilutp test/testmat2.mtx test/benchilutp_rhs_100.mtx \
+            --maxiter 180 --restart 30 --drop 0.005 --rate 8 \
+            --rcm 1 --row-scale 1 --equil 1 --csv benchilutp-equil.csv
+          python3 - <<'PY'
+          import csv
+          from pathlib import Path
+          rows=list(csv.DictReader(Path("benchilutp-equil.csv").open()))
+          assert len(rows)==3, rows
+          for r in rows:
+              assert r["equil"] == "1", r
+              assert r["status"] == "converged", r
+              assert float(r["physical_relres"]) < 1e-5, r
+          PY
+          ./test/benchilutpequil 30 5 0.005 | tee benchilutp-combined.log
+          for mode in ilut equil ilutp ilutp_equil row_only; do
+            grep -q "^ILUTP_EQUIL_BENCH mode=$mode " benchilutp-combined.log
+          done
+
+      - name: Audit native Matrix Market tool option propagation
+        if: matrix.mode == 'serial'
+        run: python3 -m unittest discover -s tools -p 'test_run_native_ilutp_contact.py' -v
 
       - name: Smoke-test fill-reporting ILUT Matrix Market benchmark
         if: matrix.mode == 'half'
