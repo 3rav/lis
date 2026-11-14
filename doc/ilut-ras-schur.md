@@ -19,14 +19,14 @@ RAS applies the local factor solve on each overlapping subdomain but injects cor
 
 and uses a small pivoted dense LU factorization to correct the interface residual. It then applies diagonal-approximate interior back-substitution. This is a **one-step approximate Schur correction**, not hypre's distributed GMRES-on-Schur algorithm and not a general-purpose exact Schur complement.
 
-## Exact-interface correctness witness (8×8)
+## Exact-interface correctness witnesses (8×8 and 9×9)
 
-A reproducible test, `ILUT_RAS_EXACT_INTERFACE`, demonstrates the numerical
+Reproducible tests, `ILUT_RAS_EXACT_INTERFACE` (sizes 8 and 9), demonstrate the numerical
 purpose of the Schur step **without relying on a Krylov solver**.
 
-Construct `A = 4I` of order 8 and add symmetric off-diagonal entries
+Construct `A = 4I` of order 8 or 9 and add symmetric off-diagonal entries
 `-1` at (2,3), (3,4), (4,5). Partition into owner domains
-`[0,4)` and `[4,8)`. The interface is `Γ={3,4}`; all
+`[0,4)` and `[4,n)` (n=8 or 9). The interface is `Γ={3,4}`; all
 other rows are interior, with `A_II=4I`. Thus
 `diag(A_II)^(-1)` is the **exact** inverse, and the computed
 approximate Schur operator equals the true block Schur complement:
@@ -44,7 +44,7 @@ LIS RAS-ILUT preconditioner once (no outer iterative solve):
 | `-ilut_schur 0` | 0.2319003617 |
 | `-ilut_schur 1` | zero up to floating-point roundoff |
 
-The regression asserts an uncorrected residual between 0.20 and 0.26,
+Both regressions assert an uncorrected residual between 0.20 and 0.26,
 then `||Ax-b||/||b|| < 1e-10` and
 `max_i |x_i - x_true_i| < 1e-10` for the Schur version. It runs
 in the existing `testhalfilut` suite and checks the **actual native
@@ -52,7 +52,11 @@ preconditioner application**, rather than just a separate dense-matrix
 reimplementation. The table is a mathematically evaluated reference;
 the updated native CI must pass independently.
 
-This is intentionally an exact-special-case correctness witness.
+The 9×9 case additionally catches inconsistent interface ownership when
+subdomain sizes differ (four rows versus five). The implementation now
+uses the same quotient/remainder partition boundaries for core
+extraction and owner mapping. These are intentionally exact-special-case
+correctness witnesses.
 No corresponding Schur exactness, convergence advantage, or FEA
 performance benefit is claimed when `A_II` is not diagonal.
 

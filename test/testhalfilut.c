@@ -883,13 +883,14 @@ cleanup:
 /*
  * Exact-interface correctness witness, not a general performance claim.
  * A = 4I with symmetric -1 edges (2,3), (3,4), and (4,5).
- * Partition [0,4) / [4,8): Gamma={3,4}, A_II=4I,
+ * Partition [0,4) / [4,8) or [0,4) / [4,9):
+ * Gamma={3,4}, A_II=4I, even for unequal partition sizes.
  * exact S=[[3.75,-1],[-1,3.75]].
  * For b=A*(e3+e4), overlap-0 RAS alone has residual ~0.2319;
  * the additional Schur step should recover the solution to roundoff.
  */
 static int
-check_ilut_ras_exact_interface(void)
+check_ilut_ras_exact_interface_one(LIS_INT n)
 {
     const LIS_INT ei[3]={2,3,4},ej[3]={3,4,5};
     LIS_MATRIX A=NULL;
@@ -903,10 +904,10 @@ check_ilut_ras_exact_interface(void)
 
     err=lis_matrix_create(LIS_COMM_WORLD,&A);
     if(err) goto done;
-    err=lis_matrix_set_size(A,0,8);
+    err=lis_matrix_set_size(A,0,n);
     if(err) goto done;
     if(A->nprocs!=1) { failed=0; goto done; }
-    for(i=0;i<8;i++)
+    for(i=0;i<n;i++)
     {
         err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)4.0,A);
         if(err) goto done;
@@ -962,14 +963,14 @@ check_ilut_ras_exact_interface(void)
         else
         {
             schur=rn/bn;
-            for(i=0;i<8;i++)
+            for(i=0;i<n;i++)
             {
                 LIS_REAL delta=fabs(x->value[i]-exact->value[i]);
                 if(delta>xerr) xerr=delta;
             }
         }
-        printf("ILUT_RAS_EXACT_INTERFACE schur=%d true_rel_res=%.9e\n",
-               (int)v,(double)(rn/bn));
+        printf("ILUT_RAS_EXACT_INTERFACE n=%ld schur=%d true_rel_res=%.9e\n",
+               (long)n,(int)v,(double)(rn/bn));
         solver->precon=NULL;
         lis_precon_destroy(pc);pc=NULL;
         lis_solver_destroy(solver);solver=NULL;
@@ -977,12 +978,12 @@ check_ilut_ras_exact_interface(void)
     if(!(baseline>0.20 && baseline<0.26 &&
          schur<1e-10 && xerr<1e-10))
     {
-        fprintf(stderr,"ILUT_RAS_EXACT_INTERFACE_FAILED baseline=%.9e "
+        fprintf(stderr,"ILUT_RAS_EXACT_INTERFACE_FAILED n=%ld baseline=%.9e "
                 "schur=%.9e xerr=%.9e\n",
-                (double)baseline,(double)schur,(double)xerr);
+                (long)n,(double)baseline,(double)schur,(double)xerr);
         goto done;
     }
-    printf("ILUT_RAS_EXACT_INTERFACE PASSED\n");
+    printf("ILUT_RAS_EXACT_INTERFACE n=%ld PASSED\n",(long)n);
     failed=0;
 done:
     if(pc)
@@ -996,6 +997,14 @@ done:
     if(b) lis_vector_destroy(b);
     if(exact) lis_vector_destroy(exact);
     if(A) lis_matrix_destroy(A);
+    return failed;
+}
+
+static int
+check_ilut_ras_exact_interface(void)
+{
+    int failed=check_ilut_ras_exact_interface_one(8);
+    failed |= check_ilut_ras_exact_interface_one(9);
     return failed;
 }
 

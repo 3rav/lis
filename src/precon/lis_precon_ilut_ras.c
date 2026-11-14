@@ -386,15 +386,25 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
     if(s->parts)
         memset(s->parts,0,(size_t)s->ndomains*sizeof(*s->parts));
     if(!s->owner || !s->parts) return LIS_OUT_OF_MEMORY;
-    for(i=0;i<n;i++) s->owner[i]=
-        (LIS_INT)((double)i*s->ndomains/n);
-    for(d=0;d<s->ndomains;d++)
+    /*
+     * Use identical integer partition boundaries for owner mapping and
+     * extracted core domains. floor(i*ndomains/n) is NOT equivalent
+     * to the partition intervals [floor(d*n/ndomains), ...); for
+     * example n=9, ndomains=2 mislabels row 4 as owner 0.
+     * Quotient/remainder arithmetic also avoids double rounding and
+     * multiplication overflow for very large LIS_INT.
+     */
     {
-        struct LIS_ILUT_RAS_PART *p=&s->parts[d];
-        p->start=(LIS_INT)((double)d*n/s->ndomains);
-        p->end=(LIS_INT)((double)(d+1)*n/s->ndomains);
-        err=lis_ilut_ras_make_subdomain(solver,s,p);
-        if(err) return err;
+        LIS_INT block=n/s->ndomains,rem=n%s->ndomains;
+        for(d=0;d<s->ndomains;d++)
+        {
+            struct LIS_ILUT_RAS_PART *p=&s->parts[d];
+            p->start=d*block+(d*rem)/s->ndomains;
+            p->end=(d+1)*block+((d+1)*rem)/s->ndomains;
+            for(i=p->start;i<p->end;i++) s->owner[i]=d;
+            err=lis_ilut_ras_make_subdomain(solver,s,p);
+            if(err) return err;
+        }
     }
     if(solver->ilut_schur)
     {
