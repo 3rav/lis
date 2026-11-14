@@ -120,7 +120,7 @@ jobs:
         if: matrix.mode == 'openmp'
         run: |
           set -euo pipefail
-          LIS_MFAMG_TRACE_SETUP=1 OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testmfamgvcycle --omp-stress | tee mfamg-omp.log
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testmfamgvcycle --omp-stress | tee mfamg-omp.log
           grep -q 'MFAMG_OMP_STRESS mode=0 threads=8 .* PASS' mfamg-omp.log
           grep -q 'MFAMG_OMP_STRESS mode=1 threads=8 .* PASS' mfamg-omp.log
 
@@ -555,7 +555,7 @@ jobs:
         if: matrix.mode == 'openmp'
         run: |
           set -euo pipefail
-          LIS_MFAMG_TRACE_SETUP=1 OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testmfamgvcycle.exe --omp-stress | tee mfamg-omp-msys2.log
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testmfamgvcycle.exe --omp-stress | tee mfamg-omp-msys2.log
           grep -q 'MFAMG_OMP_STRESS mode=0 threads=8 .* PASS' mfamg-omp-msys2.log
           grep -q 'MFAMG_OMP_STRESS mode=1 threads=8 .* PASS' mfamg-omp-msys2.log
 
