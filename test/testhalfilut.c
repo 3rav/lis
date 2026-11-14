@@ -879,6 +879,126 @@ cleanup:
     return failed;
 }
 
+
+/*
+ * Exact-interface correctness witness, not a general performance claim.
+ * A = 4I with symmetric -1 edges (2,3), (3,4), and (4,5).
+ * Partition [0,4) / [4,8): Gamma={3,4}, A_II=4I,
+ * exact S=[[3.75,-1],[-1,3.75]].
+ * For b=A*(e3+e4), overlap-0 RAS alone has residual ~0.2319;
+ * the additional Schur step should recover the solution to roundoff.
+ */
+static int
+check_ilut_ras_exact_interface(void)
+{
+    const LIS_INT ei[3]={2,3,4},ej[3]={3,4,5};
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR exact=NULL,b=NULL,x=NULL,r=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_INT err=0,i,v;
+    LIS_REAL bn=0.0,rn=0.0,baseline=0.0,schur=0.0,xerr=0.0;
+    char opts[256];
+    int failed=1;
+
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,8);
+    if(err) goto done;
+    if(A->nprocs!=1) { failed=0; goto done; }
+    for(i=0;i<8;i++)
+    {
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)4.0,A);
+        if(err) goto done;
+    }
+    for(i=0;i<3;i++)
+    {
+        err=lis_matrix_set_value(LIS_INS_VALUE,ei[i],ej[i],(LIS_SCALAR)-1.0,A);
+        if(err) goto done;
+        err=lis_matrix_set_value(LIS_INS_VALUE,ej[i],ei[i],(LIS_SCALAR)-1.0,A);
+        if(err) goto done;
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    if(lis_vector_duplicate(A,&exact) || lis_vector_duplicate(A,&b) ||
+       lis_vector_duplicate(A,&x) || lis_vector_duplicate(A,&r))
+        goto done;
+    err=lis_vector_set_all((LIS_SCALAR)0.0,exact);
+    if(err) goto done;
+    exact->value[3]=(LIS_SCALAR)1.0;
+    exact->value[4]=(LIS_SCALAR)1.0;
+    err=lis_matvec(A,exact,b);
+    if(err) goto done;
+    err=lis_vector_nrm2(b,&bn);
+    if(err || !(bn>0.0)) goto done;
+
+    for(v=0;v<2;v++)
+    {
+        err=lis_solver_create(&solver);
+        if(err) goto done;
+        snprintf(opts,sizeof(opts),
+            "-i gmres -p ilut -scale none -print none "
+            "-iluc_drop 0 -iluc_rate 8 -ilu_pivot_tol 1e-12 "
+            "-ilut_ras_domains 2 -ilut_ras_overlap 0 -ilut_schur %d",
+            (int)v);
+        err=lis_solver_set_option(opts,solver);
+        if(err) goto done;
+        err=lis_solver_set_matrix(A,solver);
+        if(err) goto done;
+        err=lis_precon_create(solver,&pc);
+        if(err) { pc=NULL; goto done; }
+        solver->precon=pc;
+        err=lis_psolve(solver,b,x);
+        if(err) goto done;
+        err=lis_matvec(A,x,r);
+        if(err) goto done;
+        err=lis_vector_axpy((LIS_SCALAR)-1.0,b,r);
+        if(err) goto done;
+        err=lis_vector_nrm2(r,&rn);
+        if(err) goto done;
+        if(v==0) baseline=rn/bn;
+        else
+        {
+            schur=rn/bn;
+            for(i=0;i<8;i++)
+            {
+                LIS_REAL delta=fabs(x->value[i]-exact->value[i]);
+                if(delta>xerr) xerr=delta;
+            }
+        }
+        printf("ILUT_RAS_EXACT_INTERFACE schur=%d true_rel_res=%.9e\n",
+               (int)v,(double)(rn/bn));
+        solver->precon=NULL;
+        lis_precon_destroy(pc);pc=NULL;
+        lis_solver_destroy(solver);solver=NULL;
+    }
+    if(!(baseline>0.20 && baseline<0.26 &&
+         schur<1e-10 && xerr<1e-10))
+    {
+        fprintf(stderr,"ILUT_RAS_EXACT_INTERFACE_FAILED baseline=%.9e "
+                "schur=%.9e xerr=%.9e\n",
+                (double)baseline,(double)schur,(double)xerr);
+        goto done;
+    }
+    printf("ILUT_RAS_EXACT_INTERFACE PASSED\n");
+    failed=0;
+done:
+    if(pc)
+    {
+        if(solver) solver->precon=NULL;
+        lis_precon_destroy(pc);
+    }
+    if(solver) lis_solver_destroy(solver);
+    if(r) lis_vector_destroy(r);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(exact) lis_vector_destroy(exact);
+    if(A) lis_matrix_destroy(A);
+    return failed;
+}
+
 /*
  * Deterministic stabilized contact-KKT-like system:
  * [ K  B^T ][u] = [f]
@@ -1495,6 +1615,7 @@ main(
 	failed |= check_ilut_contact_kkt();
 	failed |= check_ilut_kkt_unit_contrast();
 	failed |= check_ilut_ras_schur(A);
+	failed |= check_ilut_ras_exact_interface();
 	failed |= check_ilut_ras_unsafe_interior();
 	failed |= check_ilut_ras_contact_kkt();
 

@@ -19,38 +19,76 @@ RAS applies the local factor solve on each overlapping subdomain but injects cor
 
 and uses a small pivoted dense LU factorization to correct the interface residual. It then applies diagonal-approximate interior back-substitution. This is a **one-step approximate Schur correction**, not hypre's distributed GMRES-on-Schur algorithm and not a general-purpose exact Schur complement.
 
+## Exact-interface correctness witness (8×8)
+
+A reproducible test, `ILUT_RAS_EXACT_INTERFACE`, demonstrates the numerical
+purpose of the Schur step **without relying on a Krylov solver**.
+
+Construct `A = 4I` of order 8 and add symmetric off-diagonal entries
+`-1` at (2,3), (3,4), (4,5). Partition into owner domains
+`[0,4)` and `[4,8)`. The interface is `Γ={3,4}`; all
+other rows are interior, with `A_II=4I`. Thus
+`diag(A_II)^(-1)` is the **exact** inverse, and the computed
+approximate Schur operator equals the true block Schur complement:
+
+```text
+S = [[3.75, -1.00],
+     [-1.00, 3.75]]
+```
+
+Manufacture `x_true=e3+e4` and `b=A*x_true`. Apply the native
+LIS RAS-ILUT preconditioner once (no outer iterative solve):
+
+| Option (two domains, overlap 0) | True relative residual |
+|---|---:|
+| `-ilut_schur 0` | 0.2319003617 |
+| `-ilut_schur 1` | zero up to floating-point roundoff |
+
+The regression asserts an uncorrected residual between 0.20 and 0.26,
+then `||Ax-b||/||b|| < 1e-10` and
+`max_i |x_i - x_true_i| < 1e-10` for the Schur version. It runs
+in the existing `testhalfilut` suite and checks the **actual native
+preconditioner application**, rather than just a separate dense-matrix
+reimplementation. The table is a mathematically evaluated reference;
+the updated native CI must pass independently.
+
+This is intentionally an exact-special-case correctness witness.
+No corresponding Schur exactness, convergence advantage, or FEA
+performance benefit is claimed when `A_II` is not diagonal.
+
 ## Synthetic contact-KKT regression
 
 `testhalfilut` now assembles an indefinite **48×48 stabilized saddle-point system** with a 36×36 spring-stiffness block, twelve displacement-difference constraints, and a negative 0.1 multiplier diagonal. It compares the legacy ILUT control with the opt-in variant, requiring convergence to a **true relative residual below 1e-7** and printing Krylov iterations and residuals. This is an algebraic contact-style regression, **not** a production nonlinear FEA benchmark and not evidence of a speedup.
 
-## Dependency update (2026-11-13)
+## Integration and review scope
 
-This branch is synchronized with the latest ILUT robustness changes from fork PR #62 (upstream #224), including the high-unit-contrast KKT test and the English user-guide option table. The fork PR #63 remains stacked cleanly on #62, with its diff restricted to RAS/Schur changes. The upstream #225 comparison against `develop` necessarily includes #224 until that dependency merges.
+Upstream [#224](https://github.com/anishida/lis/pull/224) was merged
+into `develop` on 2026-11-13. This PR adds the experimental
+RAS/Schur path on top of that already-merged ILUT robustness work.
 
-An entirely **separate, non-integrated** sparse CSR Schur feasibility experiment lives in fork Draft PR #64. It checks a synthetic interface larger than 256 DOF and documents OpenMP risks, but it is not a fix for the production limitations of the current dense Schur implementation.
+Related PRs: [#226](https://github.com/anishida/lis/pull/226)
+(numerical tests), [#227](https://github.com/anishida/lis/pull/227)
+(FEA benchmark metrics), [#229](https://github.com/anishida/lis/pull/229)
+(ILUTP), [#230](https://github.com/anishida/lis/pull/230)
+(two-sided equilibration). PR #229/#230 modify some shared ILUT
+and solver-option code; integration must be verified before merging
+these features together. This PR does **not** enable ILUTP or Equil in RAS.
 
-## Review scope and realistic validation
+The sparse-CSR Schur feasibility experiment in
+[fork PR #64](https://github.com/3rav/lis/pull/64) is separate and
+not integrated; this implementation retains its dense 256-DOF
+interface limit.
 
-This PR **depends on the ILUT RCM/equilibration PR**. The development
-branch is stacked on `feature/ilut-contact-robustness`; a GitHub PR
-targeting upstream `develop` will temporarily include that dependency
-until the upstream RCM PR is merged.
+This change can be reviewed as a narrowly scoped, **experimental,
+opt-in serial** solver feature; it is not approved for production FEA
+or for merge without review. The exact witness proves algebraic
+correctness only in the delimited block structure above.
 
-A production contact claim is **not** supported by the algebraic 48×48
-KKT regression. A meaningful comparison must use several representative
-Newton tangent snapshots and balance `nnz(L+U)`, Krylov tolerance,
-setup/solve time and peak memory. The companion ILUT benchmark runner
-accepts an external Matrix Market matrix without checking in private
-FEA data:
-
-```sh
-./test/testhalfilut --fea-matrix path/to/contact.mtx 8 8 0.005
-```
-
-The output prints actual fill and states whether the rates are
-fill-matched. RAS/Schur is **not** included in the runner's two-way
-baseline-versus-RCM comparison; it must be benchmarked independently
-before any performance claim.
+For a credible FEA performance comparison, use several real Newton
+tangent snapshots, matched factor fill, residuals, setup/solve
+times and peak memory. The existing
+`./test/testhalfilut --fea-matrix path/to/contact.mtx 8 8 0.005`
+runner compares only baseline with RCM-scaled ILUT, **not** RAS/Schur.
 
 ## Limits / safeguards
 
