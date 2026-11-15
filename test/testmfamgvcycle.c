@@ -136,6 +136,7 @@ static int mfamg_omp_stress(void)
     LIS_PRECON precon=NULL;
     LIS_SCALAR *reference=NULL;
     LIS_REAL rel=0.0,normb,normr,diff;
+    double setup_started=0,setup_seconds=0,apply_started=0,apply_seconds=0;
     LIS_INT err=0,i;
     int failed=1,mode=-1,t=-1,repeat=0;
     const char *stage="init";
@@ -193,6 +194,7 @@ static int mfamg_omp_stress(void)
         {
             omp_set_num_threads(threads[t]);
             stage="solver-create";
+            setup_started=omp_get_wtime();
             err=lis_solver_create(&solver);
             if(err) goto done;
             stage="solver-options";
@@ -208,6 +210,8 @@ static int mfamg_omp_stress(void)
             err=lis_precon_create(solver,&precon);
             if(err) {precon=NULL;goto done;}
             solver->precon=precon;
+            setup_seconds=omp_get_wtime()-setup_started;
+            apply_started=omp_get_wtime();
 
             for(repeat=0;repeat<3;repeat++)
             {
@@ -254,8 +258,13 @@ static int mfamg_omp_stress(void)
                 fprintf(stderr,"MFAMG_OMP_STRESS thread ICV mutated\n");
                 goto done;
             }
-            printf("MFAMG_OMP_STRESS mode=%d threads=%d relres=%.9e PASS\n",
-                   mode,threads[t],(double)rel);
+            apply_seconds=omp_get_wtime()-apply_started;
+            /* Timings are informational; shared CI runners are not
+             * stable enough to enforce a speedup threshold. */
+            printf("MFAMG_OMP_STRESS mode=%d threads=%d relres=%.9e "
+                   "setup_s=%.6f apply3_s=%.6f PASS\n",
+                   mode,threads[t],(double)rel,
+                   setup_seconds,apply_seconds);
             solver->precon=NULL;
             lis_precon_destroy(precon);precon=NULL;
             lis_solver_destroy(solver);solver=NULL;
