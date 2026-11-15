@@ -133,6 +133,14 @@ jobs:
           grep -q 'MFAMG_OMP_EDGES block=4 phase=0 threads=8 .* PASS' mfamg-omp.log
           grep -q 'MFAMG_OMP_EDGES block=5 phase=1 threads=8 .* PASS' mfamg-omp.log
 
+      - name: Sample 1M-DOF 3D Poisson Block Jacobi scaling (non-gating speed)
+        if: matrix.mode == 'openmp'
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testmfamgvcycle --omp-benchmark | tee mfamg-1m-bench.log
+          grep -q 'MFAMG_OMP_BENCH grid=100x100x100 n=1000000 threads=8 .* PASS' mfamg-1m-bench.log
+
       - name: Verify 8-thread pivoted RAS ILUTP regression
         if: matrix.mode == 'openmp'
         run: |
