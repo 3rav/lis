@@ -1482,7 +1482,7 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
     LIS_INT block, workers=1, parallel_error=LIS_SUCCESS;
     LIS_INT *cols=NULL;
     LIS_SCALAR *vals=NULL;
-    size_t total_rows;
+    size_t scratch_entries;
 
     if(level==NULL || level->A==NULL || level->diagonal==NULL ||
        level->n<=0 || level->block_size<=1 ||
@@ -1517,8 +1517,10 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
      * Never invoke callbacks concurrently. CSR row inspection is read-only
      * and all scratch buffers are allocated BEFORE starting workers.
      */
+    /* block_size <= 16 and n >= 4096 imply at least 256 blocks,
+     * so an additional block-count threshold would be redundant. */
     if(level->A->matrix_type==LIS_MATRIX_CSR &&
-       level->n>=LIS_MFAMG_OMP_MIN_ROWS && level->block_count>=64)
+       level->n>=LIS_MFAMG_OMP_MIN_ROWS)
     {
         workers=omp_get_max_threads();
         if(workers>level->block_count) workers=level->block_count;
@@ -1535,16 +1537,16 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
                    "MFAMG parallel block scratch size overflow\n");
         return LIS_OUT_OF_MEMORY;
     }
-    total_rows=(size_t)max_row_nnz*(size_t)workers;
-    cols=(LIS_INT *)lis_malloc(total_rows*sizeof(LIS_INT),
+    scratch_entries=(size_t)max_row_nnz*(size_t)workers;
+    cols=(LIS_INT *)lis_malloc(scratch_entries*sizeof(LIS_INT),
                                "lis_mfamg_block_refresh::cols");
-    vals=(LIS_SCALAR *)lis_malloc(total_rows*sizeof(LIS_SCALAR),
+    vals=(LIS_SCALAR *)lis_malloc(scratch_entries*sizeof(LIS_SCALAR),
                                  "lis_mfamg_block_refresh::vals");
     if(cols==NULL || vals==NULL)
     {
         if(vals) lis_free(vals);
         if(cols) lis_free(cols);
-        LIS_SETERR_MEM(total_rows*(sizeof(LIS_INT)+sizeof(LIS_SCALAR)));
+        LIS_SETERR_MEM(scratch_entries*(sizeof(LIS_INT)+sizeof(LIS_SCALAR)));
         return LIS_OUT_OF_MEMORY;
     }
 
