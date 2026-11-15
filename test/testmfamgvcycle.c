@@ -9,11 +9,20 @@
 #include <complex.h>
 #endif
 #include <stdio.h>
+#include <stdlib.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include <string.h>
 #include "lislib.h"
 
 #define N 96
 #define MAX_LEVELS 32
+
+extern LIS_INT lis_precon_mfamg_apply_block_smoother_for_test(
+    LIS_MATRIX A, LIS_INT block_size, LIS_VECTOR b, LIS_VECTOR x,
+    LIS_INT initial_zero, LIS_INT *active_blocks, LIS_INT *fallback_blocks,
+    LIS_REAL *omega);
 
 extern LIS_INT lis_precon_mfamg_get_hierarchy_info(
     LIS_PRECON precon, LIS_INT max_levels, LIS_INT *nlevels,
@@ -105,6 +114,335 @@ done:
     return failed;
 }
 
+
+/*
+ * Execute MFAMG with enough rows to activate the parallel smoother and
+ * prolongation loops.  Compare every output bit across 1,2,4,8 threads;
+ * both weighted and block Jacobi use the same original matrix and RHS.
+ * This intentionally tests one V-cycle (the preconditioner) rather than
+ * hiding numerical discrepancies in the outer Krylov solver.
+ */
+static int mfamg_omp_stress(void)
+{
+#ifndef _OPENMP
+    puts("MFAMG_OMP_STRESS SKIP: built without OpenMP");
+    return 0;
+#else
+    enum { STRESS_N=4096 };
+    const int threads[4]={1,2,4,8};
+    /* Independently measured from unchanged anishida/lis develop using
+     * this exact harness and 4096-row near-Poisson matrix (PR #84).
+     * Check a baseline residual as well as bitwise cross-thread identity. */
+    const LIS_REAL baseline_relres[2]={
+        (LIS_REAL)0.3499046495,(LIS_REAL)0.4079550598
+    };
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR basis=NULL,b=NULL,x=NULL,Ax=NULL,near[1];
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON precon=NULL;
+    LIS_SCALAR *reference=NULL;
+    LIS_REAL rel=0.0,normb,normr,diff;
+    double setup_started=0,setup_seconds=0,apply_started=0,apply_seconds=0;
+    LIS_INT err=0,i;
+    int failed=1,mode=-1,t=-1,repeat=0;
+    const char *stage="init";
+    int original_threads=omp_get_max_threads();
+    int original_dynamic=omp_get_dynamic();
+    const char *options[2]={
+        "-i gmres -p mfamg -scale none -print none "
+        "-mfamg_vcycle_smooth_steps 2",
+        "-i gmres -p mfamg -scale none -print none "
+        "-mfamg_block_size 4 -mfamg_vcycle_smooth_steps 2"
+    };
+    omp_set_dynamic(0);
+    omp_set_num_threads(1);
+    reference=(LIS_SCALAR *)malloc((size_t)STRESS_N*sizeof(LIS_SCALAR));
+    if(!reference) goto done;
+    stage="matrix-create";
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,STRESS_N);
+    if(err) goto done;
+    if(A->nprocs!=1) { failed=0; goto done; }
+    for(i=0;i<STRESS_N;i++)
+    {
+        /* Near-Poisson coupling stays strong across many AMG levels. */
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)2.001,A);
+        if(err) goto done;
+        if(i>0) {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,(LIS_SCALAR)-1,A);
+            if(err) goto done;
+        }
+        if(i+1<STRESS_N) {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,(LIS_SCALAR)-1,A);
+            if(err) goto done;
+        }
+    }
+    stage="matrix-set-type";
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    stage="matrix-assemble";
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    stage="vector-duplicate";
+    if(lis_vector_duplicate(A,&basis) || lis_vector_duplicate(A,&b) ||
+       lis_vector_duplicate(A,&x) || lis_vector_duplicate(A,&Ax))
+        goto done;
+    for(i=0;i<STRESS_N;i++)
+    {
+        basis->value[i]=(LIS_SCALAR)1;
+        b->value[i]=(LIS_SCALAR)(1.0+(i%7)*0.0625);
+    }
+    near[0]=basis;
+    for(mode=0;mode<2;mode++)
+    {
+        for(t=0;t<4;t++)
+        {
+            omp_set_num_threads(threads[t]);
+            stage="solver-create";
+            setup_started=omp_get_wtime();
+            err=lis_solver_create(&solver);
+            if(err) goto done;
+            stage="solver-options";
+            err=lis_solver_set_option((char *)options[mode],solver);
+            if(err) goto done;
+            stage="near-nullspace";
+            err=lis_solver_set_near_nullspace(solver,1,near);
+            if(err) goto done;
+            stage="solver-matrix";
+            err=lis_solver_set_matrix(A,solver);
+            if(err) goto done;
+            stage="preconditioner-create";
+            err=lis_precon_create(solver,&precon);
+            if(err) {precon=NULL;goto done;}
+            solver->precon=precon;
+            setup_seconds=omp_get_wtime()-setup_started;
+            apply_started=omp_get_wtime();
+
+            for(repeat=0;repeat<3;repeat++)
+            {
+                stage="psolve";
+                err=lis_psolve(solver,b,x);
+                if(err) goto done;
+                err=lis_matvec(A,x,Ax);
+                if(err) goto done;
+                normr=0;
+                normb=0;
+                for(i=0;i<STRESS_N;i++)
+                {
+#ifdef _COMPLEX
+                    diff=(LIS_REAL)cabs(Ax->value[i]-b->value[i]);
+                    normb+=(LIS_REAL)pow(cabs(b->value[i]),2.0);
+#else
+                    diff=(LIS_REAL)fabs(Ax->value[i]-b->value[i]);
+                    normb+=(LIS_REAL)(b->value[i]*b->value[i]);
+#endif
+                    normr+=diff*diff;
+                }
+                rel=sqrt(normr/normb);
+                if(!isfinite((double)rel) || !(rel<0.60) ||
+                   fabs(rel-baseline_relres[mode])>(LIS_REAL)1.0e-7)
+                {
+                    fprintf(stderr,
+                        "MFAMG_OMP_STRESS bad residual mode=%d threads=%d "
+                        "repeat=%d residual=%.8e\n",
+                        mode,threads[t],repeat,(double)rel);
+                    goto done;
+                }
+                if(t==0 && repeat==0)
+                    memcpy(reference,x->value,(size_t)STRESS_N*sizeof(LIS_SCALAR));
+                else if(memcmp(reference,x->value,
+                               (size_t)STRESS_N*sizeof(LIS_SCALAR))!=0)
+                {
+                    fprintf(stderr,
+                        "MFAMG_OMP_STRESS nondeterministic mode=%d "
+                        "threads=%d repeat=%d\n",mode,threads[t],repeat);
+                    goto done;
+                }
+            }
+            if(omp_get_max_threads()!=threads[t])
+            {
+                fprintf(stderr,"MFAMG_OMP_STRESS thread ICV mutated\n");
+                goto done;
+            }
+            apply_seconds=omp_get_wtime()-apply_started;
+            /* Timings are informational; shared CI runners are not
+             * stable enough to enforce a speedup threshold. */
+            printf("MFAMG_OMP_STRESS mode=%d threads=%d relres=%.9e "
+                   "setup_s=%.6f apply3_s=%.6f PASS\n",
+                   mode,threads[t],(double)rel,
+                   setup_seconds,apply_seconds);
+            solver->precon=NULL;
+            lis_precon_destroy(precon);precon=NULL;
+            lis_solver_destroy(solver);solver=NULL;
+        }
+    }
+    failed=0;
+done:
+    if(failed || err) fprintf(stderr,"MFAMG_OMP_STRESS stage=%s rc=%ld mode=%d threads=%d\n",stage,(long)err,mode,(mode>=0 && t>=0 && t<4)?threads[t]:-1);
+    if(solver) solver->precon=NULL;
+    if(precon) lis_precon_destroy(precon);
+    if(solver) lis_solver_destroy(solver);
+    if(Ax) lis_vector_destroy(Ax);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(basis) lis_vector_destroy(basis);
+    if(A) lis_matrix_destroy(A);
+    free(reference);
+    omp_set_num_threads(original_threads);
+    omp_set_dynamic(original_dynamic);
+    return failed;
+#endif
+}
+
+
+/* Exercise both the short terminal block and scalar fallback under real
+ * OpenMP block factorization. The first 4x4 block has rank one but nonzero
+ * diagonal, while the remaining rows have an irregular CSR stencil. */
+static int mfamg_omp_block_edges(void)
+{
+#ifndef _OPENMP
+    return 0;
+#else
+    enum { EDGE_N=4099 };
+    const int threads[4]={1,2,4,8};
+    const int block_sizes[2]={4,5};
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR b=NULL,x=NULL;
+    LIS_SCALAR *reference=NULL;
+    LIS_INT err=0,i,j,active=0,fallback=0;
+    LIS_REAL omega=0.0;
+    int old_threads=omp_get_max_threads();
+    int old_dynamic=omp_get_dynamic();
+    int failed=1,block,phase,t,repeat;
+    double start=0.0,elapsed=0.0;
+    omp_set_dynamic(0);
+    omp_set_num_threads(1);
+
+    reference=(LIS_SCALAR *)malloc((size_t)EDGE_N*sizeof(LIS_SCALAR));
+    if(!reference) goto done;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,EDGE_N);
+    if(err) goto done;
+    if(A->nprocs!=1) { failed=0; goto done; }
+    for(i=0;i<EDGE_N;i++)
+    {
+        if(i<4)
+        {
+            for(j=0;j<4;j++)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,j,
+                                         (LIS_SCALAR)1.0,A);
+                if(err) goto done;
+            }
+        }
+        else
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
+                                     (LIS_SCALAR)2.5,A);
+            if(err) goto done;
+            if(i>4)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,
+                                         (LIS_SCALAR)-0.7,A);
+                if(err) goto done;
+            }
+            if(i+1<EDGE_N)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
+                                         (LIS_SCALAR)-0.75,A);
+                if(err) goto done;
+            }
+            if((i%11)==0 && i+2<EDGE_N)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,i+2,
+                                         (LIS_SCALAR)-0.08,A);
+                if(err) goto done;
+            }
+            if((i%17)==0 && i>=6)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,i-2,
+                                         (LIS_SCALAR)-0.05,A);
+                if(err) goto done;
+            }
+        }
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    if(lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x))
+        goto done;
+    for(i=0;i<EDGE_N;i++)
+        b->value[i]=(LIS_SCALAR)(0.25+0.125*(i%7));
+
+    for(block=0;block<2;block++)
+    for(phase=0;phase<2;phase++)
+    for(t=0;t<4;t++)
+    {
+        omp_set_num_threads(threads[t]);
+        start=omp_get_wtime();
+        for(repeat=0;repeat<3;repeat++)
+        {
+            for(i=0;i<EDGE_N;i++)
+                x->value[i]=phase ? (LIS_SCALAR)(0.125*(i%3)) : 0.0;
+            err=lis_precon_mfamg_apply_block_smoother_for_test(
+                A,block_sizes[block],b,x,phase ? LIS_FALSE : LIS_TRUE,
+                &active,&fallback,&omega);
+            if(err) goto done;
+            if(fallback<1 || active<1 ||
+               active+fallback!=(EDGE_N+block_sizes[block]-1)/
+                                 block_sizes[block] ||
+               !(omega>0.0 && omega<=1.0))
+            {
+                fprintf(stderr,"MFAMG_OMP_EDGES invalid block status "
+                               "block=%d threads=%d active=%ld fallback=%ld\n",
+                        block_sizes[block],threads[t],(long)active,
+                        (long)fallback);
+                goto done;
+            }
+            for(i=0;i<EDGE_N;i++)
+            {
+#ifdef _COMPLEX
+                if(!isfinite((double)cabs(x->value[i])))
+#else
+                if(!isfinite((double)x->value[i]))
+#endif
+                    goto done;
+            }
+            if(t==0 && repeat==0)
+                memcpy(reference,x->value,
+                       (size_t)EDGE_N*sizeof(LIS_SCALAR));
+            else if(memcmp(reference,x->value,
+                           (size_t)EDGE_N*sizeof(LIS_SCALAR))!=0)
+            {
+                fprintf(stderr,"MFAMG_OMP_EDGES differs block=%d "
+                               "phase=%d threads=%d repeat=%d\n",
+                        block_sizes[block],phase,threads[t],repeat);
+                goto done;
+            }
+        }
+        elapsed=omp_get_wtime()-start;
+        if(omp_get_max_threads()!=threads[t]) goto done;
+        printf("MFAMG_OMP_EDGES block=%d phase=%d threads=%d "
+               "active=%ld fallback=%ld seconds=%.6f PASS\n",
+               block_sizes[block],phase,threads[t],
+               (long)active,(long)fallback,elapsed);
+    }
+    failed=0;
+done:
+    if(err) fprintf(stderr,"MFAMG_OMP_EDGES error=%ld\n",(long)err);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(A) lis_matrix_destroy(A);
+    free(reference);
+    omp_set_num_threads(old_threads);
+    omp_set_dynamic(old_dynamic);
+    return failed;
+#endif
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -115,6 +453,13 @@ int main(int argc,char **argv)
     LIS_REAL difference_12=0.0,difference_23=0.0;
     int failed=1;
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS) return 1;
+    if(argc==2 && strcmp(argv[1],"--omp-stress")==0)
+    {
+        failed=mfamg_omp_stress();
+        if(!failed) failed=mfamg_omp_block_edges();
+        lis_finalize();
+        return failed ? 1 : 0;
+    }
 #ifdef USE_MPI
     {
         int ranks=1;
@@ -183,6 +528,11 @@ int main(int argc,char **argv)
     printf("MFAMG VCYCLE default=%.9e steps2=%.9e steps3=%.9e PASS\n",
            (double)d_default,(double)d_two,(double)d_three);
     failed=0;
+#ifdef _OPENMP
+    /* Included in make check, not only the custom CI smoke command. */
+    if(mfamg_omp_stress()!=0 || mfamg_omp_block_edges()!=0)
+        failed=1;
+#endif
 done:
     if(err) fprintf(stderr,"MFAMG VCYCLE setup rc=%d\n",(int)err);
     if(x) lis_vector_destroy(x);
