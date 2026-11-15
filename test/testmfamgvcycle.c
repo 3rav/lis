@@ -25,15 +25,17 @@ extern LIS_INT lis_precon_mfamg_apply_block_smoother_for_test(
     LIS_REAL *omega);
 
 extern LIS_INT lis_precon_mfamg_get_omp_min_rows_for_test(void);
+extern LIS_INT lis_precon_mfamg_get_multivector_levels_for_test(
+    LIS_PRECON precon, LIS_INT *count);
 
-static int mfamg_force_omp_test_threshold(void)
+static int mfamg_force_omp_test_threshold(const char *threshold)
 {
     /* Set before workers start. Explicitly cover OpenMP loops even when
      * production is compiled with a much higher default threshold. */
 #ifdef _WIN32
-    return _putenv_s("LIS_MFAMG_OMP_MIN_ROWS","4096");
+    return _putenv_s("LIS_MFAMG_OMP_MIN_ROWS",threshold);
 #else
-    return setenv("LIS_MFAMG_OMP_MIN_ROWS","4096",1);
+    return setenv("LIS_MFAMG_OMP_MIN_ROWS",threshold,1);
 #endif
 }
 
@@ -171,7 +173,7 @@ static int mfamg_omp_stress(void)
     };
     omp_set_dynamic(0);
     omp_set_num_threads(1);
-    if(mfamg_force_omp_test_threshold()!=0 ||
+    if(mfamg_force_omp_test_threshold("4096")!=0 ||
        lis_precon_mfamg_get_omp_min_rows_for_test()>STRESS_N)
     {
         fprintf(stderr,"MFAMG_OMP_STRESS parallel threshold not enabled\n");
@@ -348,7 +350,7 @@ static int mfamg_omp_block_edges(void)
     double start=0.0,elapsed=0.0;
     omp_set_dynamic(0);
     omp_set_num_threads(1);
-    if(mfamg_force_omp_test_threshold()!=0 ||
+    if(mfamg_force_omp_test_threshold("4096")!=0 ||
        lis_precon_mfamg_get_omp_min_rows_for_test()>EDGE_N)
     {
         fprintf(stderr,"MFAMG_OMP_EDGES parallel threshold not enabled\n");
@@ -516,6 +518,164 @@ done:
 }
 
 
+
+/* Exercise the rank-adaptive multivector prolong_row_ptr branch with
+ * two near-nullspace modes and genuine OpenMP loops at 24 DOF. The
+ * two-mode setup mirrors the pre-OpenMP serial MFAMG regression.
+ * A runtime row threshold of one activates the small hierarchy without
+ * changing the production OpenMP threshold or the library build flags. */
+static int mfamg_omp_multivector(void)
+{
+#ifndef _OPENMP
+    return 0;
+#else
+    enum { MV_N=24 };
+    const int thread_counts[4]={1,2,4,8};
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR b=NULL,x=NULL,ax=NULL,z0=NULL,z1=NULL,near[2];
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_SCALAR reference[MV_N];
+    LIS_INT i,err=0,mvlevels=0;
+    LIS_REAL bn=0.0,rn=0.0;
+    int failed=1,t=-1,repeat;
+    int old_threads=omp_get_max_threads();
+    int old_dynamic=omp_get_dynamic();
+
+    omp_set_dynamic(0);
+    omp_set_num_threads(1);
+    if(mfamg_force_omp_test_threshold("1")!=0 ||
+       lis_precon_mfamg_get_omp_min_rows_for_test()!=1)
+    {
+        fprintf(stderr,"MFAMG_OMP_MULTIVECTOR cannot force low OMP threshold\n");
+        goto done;
+    }
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,MV_N);
+    if(err) goto done;
+    if(A->nprocs!=1) {failed=0;goto done;}
+    for(i=0;i<MV_N;i++)
+    {
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)2.0,A);
+        if(err) goto done;
+        if(i>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,(LIS_SCALAR)-1,A);
+            if(err) goto done;
+        }
+        if(i+1<MV_N)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,(LIS_SCALAR)-1,A);
+            if(err) goto done;
+        }
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    if(lis_vector_duplicate(A,&z0) || lis_vector_duplicate(A,&z1) ||
+       lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x) ||
+       lis_vector_duplicate(A,&ax))
+        goto done;
+    for(i=0;i<MV_N;i++)
+    {
+        z0->value[i]=(LIS_SCALAR)1.0;
+        z1->value[i]=(LIS_SCALAR)(i<10 ? (i%2) : 0);
+        b->value[i]=(LIS_SCALAR)(1.0+0.2*(i%5));
+    }
+    near[0]=z0;near[1]=z1;
+    for(t=0;t<4;t++)
+    {
+        if(omp_get_thread_limit()<thread_counts[t])
+        {
+            printf("MFAMG_OMP_MULTIVECTOR threads=%d SKIP: OMP_THREAD_LIMIT\n",
+                   thread_counts[t]);
+            continue;
+        }
+        omp_set_num_threads(thread_counts[t]);
+        err=lis_solver_create(&solver);
+        if(err) goto done;
+        err=lis_solver_set_option(
+            "-i gmres -p mfamg -scale none -print none",solver);
+        if(err) goto done;
+        err=lis_solver_set_near_nullspace(solver,2,near);
+        if(err) goto done;
+        err=lis_solver_set_matrix(A,solver);
+        if(err) goto done;
+        err=lis_precon_create(solver,&pc);
+        if(err) {pc=NULL;goto done;}
+        solver->precon=pc;
+        err=lis_precon_mfamg_get_multivector_levels_for_test(pc,&mvlevels);
+        if(err || mvlevels<1)
+        {
+            fprintf(stderr,"MFAMG_OMP_MULTIVECTOR no rank-adaptive "
+                           "prolongation threads=%d levels=%ld\n",
+                    thread_counts[t],(long)mvlevels);
+            goto done;
+        }
+        for(repeat=0;repeat<3;repeat++)
+        {
+            err=lis_psolve(solver,b,x);
+            if(err) goto done;
+            err=lis_matvec(A,x,ax);
+            if(err) goto done;
+            bn=0.0;rn=0.0;
+            for(i=0;i<MV_N;i++)
+            {
+#ifdef _COMPLEX
+                LIS_REAL bb=(LIS_REAL)cabs(b->value[i]);
+                LIS_REAL rr=(LIS_REAL)cabs(ax->value[i]-b->value[i]);
+#else
+                LIS_REAL bb=(LIS_REAL)fabs(b->value[i]);
+                LIS_REAL rr=(LIS_REAL)fabs(ax->value[i]-b->value[i]);
+#endif
+                bn+=bb*bb; rn+=rr*rr;
+            }
+            if(!(bn>0.0) || !isfinite((double)rn) || !(rn/bn<1.0))
+            {
+                fprintf(stderr,"MFAMG_OMP_MULTIVECTOR residual invalid "
+                               "threads=%d rel=%.8e\n",
+                        thread_counts[t],(double)sqrt(rn/bn));
+                goto done;
+            }
+            if(t==0 && repeat==0)
+                memcpy(reference,x->value,sizeof(reference));
+            else if(memcmp(reference,x->value,sizeof(reference))!=0)
+            {
+                fprintf(stderr,"MFAMG_OMP_MULTIVECTOR correction mismatch "
+                               "threads=%d repeat=%d\n",
+                        thread_counts[t],repeat);
+                goto done;
+            }
+        }
+        printf("MFAMG_OMP_MULTIVECTOR threads=%d levels=%ld "
+               "relres=%.9e PASS\n",
+               thread_counts[t],(long)mvlevels,(double)sqrt(rn/bn));
+        solver->precon=NULL;
+        lis_precon_destroy(pc);pc=NULL;
+        lis_solver_destroy(solver);solver=NULL;
+    }
+    failed=0;
+done:
+    if(failed || err)
+        fprintf(stderr,"MFAMG_OMP_MULTIVECTOR failed=%d rc=%ld "
+                       "thread_index=%d\n",failed,(long)err,t);
+    if(solver) solver->precon=NULL;
+    if(pc) lis_precon_destroy(pc);
+    if(solver) lis_solver_destroy(solver);
+    if(ax) lis_vector_destroy(ax);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(z1) lis_vector_destroy(z1);
+    if(z0) lis_vector_destroy(z0);
+    if(A) lis_matrix_destroy(A);
+    omp_set_num_threads(old_threads);
+    omp_set_dynamic(old_dynamic);
+    return failed;
+#endif
+}
+
 /*
  * Optional, non-gating 3D Poisson benchmark: one million equations and
  * approximately seven million CSR entries. This isolates the *combined*
@@ -676,6 +836,7 @@ int main(int argc,char **argv)
     {
         failed=mfamg_omp_stress();
         if(!failed) failed=mfamg_omp_block_edges();
+        if(!failed) failed=mfamg_omp_multivector();
         lis_finalize();
         return failed ? 1 : 0;
     }
@@ -749,7 +910,8 @@ int main(int argc,char **argv)
     failed=0;
 #ifdef _OPENMP
     /* Included in make check, not only the custom CI smoke command. */
-    if(mfamg_omp_stress()!=0 || mfamg_omp_block_edges()!=0)
+    if(mfamg_omp_stress()!=0 || mfamg_omp_block_edges()!=0 ||
+       mfamg_omp_multivector()!=0)
         failed=1;
 #endif
 done:
