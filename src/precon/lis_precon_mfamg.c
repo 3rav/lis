@@ -47,6 +47,12 @@ extern double lis_half_to_double(uint16_t value);
 #define LIS_MFAMG_SMOOTHER_BLOCK_JACOBI 1
 #define LIS_MFAMG_BLOCK_MAX_SIZE 16
 
+/* The threshold is configurable for hardware-specific tuning.
+ * Keep 4096 by default to exercise the validated correctness workload. */
+#ifndef LIS_MFAMG_OMP_MIN_ROWS
+#define LIS_MFAMG_OMP_MIN_ROWS 4096
+#endif
+
 
 struct LIS_MFAMG_LEVEL
 {
@@ -96,9 +102,6 @@ struct LIS_MFAMG_LEVEL
     uint16_t *block_lu_half;
     LIS_INT *block_pivots;
     LIS_INT *block_valid;
-    LIS_SCALAR *block_work;
-    LIS_REAL *block_row_scale;
-
     LIS_VECTOR rhs;
     LIS_VECTOR x;
 };
@@ -205,26 +208,6 @@ lis_mfamg_smoother_destroy(
             level->block_valid);
 
         level->block_valid =
-            NULL;
-    }
-
-
-    if(level->block_work)
-    {
-        lis_free(
-            level->block_work);
-
-        level->block_work =
-            NULL;
-    }
-
-
-    if(level->block_row_scale)
-    {
-        lis_free(
-            level->block_row_scale);
-
-        level->block_row_scale =
             NULL;
     }
 
@@ -1523,8 +1506,7 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
        level->n<=0 || level->block_size<=1 ||
        level->block_size>LIS_MFAMG_BLOCK_MAX_SIZE ||
        level->block_count<=0 || level->block_lu==NULL ||
-       level->block_pivots==NULL || level->block_valid==NULL ||
-       level->block_row_scale==NULL)
+       level->block_pivots==NULL || level->block_valid==NULL)
         return LIS_ERR_ILL_ARG;
 
     err=lis_matrix_get_diagonal(level->A,level->diagonal);
@@ -1554,7 +1536,7 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
      * and all scratch buffers are allocated BEFORE starting workers.
      */
     if(level->A->matrix_type==LIS_MATRIX_CSR &&
-       level->n>=4096 && level->block_count>=64)
+       level->n>=LIS_MFAMG_OMP_MIN_ROWS && level->block_count>=64)
     {
         workers=omp_get_max_threads();
         if(workers>level->block_count) workers=level->block_count;
@@ -1702,11 +1684,7 @@ lis_mfamg_smoother_setup(
         ||
         level->block_pivots!=NULL
         ||
-        level->block_valid!=NULL
-        ||
-        level->block_work!=NULL
-        ||
-        level->block_row_scale!=NULL)
+        level->block_valid!=NULL)
     {
         return LIS_ERR_ILL_ARG;
     }
@@ -1841,31 +1819,12 @@ lis_mfamg_smoother_setup(
                 sizeof(LIS_INT),
                 "lis_mfamg_smoother_setup::block_valid");
 
-        level->block_work =
-            (LIS_SCALAR *)lis_malloc(
-                (size_t)level->block_size
-                *
-                sizeof(LIS_SCALAR),
-                "lis_mfamg_smoother_setup::block_work");
-
-        level->block_row_scale =
-            (LIS_REAL *)lis_malloc(
-                (size_t)level->block_size
-                *
-                sizeof(LIS_REAL),
-                "lis_mfamg_smoother_setup::block_row_scale");
-
-
         if(
             level->block_lu==NULL
             ||
             level->block_pivots==NULL
             ||
-            level->block_valid==NULL
-            ||
-            level->block_work==NULL
-            ||
-            level->block_row_scale==NULL)
+            level->block_valid==NULL)
         {
             LIS_SETERR_MEM(
                 block_entries
@@ -1878,15 +1837,7 @@ lis_mfamg_smoother_setup(
                 +
                 (size_t)level->block_count
                 *
-                sizeof(LIS_INT)
-                +
-                (size_t)level->block_size
-                *
-                (
-                    sizeof(LIS_SCALAR)
-                    +
-                    sizeof(LIS_REAL)
-                ));
+                sizeof(LIS_INT));
 
             err =
                 LIS_OUT_OF_MEMORY;
@@ -2074,7 +2025,7 @@ lis_mfamg_smoother_apply(
         if(initial_zero)
         {
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) if(level->n>=4096)
+#pragma omp parallel for schedule(static) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
             for(i=0;i<level->n;i++)
             {
@@ -2105,7 +2056,7 @@ lis_mfamg_smoother_apply(
             level->ax->value;
 
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) private(residual) if(level->n>=4096)
+#pragma omp parallel for schedule(static) private(residual) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
         for(i=0;i<level->n;i++)
         {
@@ -2139,9 +2090,7 @@ lis_mfamg_smoother_apply(
             ||
             level->block_pivots==NULL
             ||
-            level->block_valid==NULL
-            ||
-            level->block_work==NULL)
+            level->block_valid==NULL)
         {
             return LIS_ERR_ILL_ARG;
         }
@@ -2170,18 +2119,18 @@ lis_mfamg_smoother_apply(
 
         /*
          * Every diagonal block owns a disjoint slice of x and L/U.
-         * The legacy shared block_work buffer is unsuitable for OMP.
+         * The old shared scratch buffer was removed because it is unsafe under OpenMP.
          * Give each block its own small, stack-allocated RHS instead.
          */
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) private(i,start,width,err,correction,lu,half,work) reduction(max:block_error) if(level->n>=4096)
+#pragma omp parallel for schedule(static) private(i,start,width,err,correction,lu,half,work) reduction(max:block_error) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
         for(
             block=0;
             block<level->block_count;
             block++)
         {
-            LIS_SCALAR local_work[LIS_MFAMG_BLOCK_MAX_SIZE];
+            LIS_SCALAR local_work[LIS_MFAMG_BLOCK_MAX_SIZE] = {0};
             work=local_work;
 
             start =
@@ -6811,7 +6760,7 @@ lis_mfamg_build_prolongation(
 
 
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) private(a,denom) if(level->n>=4096)
+#pragma omp parallel for schedule(static) private(a,denom) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
     for(i=0;i<level->n;i++)
     {
@@ -10661,7 +10610,7 @@ lis_mfamg_v_cycle(
                 return LIS_ERR_ILL_ARG;
         }
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) private(a,rank,row_start,q,p) if(level->n>=4096)
+#pragma omp parallel for schedule(static) private(a,rank,row_start,q,p) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
         for(i=0;i<level->n;i++)
         {
@@ -10684,7 +10633,7 @@ lis_mfamg_v_cycle(
                 return LIS_ERR_ILL_ARG;
         }
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) private(a) if(level->n>=4096)
+#pragma omp parallel for schedule(static) private(a) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
         for(i=0;i<level->n;i++)
         {
