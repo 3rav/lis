@@ -221,6 +221,13 @@ static int mfamg_omp_stress(void)
     {
         for(t=0;t<4;t++)
         {
+            if(omp_get_thread_limit()<threads[t])
+            {
+                printf("MFAMG_OMP_STRESS mode=%d threads=%d "
+                       "SKIP: OMP_THREAD_LIMIT=%d\n",
+                       mode,threads[t],omp_get_thread_limit());
+                continue;
+            }
             omp_set_num_threads(threads[t]);
             stage="solver-create";
             setup_started=omp_get_wtime();
@@ -419,6 +426,14 @@ static int mfamg_omp_block_edges(void)
     for(phase=0;phase<2;phase++)
     for(t=0;t<4;t++)
     {
+        if(omp_get_thread_limit()<threads[t])
+        {
+            printf("MFAMG_OMP_EDGES block=%d phase=%d threads=%d "
+                   "SKIP: OMP_THREAD_LIMIT=%d\n",
+                   block_sizes[block],phase,threads[t],
+                   omp_get_thread_limit());
+            continue;
+        }
         omp_set_num_threads(threads[t]);
         start=omp_get_wtime();
         for(repeat=0;repeat<3;repeat++)
