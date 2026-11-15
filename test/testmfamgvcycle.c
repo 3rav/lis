@@ -130,6 +130,12 @@ static int mfamg_omp_stress(void)
 #else
     enum { STRESS_N=4096 };
     const int threads[4]={1,2,4,8};
+    /* Independently measured from unchanged anishida/lis develop using
+     * this exact harness and 4096-row near-Poisson matrix (PR #84).
+     * Check a baseline residual as well as bitwise cross-thread identity. */
+    const LIS_REAL baseline_relres[2]={
+        (LIS_REAL)0.3499046495,(LIS_REAL)0.4079550598
+    };
     LIS_MATRIX A=NULL;
     LIS_VECTOR basis=NULL,b=NULL,x=NULL,Ax=NULL,near[1];
     LIS_SOLVER solver=NULL;
@@ -234,7 +240,8 @@ static int mfamg_omp_stress(void)
                     normr+=diff*diff;
                 }
                 rel=sqrt(normr/normb);
-                if(!isfinite((double)rel) || !(rel<0.95))
+                if(!isfinite((double)rel) || !(rel<0.60) ||
+                   fabs(rel-baseline_relres[mode])>(LIS_REAL)1.0e-7)
                 {
                     fprintf(stderr,
                         "MFAMG_OMP_STRESS bad residual mode=%d threads=%d "
