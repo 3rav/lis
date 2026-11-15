@@ -408,6 +408,20 @@ static int mfamg_omp_block_edges(void)
             }
         }
         elapsed=omp_get_wtime()-start;
+        if(t==0)
+        {
+            double signature=0.0;
+            for(i=0;i<EDGE_N;i++)
+            {
+#ifdef _COMPLEX
+                signature+=(double)(1+i%23)*creal(x->value[i]);
+#else
+                signature+=(double)(1+i%23)*(double)x->value[i];
+#endif
+            }
+            printf("MFAMG_BASELINE_EDGE_SIGNATURE block=%d phase=%d sum=%.15e\n",
+                   block_sizes[block],phase,signature);
+        }
         if(omp_get_max_threads()!=threads[t]) goto done;
         printf("MFAMG_OMP_EDGES block=%d phase=%d threads=%d "
                "active=%ld fallback=%ld seconds=%.6f PASS\n",
