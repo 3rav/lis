@@ -24,6 +24,19 @@ extern LIS_INT lis_precon_mfamg_apply_block_smoother_for_test(
     LIS_INT initial_zero, LIS_INT *active_blocks, LIS_INT *fallback_blocks,
     LIS_REAL *omega);
 
+extern LIS_INT lis_precon_mfamg_get_omp_min_rows_for_test(void);
+
+static int mfamg_force_omp_test_threshold(void)
+{
+    /* Set before workers start. Explicitly cover OpenMP loops even when
+     * production is compiled with a much higher default threshold. */
+#ifdef _WIN32
+    return _putenv_s("LIS_MFAMG_OMP_MIN_ROWS","4096");
+#else
+    return setenv("LIS_MFAMG_OMP_MIN_ROWS","4096",1);
+#endif
+}
+
 extern LIS_INT lis_precon_mfamg_get_hierarchy_info(
     LIS_PRECON precon, LIS_INT max_levels, LIS_INT *nlevels,
     LIS_INT *coarse_n, LIS_INT *level_n, LIS_INT *owns_A);
@@ -130,9 +143,11 @@ static int mfamg_omp_stress(void)
 #else
     enum { STRESS_N=4096 };
     const int threads[4]={1,2,4,8};
-    /* Independently measured from unchanged anishida/lis develop using
-     * this exact harness and 4096-row near-Poisson matrix (PR #84).
-     * Check a baseline residual as well as bitwise cross-thread identity. */
+    /* Golden residuals measured from the unchanged develop commit
+     * 14516697c38286e002c51c66867a8b1de9ea565a using
+     * OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8
+     * ./test/testmfamgvcycle --omp-stress
+     * on the baseline-only audit branch. */
     const LIS_REAL baseline_relres[2]={
         (LIS_REAL)0.3499046495,(LIS_REAL)0.4079550598
     };
@@ -156,6 +171,12 @@ static int mfamg_omp_stress(void)
     };
     omp_set_dynamic(0);
     omp_set_num_threads(1);
+    if(mfamg_force_omp_test_threshold()!=0 ||
+       lis_precon_mfamg_get_omp_min_rows_for_test()>STRESS_N)
+    {
+        fprintf(stderr,"MFAMG_OMP_STRESS parallel threshold not enabled\n");
+        goto done;
+    }
     reference=(LIS_SCALAR *)malloc((size_t)STRESS_N*sizeof(LIS_SCALAR));
     if(!reference) goto done;
     stage="matrix-create";
@@ -314,10 +335,16 @@ static int mfamg_omp_block_edges(void)
     LIS_REAL omega=0.0;
     int old_threads=omp_get_max_threads();
     int old_dynamic=omp_get_dynamic();
-    int failed=1,block,phase,t,repeat;
+    int failed=1,block=-1,phase=-1,t=-1,repeat=0;
     double start=0.0,elapsed=0.0;
     omp_set_dynamic(0);
     omp_set_num_threads(1);
+    if(mfamg_force_omp_test_threshold()!=0 ||
+       lis_precon_mfamg_get_omp_min_rows_for_test()>EDGE_N)
+    {
+        fprintf(stderr,"MFAMG_OMP_EDGES parallel threshold not enabled\n");
+        goto done;
+    }
 
     reference=(LIS_SCALAR *)malloc((size_t)EDGE_N*sizeof(LIS_SCALAR));
     if(!reference) goto done;
@@ -409,7 +436,12 @@ static int mfamg_omp_block_edges(void)
 #else
                 if(!isfinite((double)x->value[i]))
 #endif
+                {
+                    fprintf(stderr,"MFAMG_OMP_EDGES nonfinite x[%ld] "
+                                   "block=%d phase=%d threads=%d\n",
+                            (long)i,block_sizes[block],phase,threads[t]);
                     goto done;
+                }
             }
             if(t==0 && repeat==0)
                 memcpy(reference,x->value,
@@ -424,7 +456,14 @@ static int mfamg_omp_block_edges(void)
             }
         }
         elapsed=omp_get_wtime()-start;
-        if(omp_get_max_threads()!=threads[t]) goto done;
+        if(omp_get_max_threads()!=threads[t])
+        {
+            fprintf(stderr,"MFAMG_OMP_EDGES OpenMP ICV changed "
+                           "block=%d phase=%d expected=%d actual=%d\n",
+                    block_sizes[block],phase,threads[t],
+                    omp_get_max_threads());
+            goto done;
+        }
         printf("MFAMG_OMP_EDGES block=%d phase=%d threads=%d "
                "active=%ld fallback=%ld seconds=%.6f PASS\n",
                block_sizes[block],phase,threads[t],
@@ -432,7 +471,12 @@ static int mfamg_omp_block_edges(void)
     }
     failed=0;
 done:
-    if(err) fprintf(stderr,"MFAMG_OMP_EDGES error=%ld\n",(long)err);
+    if(failed || err)
+        fprintf(stderr,"MFAMG_OMP_EDGES failed=%d error=%ld "
+                       "block=%d phase=%d threads=%d\n",
+                failed,(long)err,
+                (block>=0 && block<2)?block_sizes[block]:-1,
+                phase,(t>=0 && t<4)?threads[t]:-1);
     if(x) lis_vector_destroy(x);
     if(b) lis_vector_destroy(b);
     if(A) lis_matrix_destroy(A);
