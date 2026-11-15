@@ -19,6 +19,11 @@
 #define N 96
 #define MAX_LEVELS 32
 
+extern LIS_INT lis_precon_mfamg_apply_block_smoother_for_test(
+    LIS_MATRIX A, LIS_INT block_size, LIS_VECTOR b, LIS_VECTOR x,
+    LIS_INT initial_zero, LIS_INT *active_blocks, LIS_INT *fallback_blocks,
+    LIS_REAL *omega);
+
 extern LIS_INT lis_precon_mfamg_get_hierarchy_info(
     LIS_PRECON precon, LIS_INT max_levels, LIS_INT *nlevels,
     LIS_INT *coarse_n, LIS_INT *level_n, LIS_INT *owns_A);
@@ -274,6 +279,154 @@ done:
 #endif
 }
 
+
+/* Exercise both the short terminal block and scalar fallback under real
+ * OpenMP block factorization. The first 4x4 block has rank one but nonzero
+ * diagonal, while the remaining rows have an irregular CSR stencil. */
+static int mfamg_omp_block_edges(void)
+{
+#ifndef _OPENMP
+    return 0;
+#else
+    enum { EDGE_N=4099 };
+    const int threads[4]={1,2,4,8};
+    const int block_sizes[2]={4,5};
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR b=NULL,x=NULL;
+    LIS_SCALAR *reference=NULL;
+    LIS_INT err=0,i,j,active=0,fallback=0;
+    LIS_REAL omega=0.0;
+    int old_threads=omp_get_max_threads();
+    int old_dynamic=omp_get_dynamic();
+    int failed=1,block,phase,t,repeat;
+    double start=0.0,elapsed=0.0;
+    omp_set_dynamic(0);
+    omp_set_num_threads(1);
+
+    reference=(LIS_SCALAR *)malloc((size_t)EDGE_N*sizeof(LIS_SCALAR));
+    if(!reference) goto done;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,EDGE_N);
+    if(err) goto done;
+    if(A->nprocs!=1) { failed=0; goto done; }
+    for(i=0;i<EDGE_N;i++)
+    {
+        if(i<4)
+        {
+            for(j=0;j<4;j++)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,j,
+                                         (LIS_SCALAR)1.0,A);
+                if(err) goto done;
+            }
+        }
+        else
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i,
+                                     (LIS_SCALAR)2.5,A);
+            if(err) goto done;
+            if(i>4)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,
+                                         (LIS_SCALAR)-0.7,A);
+                if(err) goto done;
+            }
+            if(i+1<EDGE_N)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,
+                                         (LIS_SCALAR)-0.75,A);
+                if(err) goto done;
+            }
+            if((i%11)==0 && i+2<EDGE_N)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,i+2,
+                                         (LIS_SCALAR)-0.08,A);
+                if(err) goto done;
+            }
+            if((i%17)==0 && i>=6)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,i-2,
+                                         (LIS_SCALAR)-0.05,A);
+                if(err) goto done;
+            }
+        }
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    if(lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x))
+        goto done;
+    for(i=0;i<EDGE_N;i++)
+        b->value[i]=(LIS_SCALAR)(0.25+0.125*(i%7));
+
+    for(block=0;block<2;block++)
+    for(phase=0;phase<2;phase++)
+    for(t=0;t<4;t++)
+    {
+        omp_set_num_threads(threads[t]);
+        start=omp_get_wtime();
+        for(repeat=0;repeat<3;repeat++)
+        {
+            for(i=0;i<EDGE_N;i++)
+                x->value[i]=phase ? (LIS_SCALAR)(0.125*(i%3)) : 0.0;
+            err=lis_precon_mfamg_apply_block_smoother_for_test(
+                A,block_sizes[block],b,x,phase ? LIS_FALSE : LIS_TRUE,
+                &active,&fallback,&omega);
+            if(err) goto done;
+            if(fallback<1 || active<1 ||
+               active+fallback!=(EDGE_N+block_sizes[block]-1)/
+                                 block_sizes[block] ||
+               !(omega>0.0 && omega<=1.0))
+            {
+                fprintf(stderr,"MFAMG_OMP_EDGES invalid block status "
+                               "block=%d threads=%d active=%ld fallback=%ld\n",
+                        block_sizes[block],threads[t],(long)active,
+                        (long)fallback);
+                goto done;
+            }
+            for(i=0;i<EDGE_N;i++)
+            {
+#ifdef _COMPLEX
+                if(!isfinite((double)cabs(x->value[i])))
+#else
+                if(!isfinite((double)x->value[i]))
+#endif
+                    goto done;
+            }
+            if(t==0 && repeat==0)
+                memcpy(reference,x->value,
+                       (size_t)EDGE_N*sizeof(LIS_SCALAR));
+            else if(memcmp(reference,x->value,
+                           (size_t)EDGE_N*sizeof(LIS_SCALAR))!=0)
+            {
+                fprintf(stderr,"MFAMG_OMP_EDGES differs block=%d "
+                               "phase=%d threads=%d repeat=%d\n",
+                        block_sizes[block],phase,threads[t],repeat);
+                goto done;
+            }
+        }
+        elapsed=omp_get_wtime()-start;
+        if(omp_get_max_threads()!=threads[t]) goto done;
+        printf("MFAMG_OMP_EDGES block=%d phase=%d threads=%d "
+               "active=%ld fallback=%ld seconds=%.6f PASS\n",
+               block_sizes[block],phase,threads[t],
+               (long)active,(long)fallback,elapsed);
+    }
+    failed=0;
+done:
+    if(err) fprintf(stderr,"MFAMG_OMP_EDGES error=%ld\n",(long)err);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(A) lis_matrix_destroy(A);
+    free(reference);
+    omp_set_num_threads(old_threads);
+    omp_set_dynamic(old_dynamic);
+    return failed;
+#endif
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -287,6 +440,7 @@ int main(int argc,char **argv)
     if(argc==2 && strcmp(argv[1],"--omp-stress")==0)
     {
         failed=mfamg_omp_stress();
+        if(!failed) failed=mfamg_omp_block_edges();
         lis_finalize();
         return failed ? 1 : 0;
     }
@@ -358,6 +512,11 @@ int main(int argc,char **argv)
     printf("MFAMG VCYCLE default=%.9e steps2=%.9e steps3=%.9e PASS\n",
            (double)d_default,(double)d_two,(double)d_three);
     failed=0;
+#ifdef _OPENMP
+    /* Included in make check, not only the custom CI smoke command. */
+    if(mfamg_omp_stress()!=0 || mfamg_omp_block_edges()!=0)
+        failed=1;
+#endif
 done:
     if(err) fprintf(stderr,"MFAMG VCYCLE setup rc=%d\n",(int)err);
     if(x) lis_vector_destroy(x);
