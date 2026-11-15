@@ -123,6 +123,14 @@ jobs:
       - name: Run Automake test suite
         run: make -j2 check
 
+      - name: Audit original develop MFAMG with unchanged baseline implementation
+        if: matrix.mode == 'openmp'
+        run: |
+          set -euo pipefail
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8 ./test/testmfamgvcycle --omp-stress | tee mfamg-develop-baseline.log
+          grep -q 'MFAMG_OMP_STRESS mode=0 threads=8 .* PASS' mfamg-develop-baseline.log
+          grep -q 'MFAMG_OMP_EDGES block=5 phase=1 threads=8 .* PASS' mfamg-develop-baseline.log
+
       - name: Verify 8-thread pivoted RAS ILUTP regression
         if: matrix.mode == 'openmp'
         run: |
