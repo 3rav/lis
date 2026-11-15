@@ -1147,10 +1147,7 @@ lis_mfamg_block_factor(
                 ||
                 mag>LIS_SCALAR_MAX)
             {
-                LIS_SETERR(
-                    LIS_BREAKDOWN,
-                    "MFAMG block smoother contains non-finite values\n");
-
+                /* Error reporting is deferred until after OpenMP join. */
                 return LIS_BREAKDOWN;
             }
 
@@ -1201,10 +1198,7 @@ lis_mfamg_block_factor(
                 ||
                 ratio>LIS_SCALAR_MAX)
             {
-                LIS_SETERR(
-                    LIS_BREAKDOWN,
-                    "MFAMG block pivot search became non-finite\n");
-
+                /* Error reporting is deferred until after OpenMP join. */
                 return LIS_BREAKDOWN;
             }
 
@@ -1293,10 +1287,7 @@ lis_mfamg_block_factor(
                 ||
                 mag>LIS_SCALAR_MAX)
             {
-                LIS_SETERR(
-                    LIS_BREAKDOWN,
-                    "MFAMG block elimination became non-finite\n");
-
+                /* Error reporting is deferred until after OpenMP join. */
                 return LIS_BREAKDOWN;
             }
 
@@ -1321,11 +1312,8 @@ lis_mfamg_block_factor(
                     ||
                     mag>LIS_SCALAR_MAX)
                 {
-                    LIS_SETERR(
-                        LIS_BREAKDOWN,
-                        "MFAMG block factorization became non-finite\n");
-
-                    return LIS_BREAKDOWN;
+                /* Error reporting is deferred until after OpenMP join. */
+                return LIS_BREAKDOWN;
                 }
             }
         }
@@ -1456,10 +1444,7 @@ lis_mfamg_block_solve(
             ||
             mag==0.0)
         {
-            LIS_SETERR(
-                LIS_BREAKDOWN,
-                "MFAMG block solve encountered an invalid pivot\n");
-
+            /* Diagnostics are emitted by the caller after the join. */
             return LIS_BREAKDOWN;
         }
 
@@ -1479,10 +1464,7 @@ lis_mfamg_block_solve(
             ||
             mag>LIS_SCALAR_MAX)
         {
-            LIS_SETERR(
-                LIS_BREAKDOWN,
-                "MFAMG block solve became non-finite\n");
-
+            /* Diagnostics are emitted by the caller after the join. */
             return LIS_BREAKDOWN;
         }
     }
@@ -1642,9 +1624,8 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
 
     if(parallel_error)
     {
-        if(parallel_error==LIS_BREAKDOWN)
-            LIS_SETERR(LIS_BREAKDOWN,
-               "MFAMG parallel block factorization/fallback failed\n");
+        LIS_SETERR(parallel_error,
+                   "MFAMG block factor setup failed after worker join\n");
         return parallel_error;
     }
     return LIS_SUCCESS;
@@ -2257,7 +2238,11 @@ lis_mfamg_smoother_apply(
         }
 
         if(block_error!=LIS_SUCCESS)
+        {
+            LIS_SETERR(block_error,
+                       "MFAMG block solve failed after worker join\n");
             return block_error;
+        }
 
         return LIS_SUCCESS;
 
