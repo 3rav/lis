@@ -515,6 +515,147 @@ done:
 #endif
 }
 
+
+/*
+ * Optional, non-gating 3D Poisson benchmark: one million equations and
+ * approximately seven million CSR entries. This isolates the *combined*
+ * block-Jacobi construction plus one apply via the existing production
+ * regression hook, not the time of the entire multilevel V-cycle.
+ *
+ * Run explicitly:
+ * OMP_NUM_THREADS=8 ./test/testmfamgvcycle --omp-benchmark
+ *
+ * Shared CI runners can be oversubscribed; interpret timings as samples.
+ */
+static int mfamg_omp_large_benchmark(void)
+{
+#ifndef _OPENMP
+    puts("MFAMG_OMP_BENCH SKIP: built without OpenMP");
+    return 0;
+#else
+    enum { GRID=100, BENCH_N=GRID*GRID*GRID };
+    const int counts[4]={1,2,4,8};
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR b=NULL,x=NULL;
+    LIS_SCALAR *reference=NULL;
+    LIS_INT i,err=0,active=0,fallback=0;
+    LIS_REAL omega=0.0;
+    int t,repeat,failed=1;
+    int original_threads=omp_get_max_threads();
+    int original_dynamic=omp_get_dynamic();
+    double start,elapsed,baseline=0.0,speedup;
+    omp_set_dynamic(0);
+    omp_set_num_threads(1);
+
+    reference=(LIS_SCALAR *)malloc((size_t)BENCH_N*sizeof(LIS_SCALAR));
+    if(!reference) goto done;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);
+    if(err) goto done;
+    err=lis_matrix_set_size(A,0,BENCH_N);
+    if(err) goto done;
+    if(A->nprocs!=1)
+    {
+        puts("MFAMG_OMP_BENCH SKIP: only single-rank CSR supported");
+        failed=0;
+        goto done;
+    }
+    for(i=0;i<BENCH_N;i++)
+    {
+        LIS_INT ix=i%GRID,iy=(i/GRID)%GRID,iz=i/(GRID*GRID);
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)6.001,A);
+        if(err) goto done;
+        if(ix>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-1,(LIS_SCALAR)-1,A);
+            if(err) goto done;
+        }
+        if(ix+1<GRID)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,(LIS_SCALAR)-1,A);
+            if(err) goto done;
+        }
+        if(iy>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-GRID,(LIS_SCALAR)-1,A);
+            if(err) goto done;
+        }
+        if(iy+1<GRID)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+GRID,(LIS_SCALAR)-1,A);
+            if(err) goto done;
+        }
+        if(iz>0)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i-GRID*GRID,(LIS_SCALAR)-1,A);
+            if(err) goto done;
+        }
+        if(iz+1<GRID)
+        {
+            err=lis_matrix_set_value(LIS_INS_VALUE,i,i+GRID*GRID,(LIS_SCALAR)-1,A);
+            if(err) goto done;
+        }
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
+    if(err) goto done;
+    err=lis_matrix_assemble(A);
+    if(err) goto done;
+    if(lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x))
+        goto done;
+    for(i=0;i<BENCH_N;i++)
+        b->value[i]=(LIS_SCALAR)(1.0+(i%11)*0.03125);
+
+    for(t=0;t<4;t++)
+    {
+        double mean=0.0;
+        omp_set_num_threads(counts[t]);
+        for(repeat=0;repeat<2;repeat++)
+        {
+            start=omp_get_wtime();
+            err=lis_precon_mfamg_apply_block_smoother_for_test(
+                A,4,b,x,LIS_TRUE,&active,&fallback,&omega);
+            elapsed=omp_get_wtime()-start;
+            if(err) goto done;
+            if(active+fallback!=(BENCH_N+3)/4)
+            {
+                fprintf(stderr,"MFAMG_OMP_BENCH bad block count\n");
+                goto done;
+            }
+            mean+=elapsed;
+            if(t==0 && repeat==0)
+                memcpy(reference,x->value,(size_t)BENCH_N*sizeof(LIS_SCALAR));
+            else if(memcmp(reference,x->value,
+                           (size_t)BENCH_N*sizeof(LIS_SCALAR))!=0)
+            {
+                fprintf(stderr,"MFAMG_OMP_BENCH non-deterministic correction "
+                               "threads=%d repeat=%d\n",counts[t],repeat);
+                goto done;
+            }
+        }
+        mean/=2;
+        if(t==0) baseline=mean;
+        speedup=mean>0 ? baseline/mean : 0.0;
+        printf("MFAMG_OMP_BENCH grid=100x100x100 n=%ld threads=%d "
+               "avg_setup_apply_s=%.6f relative_speedup=%.3f "
+               "active=%ld fallback=%ld PASS\n",
+               (long)BENCH_N,counts[t],mean,speedup,
+               (long)active,(long)fallback);
+        fflush(stdout);
+    }
+    failed=0;
+done:
+    if(failed || err)
+        fprintf(stderr,"MFAMG_OMP_BENCH failed=%d error=%ld\n",
+                failed,(long)err);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(A) lis_matrix_destroy(A);
+    free(reference);
+    omp_set_num_threads(original_threads);
+    omp_set_dynamic(original_dynamic);
+    return failed;
+#endif
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -525,6 +666,12 @@ int main(int argc,char **argv)
     LIS_REAL difference_12=0.0,difference_23=0.0;
     int failed=1;
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS) return 1;
+    if(argc==2 && strcmp(argv[1],"--omp-benchmark")==0)
+    {
+        failed=mfamg_omp_large_benchmark();
+        lis_finalize();
+        return failed ? 1 : 0;
+    }
     if(argc==2 && strcmp(argv[1],"--omp-stress")==0)
     {
         failed=mfamg_omp_stress();
