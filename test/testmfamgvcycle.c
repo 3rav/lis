@@ -328,6 +328,15 @@ static int mfamg_omp_block_edges(void)
     enum { EDGE_N=4099 };
     const int threads[4]={1,2,4,8};
     const int block_sizes[2]={4,5};
+    /* Edge signatures measured with source at upstream develop
+     * 14516697c38286e002c51c66867a8b1de9ea565a,
+     * OMP_DYNAMIC=FALSE OMP_NUM_THREADS=8
+     * ./test/testmfamgvcycle --omp-stress
+     * The reference is the weighted real-part sum of x[i]. */
+    const double edge_signature[2][2]={
+        {1.503476740167112e4,1.804837753128949e4},
+        {1.592697674017924e4,1.875507539588175e4}
+    };
     LIS_MATRIX A=NULL;
     LIS_VECTOR b=NULL,x=NULL;
     LIS_SCALAR *reference=NULL;
@@ -444,8 +453,27 @@ static int mfamg_omp_block_edges(void)
                 }
             }
             if(t==0 && repeat==0)
+            {
+                double signature=0.0;
+                for(i=0;i<EDGE_N;i++)
+                {
+#ifdef _COMPLEX
+                    signature+=(double)(1+i%23)*creal(x->value[i]);
+#else
+                    signature+=(double)(1+i%23)*(double)x->value[i];
+#endif
+                }
+                if(fabs(signature-edge_signature[block][phase])>1.0e-6)
+                {
+                    fprintf(stderr,"MFAMG_OMP_EDGES baseline mismatch "
+                                   "block=%d phase=%d actual=%.15e expected=%.15e\n",
+                            block_sizes[block],phase,signature,
+                            edge_signature[block][phase]);
+                    goto done;
+                }
                 memcpy(reference,x->value,
                        (size_t)EDGE_N*sizeof(LIS_SCALAR));
+            }
             else if(memcmp(reference,x->value,
                            (size_t)EDGE_N*sizeof(LIS_SCALAR))!=0)
             {
