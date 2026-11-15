@@ -13292,6 +13292,28 @@ lis_precon_mfamg_get_hierarchy_info(
  */
 
 
+/* Read-only regression hook: count levels that use multivector
+ * prolongation row offsets; no changes to solver or user-facing API. */
+LIS_INT
+lis_precon_mfamg_get_multivector_levels_for_test(
+    LIS_PRECON precon, LIS_INT *count)
+{
+    struct LIS_MFAMG_STRUCT *state;
+    LIS_INT l;
+    if(precon==NULL || count==NULL ||
+       precon->precon_type!=LIS_PRECON_TYPE_MFAMG ||
+       precon->mfamg==NULL)
+        return LIS_ERR_ILL_ARG;
+    state=precon->mfamg;
+    if(state->levels==NULL || state->nlevels<1)
+        return LIS_ERR_ILL_ARG;
+    *count=0;
+    for(l=0;l<state->nlevels-1;l++)
+        if(state->levels[l].prolong_row_ptr!=NULL)
+            (*count)++;
+    return LIS_SUCCESS;
+}
+
 /* Read-only test hook: number of FP16 resident smoother diagonals. */
 LIS_INT
 lis_precon_mfamg_get_half_diagonal_info(
