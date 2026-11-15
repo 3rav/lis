@@ -1549,7 +1549,7 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
     }
 
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) num_threads(workers) if(workers>1) reduction(max:parallel_error)
+#pragma omp parallel for default(none) schedule(static) num_threads(workers) if(workers>1) shared(level,cols,vals,max_row_nnz,workers) reduction(max:parallel_error)
 #endif
     for(block=0;block<level->block_count;block++)
     {
@@ -2006,7 +2006,7 @@ lis_mfamg_smoother_apply(
         if(initial_zero)
         {
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,bv,xv) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
             for(i=0;i<level->n;i++)
             {
@@ -2037,7 +2037,7 @@ lis_mfamg_smoother_apply(
             level->ax->value;
 
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) private(residual) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,bv,av,xv) private(residual) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
         for(i=0;i<level->n;i++)
         {
@@ -2104,7 +2104,7 @@ lis_mfamg_smoother_apply(
          * Give each block its own small, stack-allocated RHS instead.
          */
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) private(i,start,width,err,correction,lu,half,work) reduction(max:block_error) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,bv,av,xv) private(i,start,width,err,correction,lu,half,work) reduction(max:block_error) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
         for(
             block=0;
@@ -6745,7 +6745,7 @@ lis_mfamg_build_prolongation(
 
 
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) private(a,denom) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,z,norm2) private(a,denom) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
     for(i=0;i<level->n;i++)
     {
@@ -10595,7 +10595,7 @@ lis_mfamg_v_cycle(
                 return LIS_ERR_ILL_ARG;
         }
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) private(a,rank,row_start,q,p) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,xv,coarse_x) private(a,rank,row_start,q,p) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
         for(i=0;i<level->n;i++)
         {
@@ -10618,7 +10618,7 @@ lis_mfamg_v_cycle(
                 return LIS_ERR_ILL_ARG;
         }
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static) private(a) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,xv,coarse_x) private(a) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
         for(i=0;i<level->n;i++)
         {
