@@ -12,6 +12,7 @@
 #endif
 
 #include <math.h>
+#include <limits.h>
 #include <stdint.h>
 #ifdef _COMPLEX
 #include <complex.h>
@@ -47,11 +48,35 @@ extern double lis_half_to_double(uint16_t value);
 #define LIS_MFAMG_SMOOTHER_BLOCK_JACOBI 1
 #define LIS_MFAMG_BLOCK_MAX_SIZE 16
 
-/* The threshold is configurable for hardware-specific tuning.
- * Keep 4096 by default to exercise the validated correctness workload. */
+/* Memory-bound kernels may be slower at 4096 rows due to team overhead.
+ * Build-time default: -DLIS_MFAMG_OMP_MIN_ROWS=N.
+ * Runtime override: LIS_MFAMG_OMP_MIN_ROWS=N in the process environment.
+ * Regression tests explicitly lower the runtime threshold to 4096, so
+ * production threshold tuning cannot silently disable parallel test paths.
+ * Do not change the process environment while OpenMP workers are running. */
 #ifndef LIS_MFAMG_OMP_MIN_ROWS
-#define LIS_MFAMG_OMP_MIN_ROWS 4096
+#define LIS_MFAMG_OMP_MIN_ROWS 16384
 #endif
+
+static LIS_INT
+lis_mfamg_omp_min_rows(void)
+{
+    const char *value=getenv("LIS_MFAMG_OMP_MIN_ROWS");
+    char *end=NULL;
+    long rows;
+    if(value==NULL || *value=='\0')
+        return (LIS_INT)LIS_MFAMG_OMP_MIN_ROWS;
+    rows=strtol(value,&end,10);
+    if(end==value || *end!='\0' || rows<1 || rows>INT_MAX)
+        return (LIS_INT)LIS_MFAMG_OMP_MIN_ROWS;
+    return (LIS_INT)rows;
+}
+
+LIS_INT
+lis_precon_mfamg_get_omp_min_rows_for_test(void)
+{
+    return lis_mfamg_omp_min_rows();
+}
 
 
 struct LIS_MFAMG_LEVEL
@@ -1517,10 +1542,11 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
      * Never invoke callbacks concurrently. CSR row inspection is read-only
      * and all scratch buffers are allocated BEFORE starting workers.
      */
-    /* block_size <= 16 and n >= 4096 imply at least 256 blocks,
-     * so an additional block-count threshold would be redundant. */
+    /* The worker count is capped at the number of blocks. A runtime
+     * threshold below 4096 can yield fewer than 256 blocks, and that
+     * remains safe because each block has a disjoint factor workspace. */
     if(level->A->matrix_type==LIS_MATRIX_CSR &&
-       level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+       level->n>=lis_mfamg_omp_min_rows())
     {
         workers=omp_get_max_threads();
         if(workers>level->block_count) workers=level->block_count;
@@ -2008,7 +2034,7 @@ lis_mfamg_smoother_apply(
         if(initial_zero)
         {
 #ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static) shared(level,bv,xv) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,bv,xv) if(level->n>=lis_mfamg_omp_min_rows())
 #endif
             for(i=0;i<level->n;i++)
             {
@@ -2039,7 +2065,7 @@ lis_mfamg_smoother_apply(
             level->ax->value;
 
 #ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static) shared(level,bv,av,xv) private(residual) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,bv,av,xv) private(residual) if(level->n>=lis_mfamg_omp_min_rows())
 #endif
         for(i=0;i<level->n;i++)
         {
@@ -2106,7 +2132,7 @@ lis_mfamg_smoother_apply(
          * Give each block its own small, stack-allocated RHS instead.
          */
 #ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static) shared(level,bv,av,xv,initial_zero) private(i,start,width,err,correction,lu,half,work) reduction(max:block_error) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,bv,av,xv,initial_zero) private(i,start,width,err,correction,lu,half,work) reduction(max:block_error) if(level->n>=lis_mfamg_omp_min_rows())
 #endif
         for(
             block=0;
@@ -6747,7 +6773,7 @@ lis_mfamg_build_prolongation(
 
 
 #ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static) shared(level,z,norm2) private(a,denom) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,z,norm2) private(a,denom) if(level->n>=lis_mfamg_omp_min_rows())
 #endif
     for(i=0;i<level->n;i++)
     {
@@ -10597,7 +10623,7 @@ lis_mfamg_v_cycle(
                 return LIS_ERR_ILL_ARG;
         }
 #ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static) shared(level,xv,coarse_x) private(a,rank,row_start,q,p) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,xv,coarse_x) private(a,rank,row_start,q,p) if(level->n>=lis_mfamg_omp_min_rows())
 #endif
         for(i=0;i<level->n;i++)
         {
@@ -10620,7 +10646,7 @@ lis_mfamg_v_cycle(
                 return LIS_ERR_ILL_ARG;
         }
 #ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static) shared(level,xv,coarse_x) private(a) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,xv,coarse_x) private(a) if(level->n>=lis_mfamg_omp_min_rows())
 #endif
         for(i=0;i<level->n;i++)
         {
