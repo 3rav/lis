@@ -2104,7 +2104,7 @@ lis_mfamg_smoother_apply(
          * Give each block its own small, stack-allocated RHS instead.
          */
 #ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static) shared(level,bv,av,xv) private(i,start,width,err,correction,lu,half,work) reduction(max:block_error) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
+#pragma omp parallel for default(none) schedule(static) shared(level,bv,av,xv,initial_zero) private(i,start,width,err,correction,lu,half,work) reduction(max:block_error) if(level->n>=LIS_MFAMG_OMP_MIN_ROWS)
 #endif
         for(
             block=0;
