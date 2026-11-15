@@ -1504,7 +1504,9 @@ static LIS_INT
 lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
 {
     LIS_INT i, nnz, max_row_nnz=0, err;
-    LIS_INT block, workers=1, parallel_error=LIS_SUCCESS;
+    LIS_INT block, workers=1;
+    LIS_INT row_error=LIS_SUCCESS, factor_error=LIS_SUCCESS;
+    LIS_INT fallback_error=LIS_SUCCESS;
     LIS_INT *cols=NULL;
     LIS_SCALAR *vals=NULL;
     size_t scratch_entries;
@@ -1577,7 +1579,7 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
     }
 
 #ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static) num_threads(workers) if(workers>1) shared(level,cols,vals,max_row_nnz,workers) reduction(max:parallel_error)
+#pragma omp parallel for default(none) schedule(static) num_threads(workers) if(workers>1) shared(level,cols,vals,max_row_nnz,workers) reduction(max:row_error,factor_error,fallback_error)
 #endif
     for(block=0;block<level->block_count;block++)
     {
@@ -1618,16 +1620,18 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
                 }
             }
         }
-        if(!local_err)
-        {
-            local_err=lis_mfamg_block_factor(
-                width,level->block_size,lu,
-                level->block_pivots+block*level->block_size,
-                row_scale,&usable);
-        }
         if(local_err)
         {
-            if(local_err>parallel_error) parallel_error=local_err;
+            if(local_err>row_error) row_error=local_err;
+            continue;
+        }
+        local_err=lis_mfamg_block_factor(
+            width,level->block_size,lu,
+            level->block_pivots+block*level->block_size,
+            row_scale,&usable);
+        if(local_err)
+        {
+            if(local_err>factor_error) factor_error=local_err;
             continue;
         }
         level->block_valid[block]=usable;
@@ -1638,8 +1642,8 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
                 LIS_REAL mag=fabs(level->diagonal->value[start+local_i]);
                 if(mag!=mag || mag>LIS_SCALAR_MAX || mag==0.0)
                 {
-                    if(LIS_BREAKDOWN>parallel_error)
-                        parallel_error=LIS_BREAKDOWN;
+                    if(LIS_BREAKDOWN>fallback_error)
+                        fallback_error=LIS_BREAKDOWN;
                     break;
                 }
             }
@@ -1650,11 +1654,26 @@ lis_mfamg_block_refresh(struct LIS_MFAMG_LEVEL *level)
     lis_free(vals);
     lis_free(cols);
 
-    if(parallel_error)
+    /* Publish only one diagnostic, after all workers have joined.
+     * Distinguish invalid sparse row input, LU factor failure and a
+     * singular diagonal in the scalar-Jacobi fallback. */
+    if(row_error)
     {
-        LIS_SETERR(parallel_error,
-                   "MFAMG block factor setup failed after worker join\n");
-        return parallel_error;
+        LIS_SETERR(row_error,
+                   "MFAMG parallel block CSR row extraction failed\n");
+        return row_error;
+    }
+    if(factor_error)
+    {
+        LIS_SETERR(factor_error,
+                   "MFAMG parallel numerical block factorization failed\n");
+        return factor_error;
+    }
+    if(fallback_error)
+    {
+        LIS_SETERR(fallback_error,
+                   "MFAMG scalar fallback has an invalid diagonal\n");
+        return fallback_error;
     }
     return LIS_SUCCESS;
 }
