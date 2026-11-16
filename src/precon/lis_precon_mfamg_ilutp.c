@@ -118,6 +118,8 @@ fail:
     return err;
 }
 
+#undef __FUNC__
+#define __FUNC__ "lis_precon_create_mfamg_ilutp"
 LIS_INT
 lis_precon_create_mfamg_ilutp(LIS_SOLVER solver,LIS_PRECON precon)
 {
