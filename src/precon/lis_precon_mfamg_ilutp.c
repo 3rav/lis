@@ -207,7 +207,8 @@ lis_psolve_mfamg_ilutp(LIS_SOLVER solver,LIS_VECTOR b,LIS_VECTOR x)
     /* Save b first, including when caller aliases input and output. */
     err=lis_vector_copy(b,state->rhs);
     if(err) return err;
-    err=lis_psolve_mfamg(state->mfamg,b,x);
+    /* Use the saved input so b==x is also safe. */
+    err=lis_psolve_mfamg(state->mfamg,state->rhs,x);
     if(err) return err;
 
     err=lis_matvec(solver->A,x,state->ax);
