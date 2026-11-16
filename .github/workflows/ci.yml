@@ -539,6 +539,10 @@ jobs:
         run: |
           make -C test testhalfilut
           ./test/testhalfilut
+      - name: Validate MFAMG plus ILUTP lifecycle under ASan and UBSan
+        run: |
+          make -C test testmfamgilutp
+          OMP_NUM_THREADS=1 ./test/testmfamgilutp
       - name: Upload sanitizer logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -586,6 +590,7 @@ jobs:
           mpiexec -n 2 ./test/testmatrixoperatormpi
           mpiexec -n 2 ./test/testvectornrm2mpi
           mpiexec -n 2 ./test/testfgcrodrintra
+          mpiexec -n 2 ./test/testmfamgilutp
 
       - name: Upload failed test logs
         if: failure()
