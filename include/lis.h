@@ -908,8 +908,6 @@ struct LIS_PRECON_STRUCT
 	LIS_INT ilutp_swap_count; /* number of dynamic column pivot swaps */
 	/* Optional column maximum scaling before ILUT/ILUTP pivoting. */
 	LIS_SCALAR *ilut_col_scale;
-	/* Opaque state of the optional MFAMG -> ILUTP composite. */
-	struct LIS_MFAMG_ILUTP_STATE *mfamg_ilutp;
 };
 typedef struct LIS_PRECON_STRUCT *LIS_PRECON;
 
