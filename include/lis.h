@@ -285,7 +285,7 @@ extern "C" {
 #define LIS_PRECONNAME_MAX 10
 #define LIS_PRECON_REGISTER_MAX 10
 
-#define LIS_PRECON_TYPE_LEN 13
+#define LIS_PRECON_TYPE_LEN 14
 #define LIS_PRECON_TYPE_NONE 0
 #define LIS_PRECON_TYPE_JACOBI 1
 #define LIS_PRECON_TYPE_ILU 2
@@ -299,6 +299,7 @@ extern "C" {
 #define LIS_PRECON_TYPE_BJACOBI 10
 #define LIS_PRECON_TYPE_ADDS 11
 #define LIS_PRECON_TYPE_MFAMG 12
+#define LIS_PRECON_TYPE_MFAMG_ILUTP 13
 #define LIS_PRECON_TYPE_USERDEF LIS_PRECON_TYPE_LEN
 
 /* Sequence policy selection. */
@@ -907,6 +908,8 @@ struct LIS_PRECON_STRUCT
 	LIS_INT ilutp_swap_count; /* number of dynamic column pivot swaps */
 	/* Optional column maximum scaling before ILUT/ILUTP pivoting. */
 	LIS_SCALAR *ilut_col_scale;
+	/* Opaque state of the optional MFAMG -> ILUTP composite. */
+	struct LIS_MFAMG_ILUTP_STATE *mfamg_ilutp;
 };
 typedef struct LIS_PRECON_STRUCT *LIS_PRECON;
 
