@@ -134,7 +134,7 @@ static int test_zero_init(void)
 {
     struct LIS_PRECON_STRUCT p;
     memset(&p,0xa5,sizeof(p));
-    if(lis_precon_init(&p) || p.mfamg_ilutp!=NULL)
+    if(lis_precon_init(&p) || p.user_data!=NULL)
     {
         fprintf(stderr,"composite pointer not cleared by lis_precon_init\n");
         return 1;
