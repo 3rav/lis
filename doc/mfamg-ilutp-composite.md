@@ -94,12 +94,15 @@ so better convergence need not imply better total runtime.
 ## ABI / rollout
 
 This development change appends one built-in preconditioner ID (13),
-moving `LIS_PRECON_TYPE_USERDEF` from 13 to 14 and extending the internal
-`LIS_PRECON_STRUCT`. The public `LIS_PRECONNAME_MAX` is deliberately kept
+moving `LIS_PRECON_TYPE_USERDEF` from 13 to 14. The internal composite
+state reuses the existing `LIS_PRECON_STRUCT::user_data` pointer only for
+the new built-in type; the preconditioner struct size and layout are
+**unchanged**. Registered user-defined preconditioners keep their prior
+`user_data` and `user_destroy` semantics. The public `LIS_PRECONNAME_MAX` is deliberately kept
 at 10 to avoid changing the `LIS_PRECON_REGISTER_STRUCT` name-buffer size;
 the human-readable built-in label is shortened to `MFAMG+P`. Search external
 code for hardcoded preconditioner ID 13 before upgrading. Recompile code
-against a consistent LIS header and binary; do not mix artifacts built against
-the previous internal layout.
+against a consistent LIS header and binary; code with hardcoded
+user-defined preconditioner IDs must be updated.
 This PR is experimental and should not be merged without CI and real
 contact-matrix verification.
