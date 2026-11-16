@@ -39,9 +39,9 @@ LIS_INT
 lis_precon_destroy_mfamg_ilutp(LIS_PRECON precon)
 {
     struct LIS_MFAMG_ILUTP_STATE *state;
-    if(precon==NULL || precon->mfamg_ilutp==NULL) return LIS_SUCCESS;
-    state=precon->mfamg_ilutp;
-    precon->mfamg_ilutp=NULL;
+    if(precon==NULL || precon->user_data==NULL) return LIS_SUCCESS;
+    state=(struct LIS_MFAMG_ILUTP_STATE *)precon->user_data;
+    precon->user_data=NULL;
     if(state->correction!=NULL) lis_vector_destroy(state->correction);
     if(state->ax!=NULL) lis_vector_destroy(state->ax);
     if(state->rhs!=NULL) lis_vector_destroy(state->rhs);
@@ -173,7 +173,9 @@ lis_precon_create_mfamg_ilutp(LIS_SOLVER solver,LIS_PRECON precon)
         return LIS_OUT_OF_MEMORY;
     }
     memset(state,0,sizeof(*state));
-    precon->mfamg_ilutp=state;
+    /* Built-in type 13 owns user_data; the registered USERDEF types
+     * retain their existing user_data/user_destroy semantics. */
+    precon->user_data=state;
 
     err=lis_mfamg_ilutp_create_child(solver,LIS_PRECON_TYPE_MFAMG,
                                      &state->mfamg);
@@ -199,7 +201,7 @@ lis_psolve_mfamg_ilutp(LIS_SOLVER solver,LIS_VECTOR b,LIS_VECTOR x)
     LIS_INT err;
     if(solver==NULL || solver->precon==NULL || b==NULL || x==NULL)
         return LIS_ERR_ILL_ARG;
-    state=solver->precon->mfamg_ilutp;
+    state=(struct LIS_MFAMG_ILUTP_STATE *)solver->precon->user_data;
     if(state==NULL || state->mfamg==NULL || state->ilutp==NULL ||
        state->rhs==NULL || state->ax==NULL || state->correction==NULL)
         return LIS_ERR_ILL_ARG;
