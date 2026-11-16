@@ -154,7 +154,11 @@ moving `LIS_PRECON_TYPE_USERDEF` from 13 to 14. The internal composite
 state reuses the existing `LIS_PRECON_STRUCT::user_data` pointer only for
 the new built-in type; the preconditioner struct size and layout are
 **unchanged**. Registered user-defined preconditioners keep their prior
-`user_data` and `user_destroy` semantics. The public `LIS_PRECONNAME_MAX` is deliberately kept
+`user_data` and `user_destroy` semantics. To prevent applications from
+overwriting or obtaining the composite's private owned state, public
+`lis_precon_set_user_data()` and `lis_precon_get_user_data()` explicitly
+return `LIS_ERR_NOT_IMPLEMENTED` for `MFAMG_ILUTP`; these APIs remain
+unchanged for registered user-defined preconditioners. The public `LIS_PRECONNAME_MAX` is deliberately kept
 at 10 to avoid changing the `LIS_PRECON_REGISTER_STRUCT` name-buffer size;
 the human-readable built-in label is shortened to `MFAMG+P`. Search external
 code for hardcoded preconditioner ID 13 before upgrading. Recompile code
