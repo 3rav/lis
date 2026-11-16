@@ -766,12 +766,13 @@ LIS_INT lis_precon_create(LIS_SOLVER solver, LIS_PRECON *precon)
 		        precon_type-LIS_PRECON_TYPE_USERDEF].pdestroy;
 		err = precon_register_top[precon_type-LIS_PRECON_TYPE_USERDEF].pcreate(solver,*precon);
 	}
-	else if( precon_type==LIS_PRECON_TYPE_MFAMG &&
+	else if( (precon_type==LIS_PRECON_TYPE_MFAMG ||
+          precon_type==LIS_PRECON_TYPE_MFAMG_ILUTP) &&
          solver->options[LIS_OPTIONS_ADDS] )
     {
         LIS_SETERR(
             LIS_ERR_NOT_IMPLEMENTED,
-            "MFAMG does not support additive Schwarz in the two-level implementation\n");
+            "MFAMG-based preconditioners do not support additive Schwarz\n");
 
         err =
             LIS_ERR_NOT_IMPLEMENTED;
