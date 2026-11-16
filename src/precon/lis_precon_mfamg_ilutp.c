@@ -9,6 +9,7 @@
 #include "lis_config.h"
 #endif
 #include <string.h>
+#include <math.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -158,6 +159,24 @@ lis_precon_create_mfamg_ilutp(LIS_SOLVER solver,LIS_PRECON precon)
         return LIS_ERR_NOT_IMPLEMENTED;
     }
 #endif
+    /*
+     * Threshold zero selects the legacy ILUT factorization in limited-fill
+     * mode, contradicting the native-pivoting contract of this composite.
+     * Never silently downgrade a requested MFAMG+ILUTP configuration.
+     */
+    if(!isfinite((double)solver->ilutp_threshold) ||
+       solver->ilutp_threshold<=0.0 || solver->ilutp_threshold>1.0)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+                   "MFAMG_ILUTP requires 0 < ilutp_threshold <= 1\n");
+        return LIS_ERR_ILL_ARG;
+    }
+    if(solver->ilut_ras_overlap>=0 || solver->ilut_schur)
+    {
+        LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+                   "MFAMG_ILUTP cannot combine ILUT RAS or Schur options\n");
+        return LIS_ERR_NOT_IMPLEMENTED;
+    }
     if(solver->near_nullspace_dim<1 || solver->near_nullspace==NULL)
     {
         LIS_SETERR(LIS_ERR_ILL_ARG,
