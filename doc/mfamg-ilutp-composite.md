@@ -38,8 +38,10 @@ system.
   apply-time work vectors and must not be called concurrently from different
   threads. Independent instances can be created separately.
 - Numeric PSD/sequence preconditioner refresh is not implemented in this
-  first version; use ordinary `lis_solve` rebuilding for changing matrices,
-  rather than assuming old factors remain valid after a Newton update.
+  first version. Each apply checks the original matrix pointer and the
+  structure/value generation recorded at setup, rejecting stale factors.
+  Rebuild with ordinary `lis_solve` after each changed Newton/contact
+  matrix; do not cache this preconditioner across matrix updates.
 
 ## Example (LIS option string)
 
@@ -77,8 +79,9 @@ Run `autoreconf -fiv` and `./configure --enable-test`, then
 CSR system, checks exact-solution error, and repeatedly creates/applies/destroys
 its children, including application with the input and output vectors aliased.
 Negative tests check missing near-nullspace data, Additive Schwarz, non-none
-scaling, Hybrid nesting, multi-rank MPI (when invoked on multiple ranks), and
-multiple OpenMP threads (when compiled with OpenMP).
+scaling, Hybrid nesting, zero ILUTP threshold, requested RAS/Schur modes,
+multi-rank MPI (when invoked on multiple ranks), multiple OpenMP threads,
+and invalidation on an in-place matrix generation change.
 
 The source Automake file is `src/precon/Makefile.am` / `test/Makefile.am`;
 tracked `Makefile.in` files are kept in sync to support builds without
