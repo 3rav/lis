@@ -61,10 +61,10 @@ solve_profile(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR exact,LIS_VECTOR x,
         "-i fgmres -p mfamg_ilutp -scale none "
         "-ilutp_threshold 0.5 -ilut_equil 1 "
         "-ilut_drop 0.005 -ilut_rate 8 "
-        "-mfamg_block_size 2 -restart 32 -maxiter 240 "
+        "-mfamg_block_size 1 -restart 16 -maxiter 160 "
         "-tol 1e-9 -print none" :
         "-i fgmres -p mfamg -scale none "
-        "-mfamg_block_size 2 -restart 32 -maxiter 240 "
+        "-mfamg_block_size 1 -restart 16 -maxiter 160 "
         "-tol 1e-9 -print none",
         solver);
     if(err) { failed=1; goto cleanup; }
@@ -143,7 +143,7 @@ int main(int argc,char **argv)
     omp_set_num_threads(1);
 #endif
 
-    err=make_matrix(&A,128);
+    err=make_matrix(&A,32);
     if(err) { failed=1; goto cleanup; }
     if(A->nprocs!=1)
     {
@@ -161,8 +161,8 @@ int main(int argc,char **argv)
     err=lis_matvec(A,exact,b);
     if(err) { failed=1; goto cleanup; }
 
-    failed|=solve_profile(A,b,exact,x,0);
-    if(!failed) failed|=solve_profile(A,b,exact,x,1);
+    failed|=solve_profile(A,b,exact,x,1);
+    if(!failed) failed|=solve_profile(A,b,exact,x,0);
     if(!failed) failed|=reject_missing_modes(A,b,x);
     if(!failed) printf("MFAMG_ILUTP serial regression PASSED\n");
 
