@@ -1,8 +1,11 @@
 # Experimental MFAMG + native ILUTP residual composition
 
 This opt-in *built-in* preconditioner combines an MFAMG V-cycle with a
-single global native ILUTP correction. It is selected with
-`-p mfamg_ilutp` in the current development branch.
+native pivoted ILUTP correction. It is selected with
+`-p mfamg_ilutp` in the current development branch. By default ILUTP uses
+one global serial factor; an explicit `-ilut_ras_overlap 0..2` option
+selects **domain-parallel, local native ILUTP through restricted additive
+Schwarz (RAS)**.
 
 ## Algorithm
 
@@ -26,14 +29,23 @@ system.
 
 - Real, double-precision, non-split, single-process explicit CSR matrices.
 - `-scale none`; at least one caller-supplied MFAMG near-nullspace vector.
-- Global ILUTP uses a serial pivot sequence: set `OMP_NUM_THREADS=1` **before**
-  creating the solver/preconditioner (even if built with OpenMP).
+- **Global mode (default):** one native ILUTP factor with a serial pivot
+  sequence. Set `OMP_NUM_THREADS=1` **before** creating the solver.
+- **Local RAS mode (opt-in):** set `-ilut_ras_overlap 0..2` and
+  `-ilut_ras_domains 2..16`. OpenMP workers create/apply independent native
+  ILUTP factors on overlapping subdomains. The local pivot sequences remain
+  serial per domain; parallelism is **across domains**. Domain count must not
+  exceed the matrix dimension. The RAS correction is **not equivalent** to
+  the global ILUTP factorization. Without OpenMP, the same RAS path is
+  serial and provides no multithreaded speedup.
 - No distributed MPI ranks, complex arithmetic, quad arithmetic, or
   Additive Schwarz wrapper.
 - No transpose/adjoint `psolveh` implementation.
 - No `-hybrid_p mfamg_ilutp` nesting. Select `-p mfamg_ilutp` directly.
-- No native RAS composition. Composite ILUTP uses a single global factor;
-  `-ilut_ras_*` options are not forwarded into it.
+- No optional RAS Schur interface correction (`-ilut_schur 1` is rejected).
+  The RAS path uses restricted owner-core updates; no MPI communication.
+  Merely setting `-ilut_ras_domains` without enabling overlap fails.
+  The existing global-ILUTP path remains unchanged.
 - The composite is **not reentrant**: one preconditioner instance contains shared
   apply-time work vectors and must not be called concurrently from different
   threads. Independent instances can be created separately.
@@ -43,7 +55,7 @@ system.
   Rebuild with ordinary `lis_solve` after each changed Newton/contact
   matrix; do not cache this preconditioner across matrix updates.
 
-## Example (LIS option string)
+## Examples (LIS option strings)
 
 ```text
 -i fgmres -p mfamg_ilutp -scale none
@@ -53,13 +65,28 @@ system.
 -maxiter 1000 -tol 1e-8
 ```
 
+For domain-parallel correction (requires an OpenMP-enabled build):
+```sh
+export OMP_NUM_THREADS=4
+```
+```text
+-i fgmres -p mfamg_ilutp -scale none
+-mfamg_block_size 1 -mfamg_vcycle_smooth_steps 1
+-ilutp_threshold 0.5 -ilut_equil 1 -ilut_rcm 1
+-ilut_ras_overlap 1 -ilut_ras_domains 4
+-ilut_drop 0.005 -ilut_rate 8 -restart 120
+-maxiter 1000 -tol 1e-8
+```
+
 The composite selects native ILUTP automatically, even without an explicit
-`-ilutp 1` option.
-A strictly positive `-ilutp_threshold` (at most 1) is mandatory; threshold
-zero would select legacy ILUT in limited-fill mode and is therefore rejected.
-Explicit RAS/Schur ILUT settings also fail setup rather than being silently
-ignored. The ILUTP threshold, optional complete-fill cap, RCM,
-row scale, Equil, and drop/rate are inherited from the outer configuration.
+`-ilutp 1` option. A strictly positive `-ilutp_threshold` (at most 1) is
+mandatory; threshold zero would select legacy ILUT in limited-fill mode and
+is therefore rejected. Explicit Schur options also fail setup. The ILUTP
+threshold, optional complete-fill cap, RCM, row scale, Equil, and drop/rate
+are inherited from the outer configuration. **RAS full-fill limits apply per
+local domain**. `-ilut_equil 1` is forwarded into each local native ILUTP
+factor. More RAS domains may improve parallel scaling but can reduce
+preconditioner quality and increase memory usage.
 MFAMG inherits its block size, fine-aggregate factor, smoothing passes,
 deep-level sibling merge, near-nullspace basis, and optional FP16 storage.
 ILUTP factors themselves remain in full precision. Existing `-p mfamg`
@@ -79,9 +106,12 @@ Run `autoreconf -fiv` and `./configure --enable-test`, then
 CSR system, checks exact-solution error, and repeatedly creates/applies/destroys
 its children, including application with the input and output vectors aliased.
 Negative tests check missing near-nullspace data, Additive Schwarz, non-none
-scaling, Hybrid nesting, zero ILUTP threshold, requested RAS/Schur modes,
-multi-rank MPI (when invoked on multiple ranks), multiple OpenMP threads,
-and invalidation on an in-place matrix generation change.
+scaling, Hybrid nesting, zero ILUTP threshold, invalid RAS settings, requested
+Schur mode, multi-rank MPI, multiple OpenMP threads with global ILUTP, and
+invalidation on an in-place matrix generation change. In OpenMP builds
+`./test/testmfamgilutp --parallel-ras` additionally tests actual two-/four-
+worker teams, overlaps 0/1/2, bounded complete-fill local ILUTP, repeated
+FGMRES solves, original-system residuals and deterministic solutions.
 
 The source Automake file is `src/precon/Makefile.am` / `test/Makefile.am`;
 tracked `Makefile.in` files are kept in sync to support builds without
