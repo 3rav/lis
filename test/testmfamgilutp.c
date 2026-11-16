@@ -251,6 +251,60 @@ finish_iteration:
     return failed;
 }
 
+
+/*
+ * A contact/Newton application may mutate matrix values in place. Its
+ * recorded numerical generation must invalidate both prebuilt factors.
+ * Marking a mutation (without actually altering values) is sufficient.
+ */
+static int test_stale_matrix_rejection(LIS_MATRIX A,LIS_VECTOR b,
+                                       LIS_VECTOR exact,LIS_VECTOR x)
+{
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON precon=NULL;
+    LIS_VECTOR modes[1];
+    LIS_INT err;
+    int failed=0;
+    modes[0]=exact;
+    err=lis_solver_create(&solver);
+    if(err) return 1;
+    err=lis_solver_set_option(
+        "-i fgmres -p mfamg_ilutp -scale none "
+        "-ilutp_threshold 0.5 -print none",solver);
+    if(err) { failed=1; goto done; }
+    err=lis_solver_set_near_nullspace(solver,1,modes);
+    if(err) { failed=1; goto done; }
+    err=lis_solver_set_matrix(A,solver);
+    if(err) { failed=1; goto done; }
+    err=lis_precon_create(solver,&precon);
+    if(err)
+    {
+        precon=NULL;
+        failed=1;
+        goto done;
+    }
+    solver->precon=precon;
+    err=lis_psolve(solver,b,x);
+    if(err) { failed=1; goto done; }
+
+    err=lis_matrix_mark_values_changed(A);
+    if(err) { failed=1; goto done; }
+    err=lis_psolve(solver,b,x);
+    if(err==LIS_SUCCESS)
+    {
+        fprintf(stderr,"stale matrix generation was not rejected\n");
+        failed=1;
+    }
+done:
+    if(precon)
+    {
+        lis_precon_destroy(precon);
+        solver->precon=NULL;
+    }
+    lis_solver_destroy(solver);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -305,6 +359,7 @@ int main(int argc,char **argv)
 #ifdef _OPENMP
     if(!failed) failed|=reject_setup(A,exact,"multiple OpenMP threads",0,0,0,1,0);
 #endif
+    if(!failed) failed|=test_stale_matrix_rejection(A,b,exact,x);
     if(!failed) printf("MFAMG_ILUTP serial and rejection regressions PASSED\n");
 
 cleanup:
