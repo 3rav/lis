@@ -133,6 +133,16 @@ jobs:
           grep -q 'ILUT_RAS_OVERLAP overlap=1 full=0 threads=8 .* DETERMINISTIC PASS' parallel-ras-ilutp.log
           grep -q 'ILUT_RAS_OVERLAP overlap=2 full=1 threads=8 .* DETERMINISTIC PASS' parallel-ras-ilutp.log
 
+      - name: Verify MFAMG plus local native ILUTP RAS on 2 and 4 threads
+        if: matrix.mode == 'openmp'
+        run: |
+          set -euo pipefail
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=4 ./test/testmfamgilutp --parallel-ras | tee mfamg-ilutp-ras.log
+          grep -q 'MFAMG_ILUTP_RAS threads=2 overlap=0 full=0 .* DETERMINISTIC PASS' mfamg-ilutp-ras.log
+          grep -q 'MFAMG_ILUTP_RAS threads=2 overlap=1 full=0 .* DETERMINISTIC PASS' mfamg-ilutp-ras.log
+          grep -q 'MFAMG_ILUTP_RAS threads=4 overlap=1 full=0 .* DETERMINISTIC PASS' mfamg-ilutp-ras.log
+          grep -q 'MFAMG_ILUTP_RAS threads=4 overlap=2 full=1 .* DETERMINISTIC PASS' mfamg-ilutp-ras.log
+
       - name: Smoke-test native ILUTP Matrix Market comparison
         if: matrix.mode == 'serial'
         run: |
@@ -671,6 +681,14 @@ jobs:
           grep -q 'ILUT_RAS_LOCAL_ILUTP threads=8 .* PASSED' parallel-ras-ilutp-msys2.log
           grep -q 'ILUT_RAS_OVERLAP overlap=1 full=0 threads=8 .* DETERMINISTIC PASS' parallel-ras-ilutp-msys2.log
           grep -q 'ILUT_RAS_OVERLAP overlap=2 full=1 threads=8 .* DETERMINISTIC PASS' parallel-ras-ilutp-msys2.log
+
+      - name: Verify composite MFAMG plus local ILUTP RAS on Windows
+        if: matrix.mode == 'openmp'
+        run: |
+          set -euo pipefail
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=4 ./test/testmfamgilutp.exe --parallel-ras | tee mfamg-ilutp-ras-msys2.log
+          grep -q 'MFAMG_ILUTP_RAS threads=2 overlap=1 full=0 .* DETERMINISTIC PASS' mfamg-ilutp-ras-msys2.log
+          grep -q 'MFAMG_ILUTP_RAS threads=4 overlap=2 full=1 .* DETERMINISTIC PASS' mfamg-ilutp-ras-msys2.log
 
       - name: Upload failed test logs
         if: failure()
