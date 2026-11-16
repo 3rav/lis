@@ -1,5 +1,6 @@
 /*
- * Experimental serial MFAMG -> residual -> native ILUTP preconditioner.
+ * Experimental MFAMG -> residual -> native ILUTP preconditioner.
+ * Global ILUTP is serial; explicit local RAS ILUTP uses OpenMP across domains.
  *
  * Both children are constructed exactly once and are owned by this
  * preconditioner.  No recursive Hybrid and no silent numerical fallback.
@@ -100,9 +101,10 @@ lis_mfamg_ilutp_create_child(LIS_SOLVER outer, LIS_INT kind,
         child->ilut_rcm=outer->ilut_rcm;
         child->ilut_row_scale=outer->ilut_row_scale;
         child->ilut_equil=outer->ilut_equil;
-        /* RAS is a different algorithm and is not part of this first mode. */
-        child->ilut_ras_overlap=-1;
-        child->ilut_ras_domains=2;
+        /* Explicit RAS mode gives each domain its own native pivoted LU.
+         * Global ILUTP (overlap=-1) retains the original serial policy. */
+        child->ilut_ras_overlap=outer->ilut_ras_overlap;
+        child->ilut_ras_domains=outer->ilut_ras_domains;
         child->ilut_schur=0;
     }
 
@@ -155,10 +157,11 @@ lis_precon_create_mfamg_ilutp(LIS_SOLVER solver,LIS_PRECON precon)
         return LIS_ERR_NOT_IMPLEMENTED;
     }
 #ifdef _OPENMP
-    if(omp_get_max_threads()!=1)
+    if(solver->ilut_ras_overlap<0 && omp_get_max_threads()!=1)
     {
         LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
-                   "MFAMG_ILUTP global ILUTP requires OMP_NUM_THREADS=1\n");
+                   "MFAMG_ILUTP global ILUTP requires OMP_NUM_THREADS=1; "
+                   "enable -ilut_ras_overlap for domain-parallel ILUTP\n");
         return LIS_ERR_NOT_IMPLEMENTED;
     }
 #endif
@@ -174,11 +177,29 @@ lis_precon_create_mfamg_ilutp(LIS_SOLVER solver,LIS_PRECON precon)
                    "MFAMG_ILUTP requires 0 < ilutp_threshold <= 1\n");
         return LIS_ERR_ILL_ARG;
     }
-    if(solver->ilut_ras_overlap>=0 || solver->ilut_schur)
+    if(solver->ilut_schur)
     {
         LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
-                   "MFAMG_ILUTP cannot combine ILUT RAS or Schur options\n");
+                   "MFAMG_ILUTP does not support a Schur correction inside RAS\n");
         return LIS_ERR_NOT_IMPLEMENTED;
+    }
+    if(solver->ilut_ras_overlap>=0)
+    {
+        if(solver->ilut_ras_overlap>2 ||
+           solver->ilut_ras_domains<2 || solver->ilut_ras_domains>16 ||
+           solver->ilut_ras_domains>A->n)
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                       "MFAMG_ILUTP RAS requires overlap 0..2 and 2..16 "
+                       "domains, no more than the number of rows\n");
+            return LIS_ERR_ILL_ARG;
+        }
+    }
+    else if(solver->ilut_ras_overlap!=-1 || solver->ilut_ras_domains!=2)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+                   "MFAMG_ILUTP RAS domains require an enabled RAS overlap\n");
+        return LIS_ERR_ILL_ARG;
     }
     if(solver->near_nullspace_dim<1 || solver->near_nullspace==NULL)
     {
@@ -266,6 +287,8 @@ lis_psolve_mfamg_ilutp(LIS_SOLVER solver,LIS_VECTOR b,LIS_VECTOR x)
     err=lis_vector_axpy((LIS_SCALAR)-1.0,state->ax,state->rhs);
     if(err) return err;
 
+    /* Native ILUTP dispatches to domain-parallel RAS when explicitly
+     * requested, or to the single global factor in legacy serial mode. */
     err=lis_psolve_ilut_csr(state->ilutp,state->rhs,state->correction);
     if(err) return err;
     return lis_vector_axpy((LIS_SCALAR)1.0,state->correction,x);
