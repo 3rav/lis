@@ -286,7 +286,7 @@ int main(int argc,char **argv)
     }
 #ifdef _COMPLEX
     if(!failed) failed|=reject_setup(A,exact,"complex scalar build",0,0,0,0);
-    if(!failed) printf("MFAMG_ILUTP complex scalar rejection PASSED\\n");
+    if(!failed) printf("MFAMG_ILUTP complex scalar rejection PASSED\n");
     goto cleanup;
 #endif
     if(!failed) failed|=solve_profile(A,b,exact,x,1);
