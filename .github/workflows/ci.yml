@@ -737,6 +737,15 @@ jobs:
           export LLVM_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer-18
           ./test/testhalfilut --parallel-ras-ilutp | tee tsan-archer-ras.log
           grep -q 'ILUT_RAS_OVERLAP overlap=2 full=1 threads=8 .* DETERMINISTIC PASS' tsan-archer-ras.log
+      - name: Audit MFAMG plus local ILUTP RAS on OpenMP with Archer
+        run: |
+          set -euo pipefail
+          archer=$(find /usr/lib/llvm-18 -name libarcher.so | head -1)
+          test -f "$archer"
+          export OMP_TOOL_LIBRARIES="$archer"
+          export LLVM_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer-18
+          OMP_DYNAMIC=FALSE OMP_NUM_THREADS=4 ./test/testmfamgilutp --parallel-ras | tee tsan-archer-mfamg-ilutp-ras.log
+          grep -q 'MFAMG_ILUTP_RAS threads=4 overlap=2 full=1 .* DETERMINISTIC PASS' tsan-archer-mfamg-ilutp-ras.log
       - name: Upload sanitizer diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -745,6 +754,7 @@ jobs:
           path: |
             config.log
             tsan-archer-ras.log
+            tsan-archer-mfamg-ilutp-ras.log
             test/test-suite.log
           if-no-files-found: ignore
 
