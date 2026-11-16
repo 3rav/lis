@@ -144,7 +144,7 @@ static int test_zero_init(void)
 
 /* Check setup rejection while leaving the original matrix unmodified. */
 static int reject_setup(LIS_MATRIX A,LIS_VECTOR exact,const char *label,
-                        int adds,int bad_scale,int hybrid,int bad_threads)
+                        int adds,int bad_scale,int hybrid,int bad_threads,int extra)
 {
     LIS_SOLVER solver=NULL;
     LIS_PRECON precon=NULL;
@@ -171,6 +171,9 @@ static int reject_setup(LIS_MATRIX A,LIS_VECTOR exact,const char *label,
     if(err) { failed=1; goto done; }
     if(adds) solver->options[LIS_OPTIONS_ADDS]=LIS_TRUE;
     if(bad_scale) solver->options[LIS_OPTIONS_SCALE]=LIS_SCALE_JACOBI;
+    if(extra==1) solver->ilutp_threshold=0.0;
+    if(extra==2) solver->ilut_ras_overlap=1;
+    if(extra==3) solver->ilut_schur=1;
     err=lis_precon_create(solver,&precon);
     if(err==LIS_SUCCESS)
     {
@@ -280,12 +283,12 @@ int main(int argc,char **argv)
     failed|=test_zero_init();
     if(!failed && A->nprocs!=1)
     {
-        failed|=reject_setup(A,exact,"multi-rank matrix",0,0,0,0);
+        failed|=reject_setup(A,exact,"multi-rank matrix",0,0,0,0,0);
         if(!failed) printf("MFAMG_ILUTP multi-rank rejection PASSED\n");
         goto cleanup;
     }
 #ifdef _COMPLEX
-    if(!failed) failed|=reject_setup(A,exact,"complex scalar build",0,0,0,0);
+    if(!failed) failed|=reject_setup(A,exact,"complex scalar build",0,0,0,0,0);
     if(!failed) printf("MFAMG_ILUTP complex scalar rejection PASSED\n");
     goto cleanup;
 #endif
@@ -293,11 +296,14 @@ int main(int argc,char **argv)
     if(!failed) failed|=solve_profile(A,b,exact,x,0);
     if(!failed) failed|=test_owned_lifecycle(A,b,exact,x);
     if(!failed) failed|=reject_missing_modes(A,b,x);
-    if(!failed) failed|=reject_setup(A,exact,"Additive Schwarz",1,0,0,0);
-    if(!failed) failed|=reject_setup(A,exact,"non-none scaling",0,1,0,0);
-    if(!failed) failed|=reject_setup(A,exact,"Hybrid nesting",0,0,1,0);
+    if(!failed) failed|=reject_setup(A,exact,"Additive Schwarz",1,0,0,0,0);
+    if(!failed) failed|=reject_setup(A,exact,"non-none scaling",0,1,0,0,0);
+    if(!failed) failed|=reject_setup(A,exact,"Hybrid nesting",0,0,1,0,0);
+    if(!failed) failed|=reject_setup(A,exact,"legacy ILUT threshold zero",0,0,0,0,1);
+    if(!failed) failed|=reject_setup(A,exact,"ILUT RAS",0,0,0,0,2);
+    if(!failed) failed|=reject_setup(A,exact,"ILUT Schur",0,0,0,0,3);
 #ifdef _OPENMP
-    if(!failed) failed|=reject_setup(A,exact,"multiple OpenMP threads",0,0,0,1);
+    if(!failed) failed|=reject_setup(A,exact,"multiple OpenMP threads",0,0,0,1,0);
 #endif
     if(!failed) printf("MFAMG_ILUTP serial and rejection regressions PASSED\n");
 
