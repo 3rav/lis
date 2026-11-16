@@ -209,6 +209,7 @@ static int test_owned_lifecycle(LIS_MATRIX A,LIS_VECTOR b,
     {
         LIS_SOLVER solver=NULL;
         LIS_PRECON precon=NULL;
+        void *opaque=&err;
         err=lis_solver_create(&solver);
         if(err) { failed=1; goto finish_iteration; }
         err=lis_solver_set_option(
@@ -227,6 +228,22 @@ static int test_owned_lifecycle(LIS_MATRIX A,LIS_VECTOR b,
             goto finish_iteration;
         }
         solver->precon=precon;
+        /* The built-in owns user_data. Public USERDEF accessors must fail
+         * without overwriting or exposing the composite state pointer. */
+        err=lis_precon_set_user_data(precon,NULL);
+        if(err!=LIS_ERR_NOT_IMPLEMENTED)
+        {
+            fprintf(stderr,"composite user_data setter not rejected\n");
+            failed=1;
+            goto finish_iteration;
+        }
+        err=lis_precon_get_user_data(precon,&opaque);
+        if(err!=LIS_ERR_NOT_IMPLEMENTED || opaque!=&err)
+        {
+            fprintf(stderr,"composite user_data getter not rejected\n");
+            failed=1;
+            goto finish_iteration;
+        }
         err=lis_psolve(solver,b,reference);
         if(err) { failed=1; goto finish_iteration; }
         err=lis_vector_copy(b,x);
