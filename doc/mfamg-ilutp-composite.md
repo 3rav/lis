@@ -52,7 +52,11 @@ system.
 ```
 
 The composite selects native ILUTP automatically, even without an explicit
-`-ilutp 1` option. The ILUTP threshold, optional complete-fill cap, RCM,
+`-ilutp 1` option.
+A strictly positive `-ilutp_threshold` (at most 1) is mandatory; threshold
+zero would select legacy ILUT in limited-fill mode and is therefore rejected.
+Explicit RAS/Schur ILUT settings also fail setup rather than being silently
+ignored. The ILUTP threshold, optional complete-fill cap, RCM,
 row scale, Equil, and drop/rate are inherited from the outer configuration.
 MFAMG inherits its block size, fine-aggregate factor, smoothing passes,
 deep-level sibling merge, near-nullspace basis, and optional FP16 storage.
