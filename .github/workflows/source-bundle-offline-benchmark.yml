@@ -1,0 +1,23 @@
+name: Source bundle for offline LIS benchmark
+on:
+  push:
+    branches:
+      - bench-source-export-20261116
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package public LIS source only
+        run: |
+          tar -czf lis-source-for-local-benchmark.tar.gz --exclude=.git .
+          test -s lis-source-for-local-benchmark.tar.gz
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: lis-source-for-local-benchmark
+          path: lis-source-for-local-benchmark.tar.gz
+          retention-days: 1
