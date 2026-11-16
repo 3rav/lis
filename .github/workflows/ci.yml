@@ -904,6 +904,12 @@ jobs:
             options: '--enable-complex'
           - mode: quad
             options: '--enable-quad'
+          - mode: longlong
+            options: '--enable-longlong'
+          - mode: complex-longlong
+            options: '--enable-complex --enable-longlong'
+          - mode: quad-longlong
+            options: '--enable-quad --enable-longlong'
     env:
       OMP_NUM_THREADS: '1'
     steps:
