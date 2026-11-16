@@ -1007,7 +1007,7 @@ LIS_INT lis_precon_destroy(LIS_PRECON precon)
 	    {
 	        err = precon->user_destroy(precon);
 	    }
-		if( precon->mfamg_ilutp )
+		if( precon->precon_type==LIS_PRECON_TYPE_MFAMG_ILUTP )
 		{
 			mfamg_err=lis_precon_destroy_mfamg_ilutp(precon);
 			if(err==LIS_SUCCESS) err=mfamg_err;
