@@ -780,6 +780,11 @@ jobs:
           ./test/testhalfilut --parallel-ras-ilutp | tee ilutp-ras-oom.log
           grep -q 'PARALLEL_RAS_OOM injected=.* PASS' ilutp-ras-oom.log
           grep -q 'ILUT_OPTIONS_OOM_PASS checked=' ilutp-ras-oom.log
+      - name: Verify RCO-to-CSR assembly OOM cleanup independently
+        run: |
+          set -euo pipefail
+          ./test/testhalfilut --rco-assemble-oom | tee rco-assemble-oom.log
+          grep -Eq '^RCO_ASSEMBLE_OOM_CLEANUP checked=[1-9][0-9]* PASS$' rco-assemble-oom.log
       - name: Upload OOM logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -790,6 +795,7 @@ jobs:
             test/test-suite.log
             test/*.log
             ilutp-ras-oom.log
+            rco-assemble-oom.log
           if-no-files-found: ignore
 
   native-oom:
