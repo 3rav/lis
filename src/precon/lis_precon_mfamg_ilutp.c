@@ -22,6 +22,9 @@ struct LIS_MFAMG_ILUTP_STATE
     LIS_VECTOR rhs;
     LIS_VECTOR ax;
     LIS_VECTOR correction;
+    LIS_MATRIX matrix; /* borrowed, same operator used for both factors */
+    LIS_UNSIGNED_INT structure_generation;
+    LIS_UNSIGNED_INT value_generation;
 };
 
 static void
@@ -209,14 +212,21 @@ lis_precon_create_mfamg_ilutp(LIS_SOLVER solver,LIS_PRECON precon)
     if(err) return err;
     err=lis_vector_duplicate(A,&state->correction);
     if(err) return err;
+    state->matrix=A; /* borrowed */
+    err=lis_matrix_get_generation(A,&state->structure_generation,
+                                  &state->value_generation);
+    if(err) return err;
     precon->A=A; /* borrowed */
     return LIS_SUCCESS;
 }
 
+#undef __FUNC__
+#define __FUNC__ "lis_psolve_mfamg_ilutp"
 LIS_INT
 lis_psolve_mfamg_ilutp(LIS_SOLVER solver,LIS_VECTOR b,LIS_VECTOR x)
 {
     struct LIS_MFAMG_ILUTP_STATE *state;
+    LIS_UNSIGNED_INT structure_generation,value_generation;
     LIS_INT err;
     if(solver==NULL || solver->precon==NULL || b==NULL || x==NULL)
         return LIS_ERR_ILL_ARG;
@@ -224,6 +234,25 @@ lis_psolve_mfamg_ilutp(LIS_SOLVER solver,LIS_VECTOR b,LIS_VECTOR x)
     if(state==NULL || state->mfamg==NULL || state->ilutp==NULL ||
        state->rhs==NULL || state->ax==NULL || state->correction==NULL)
         return LIS_ERR_ILL_ARG;
+
+    /* In contact Newton iterations matrix values may change in place. Never
+     * reuse preconditioners built against a different matrix generation. */
+    if(solver->A!=state->matrix)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+                   "MFAMG_ILUTP operator no longer matches setup matrix\n");
+        return LIS_ERR_ILL_ARG;
+    }
+    err=lis_matrix_get_generation(state->matrix,
+                                  &structure_generation,&value_generation);
+    if(err) return err;
+    if(structure_generation!=state->structure_generation ||
+       value_generation!=state->value_generation)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+                   "MFAMG_ILUTP preconditioner is stale; rebuild after matrix change\n");
+        return LIS_ERR_ILL_ARG;
+    }
 
     /* Save b first, including when caller aliases input and output. */
     err=lis_vector_copy(b,state->rhs);
