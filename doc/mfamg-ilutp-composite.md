@@ -34,6 +34,9 @@ system.
 - No `-hybrid_p mfamg_ilutp` nesting. Select `-p mfamg_ilutp` directly.
 - No native RAS composition. Composite ILUTP uses a single global factor;
   `-ilut_ras_*` options are not forwarded into it.
+- The composite is **not reentrant**: one preconditioner instance contains shared
+  apply-time work vectors and must not be called concurrently from different
+  threads. Independent instances can be created separately.
 - Numeric PSD/sequence preconditioner refresh is not implemented in this
   first version; use ordinary `lis_solve` rebuilding for changing matrices,
   rather than assuming old factors remain valid after a Newton update.
@@ -66,9 +69,18 @@ not invent those vectors.
 
 Run `autoreconf -fiv` and `./configure --enable-test`, then
 `make -j2 && make -j2 check`. The new `testmfamgilutp` regression exercises
-`lis_solve` for MFAMG and the composite, repeated solves on a deterministic
-real nonsymmetric CSR system, original-system solution error, and rejection
-of missing near-nullspace data.
+`lis_solve` for MFAMG and the composite on a deterministic real nonsymmetric
+CSR system, checks exact-solution error, and repeatedly creates/applies/destroys
+its children, including application with the input and output vectors aliased.
+Negative tests check missing near-nullspace data, Additive Schwarz, non-none
+scaling, Hybrid nesting, multi-rank MPI (when invoked on multiple ranks), and
+multiple OpenMP threads (when compiled with OpenMP).
+
+The source Automake file is `src/precon/Makefile.am` / `test/Makefile.am`;
+tracked `Makefile.in` files are kept in sync to support builds without
+`autoreconf`. CI tests both Autotools-regenerated builds and builds using
+tracked `Makefile.in`. Regeneration with the project's maintained Automake
+version and a minimized diff must be checked before release.
 
 These tests **do not** establish a contact-model convergence advantage,
 iteration speedup, race freedom under arbitrary concurrent calls, or safe
@@ -83,7 +95,11 @@ so better convergence need not imply better total runtime.
 
 This development change appends one built-in preconditioner ID (13),
 moving `LIS_PRECON_TYPE_USERDEF` from 13 to 14 and extending the internal
-`LIS_PRECON_STRUCT`. Recompile code against a consistent LIS header and
-binary; do not mix artifacts built against the previous internal layout.
+`LIS_PRECON_STRUCT`. The public `LIS_PRECONNAME_MAX` is deliberately kept
+at 10 to avoid changing the `LIS_PRECON_REGISTER_STRUCT` name-buffer size;
+the human-readable built-in label is shortened to `MFAMG+P`. Search external
+code for hardcoded preconditioner ID 13 before upgrading. Recompile code
+against a consistent LIS header and binary; do not mix artifacts built against
+the previous internal layout.
 This PR is experimental and should not be merged without CI and real
 contact-matrix verification.
