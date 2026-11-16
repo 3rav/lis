@@ -8,6 +8,7 @@
 #endif
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -127,6 +128,126 @@ cleanup:
     return failed;
 }
 
+
+/* Verify that all newly-owned state is initially NULL. */
+static int test_zero_init(void)
+{
+    struct LIS_PRECON_STRUCT p;
+    memset(&p,0xa5,sizeof(p));
+    if(lis_precon_init(&p) || p.mfamg_ilutp!=NULL)
+    {
+        fprintf(stderr,"composite pointer not cleared by lis_precon_init\n");
+        return 1;
+    }
+    return 0;
+}
+
+/* Check setup rejection while leaving the original matrix unmodified. */
+static int reject_setup(LIS_MATRIX A,LIS_VECTOR exact,const char *label,
+                        int adds,int bad_scale,int hybrid,int bad_threads)
+{
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON precon=NULL;
+    LIS_VECTOR modes[1];
+    LIS_INT err;
+    int failed=0;
+#ifdef _OPENMP
+    int old_threads=omp_get_max_threads();
+    if(bad_threads) omp_set_num_threads(2);
+#else
+    if(bad_threads) return 0;
+#endif
+    modes[0]=exact;
+    err=lis_solver_create(&solver);
+    if(err) { failed=1; goto done; }
+    err=lis_solver_set_option(hybrid ?
+        "-i fgmres -p hybrid -hybrid_i gmres -hybrid_p mfamg_ilutp "
+        "-scale none -print none" :
+        "-i fgmres -p mfamg_ilutp -scale none -print none",solver);
+    if(err) { failed=1; goto done; }
+    err=lis_solver_set_near_nullspace(solver,1,modes);
+    if(err) { failed=1; goto done; }
+    err=lis_solver_set_matrix(A,solver);
+    if(err) { failed=1; goto done; }
+    if(adds) solver->options[LIS_OPTIONS_ADDS]=LIS_TRUE;
+    if(bad_scale) solver->options[LIS_OPTIONS_SCALE]=LIS_SCALE_JACOBI;
+    err=lis_precon_create(solver,&precon);
+    if(err==LIS_SUCCESS)
+    {
+        fprintf(stderr,"%s unexpectedly accepted\n",label);
+        failed=1;
+        lis_precon_destroy(precon);
+    }
+    /* A failed lis_precon_create has already destroyed *precon. */
+    precon=NULL;
+done:
+    if(solver) lis_solver_destroy(solver);
+#ifdef _OPENMP
+    if(bad_threads) omp_set_num_threads(old_threads);
+#endif
+    return failed;
+}
+
+/* Six setup/apply/teardown cycles, each with an in-place (b==x) apply. */
+static int test_owned_lifecycle(LIS_MATRIX A,LIS_VECTOR b,
+                                LIS_VECTOR exact,LIS_VECTOR x)
+{
+    LIS_VECTOR reference=NULL,modes[1];
+    int failed=0,k;
+    LIS_INT err,j;
+    modes[0]=exact;
+    if(lis_vector_duplicate(A,&reference)) return 1;
+    for(k=0;k<6;k++)
+    {
+        LIS_SOLVER solver=NULL;
+        LIS_PRECON precon=NULL;
+        err=lis_solver_create(&solver);
+        if(err) { failed=1; goto finish_iteration; }
+        err=lis_solver_set_option(
+            "-i fgmres -p mfamg_ilutp -scale none "
+            "-ilutp_threshold 0.5 -ilut_equil 1 -print none",solver);
+        if(err) { failed=1; goto finish_iteration; }
+        err=lis_solver_set_near_nullspace(solver,1,modes);
+        if(err) { failed=1; goto finish_iteration; }
+        err=lis_solver_set_matrix(A,solver);
+        if(err) { failed=1; goto finish_iteration; }
+        err=lis_precon_create(solver,&precon);
+        if(err)
+        {
+            precon=NULL; /* factory already freed failed preconditioner */
+            failed=1;
+            goto finish_iteration;
+        }
+        solver->precon=precon;
+        err=lis_psolve(solver,b,reference);
+        if(err) { failed=1; goto finish_iteration; }
+        err=lis_vector_copy(b,x);
+        if(err) { failed=1; goto finish_iteration; }
+        err=lis_psolve(solver,x,x);
+        if(err) { failed=1; goto finish_iteration; }
+        for(j=0;j<x->n;j++)
+        {
+            double d=fabs((double)(x->value[j]-reference->value[j]));
+            if(!isfinite(d) || d>1e-10)
+            {
+                fprintf(stderr,"in-place apply differs from ordinary apply\n");
+                failed=1;
+                break;
+            }
+        }
+finish_iteration:
+        if(precon)
+        {
+            lis_precon_destroy(precon);
+            if(solver) solver->precon=NULL;
+        }
+        if(solver) lis_solver_destroy(solver);
+        if(failed) break;
+    }
+    lis_vector_destroy(reference);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL;
@@ -145,12 +266,7 @@ int main(int argc,char **argv)
 
     err=make_matrix(&A,32);
     if(err) { failed=1; goto cleanup; }
-    if(A->nprocs!=1)
-    {
-        printf("MFAMG_ILUTP SKIP multi-rank test\n");
-        goto cleanup;
-    }
-    if(lis_vector_duplicate(A,&b) ||
+if(lis_vector_duplicate(A,&b) ||
        lis_vector_duplicate(A,&exact) ||
        lis_vector_duplicate(A,&x))
     {
@@ -161,10 +277,24 @@ int main(int argc,char **argv)
     err=lis_matvec(A,exact,b);
     if(err) { failed=1; goto cleanup; }
 
-    failed|=solve_profile(A,b,exact,x,1);
+    failed|=test_zero_init();
+    if(!failed && A->nprocs!=1)
+    {
+        failed|=reject_setup(A,exact,"multi-rank matrix",0,0,0,0);
+        if(!failed) printf("MFAMG_ILUTP multi-rank rejection PASSED\n");
+        goto cleanup;
+    }
+    if(!failed) failed|=solve_profile(A,b,exact,x,1);
     if(!failed) failed|=solve_profile(A,b,exact,x,0);
+    if(!failed) failed|=test_owned_lifecycle(A,b,exact,x);
     if(!failed) failed|=reject_missing_modes(A,b,x);
-    if(!failed) printf("MFAMG_ILUTP serial regression PASSED\n");
+    if(!failed) failed|=reject_setup(A,exact,"Additive Schwarz",1,0,0,0);
+    if(!failed) failed|=reject_setup(A,exact,"non-none scaling",0,1,0,0);
+    if(!failed) failed|=reject_setup(A,exact,"Hybrid nesting",0,0,1,0);
+#ifdef _OPENMP
+    if(!failed) failed|=reject_setup(A,exact,"multiple OpenMP threads",0,0,0,1);
+#endif
+    if(!failed) printf("MFAMG_ILUTP serial and rejection regressions PASSED\n");
 
 cleanup:
     if(x) lis_vector_destroy(x);
