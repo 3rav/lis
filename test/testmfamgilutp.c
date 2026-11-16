@@ -266,7 +266,7 @@ int main(int argc,char **argv)
 
     err=make_matrix(&A,32);
     if(err) { failed=1; goto cleanup; }
-if(lis_vector_duplicate(A,&b) ||
+    if(lis_vector_duplicate(A,&b) ||
        lis_vector_duplicate(A,&exact) ||
        lis_vector_duplicate(A,&x))
     {
@@ -284,6 +284,11 @@ if(lis_vector_duplicate(A,&b) ||
         if(!failed) printf("MFAMG_ILUTP multi-rank rejection PASSED\n");
         goto cleanup;
     }
+#ifdef _COMPLEX
+    if(!failed) failed|=reject_setup(A,exact,"complex scalar build",0,0,0,0);
+    if(!failed) printf("MFAMG_ILUTP complex scalar rejection PASSED\\n");
+    goto cleanup;
+#endif
     if(!failed) failed|=solve_profile(A,b,exact,x,1);
     if(!failed) failed|=solve_profile(A,b,exact,x,0);
     if(!failed) failed|=test_owned_lifecycle(A,b,exact,x);
