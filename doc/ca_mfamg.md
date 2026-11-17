@@ -61,6 +61,11 @@ of the scalar numerical-only fast path to preserve the partition hierarchy.
   Weighted Jacobi and normal V-cycles are retained.
 * The optional deep serial sibling merge is disabled **only in contact-aware
   mode**, because a merge of sibling aggregates could cross boundaries.
+* CA-MFAMG allows a weak local-edge fallback **within the same partition**
+  when strength-based pairing stalls. A bounded dense terminal of at most
+  64 coarse DOFs is used for contact mode (the ordinary MFAMG default is 8).
+  If many disconnected partitions prevent the hierarchy from reaching this
+  size, setup reports a failure rather than allocating an unbounded dense LU.
 * The partition is defined **per MPI rank's owned rows**; aggregates remain
   rank-owned as in MFAMG. No cross-rank contact-interface detection or
   cross-rank aggregation is introduced.
@@ -76,7 +81,7 @@ of the scalar numerical-only fast path to preserve the partition hierarchy.
 boundary proxy, with class boundaries that cut strong matrix edges.
 It checks the alias/option profile, rejection of missing metadata,
 solver ownership of copied labels, first coarse dimension, homogeneous
-partition labels on **every coarsening level**, and the physical
+partition labels on **every coarsening level** for scalar and two-mode spaces, and the physical
 preconditioner defect. The existing MFAMG tests continue unchanged.
 
 These assertions establish boundary preservation and basic algebraic
