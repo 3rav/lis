@@ -18,8 +18,8 @@ basis unknown inherits the partition label of its fine aggregate.
  * The example assumes the application has already constructed the
  * near-nullspace vectors (e.g., appropriate rigid-body modes).
  */
-LIS_INT *labels = /* local DOF partition IDs, length A->n */;
-LIS_SOLVER solver;
+LIS_INT *labels; /* application-supplied local DOF IDs, length A->n */
+LIS_SOLVER solver; /* previously created */
 /* ... create solver, A, b, x and modes ... */
 lis_solver_set_near_nullspace(solver, mode_count, modes);
 lis_solver_set_mfamg_contact_partition(solver, A->n, labels);
