@@ -27,6 +27,8 @@ extern double lis_half_to_double(uint16_t value);
 
 #define LIS_MFAMG_MAX_LEVELS 32
 #define LIS_MFAMG_COARSE_LIMIT 8
+/* Contact boundaries may stop strong aggregation above the 8-row terminal. */
+#define LIS_MFAMG_CA_COARSE_LIMIT 64
 #define LIS_MFAMG_STRENGTH_THETA ((LIS_REAL)0.05)
 #define LIS_MFAMG_DEFAULT_OMEGA ((LIS_REAL)(2.0/3.0))
 #define LIS_MFAMG_RANK_TOL ((LIS_REAL)1.0e-12)
@@ -4284,7 +4286,8 @@ lis_mfamg_build_aggregates_sized(
                      * strength test.
                      */
                     if(
-                        target_size>2
+                        (target_size>2 ||
+                         level->contact_partition!=NULL)
                         &&
                         mag>fallback_mag)
                     {
@@ -4315,7 +4318,8 @@ lis_mfamg_build_aggregates_sized(
             if(
                 best<0
                 &&
-                target_size>2)
+                (target_size>2 ||
+                 level->contact_partition!=NULL))
             {
                 best =
                     fallback_best;
@@ -9561,7 +9565,8 @@ fail:
 static LIS_INT
 lis_mfamg_extend_hierarchy(
     struct LIS_MFAMG_STRUCT *state,
-    LIS_VECTOR fine_z)
+    LIS_VECTOR fine_z,
+    LIS_INT terminal_limit)
 {
     struct LIS_MFAMG_LEVEL *level;
     struct LIS_MFAMG_LEVEL *next_level;
@@ -9631,7 +9636,7 @@ lis_mfamg_extend_hierarchy(
         &&
         state->levels[level_id].A->gn
             >
-        LIS_MFAMG_COARSE_LIMIT)
+        terminal_limit)
     {
         level =
             &state->levels[level_id];
@@ -13877,6 +13882,15 @@ lis_precon_create_mfamg(
     }
 
 
+    /* Contact partitions can inhibit deep coarsening. Retain a small,
+     * bounded dense terminal rather than failing at the 8-row threshold. */
+    if(solver->mfamg_contact_aware &&
+       terminal_limit<LIS_MFAMG_CA_COARSE_LIMIT)
+    {
+        terminal_limit=(A->gn<LIS_MFAMG_CA_COARSE_LIMIT)
+            ? A->gn : LIS_MFAMG_CA_COARSE_LIMIT;
+    }
+
     for(i=0;i<mode_count;i++)
     {
         if(
@@ -14555,7 +14569,8 @@ lis_precon_create_mfamg(
         err =
             lis_mfamg_extend_hierarchy(
                 state,
-                solver->near_nullspace[0]);
+                solver->near_nullspace[0],
+                terminal_limit);
     }
     else
     {
