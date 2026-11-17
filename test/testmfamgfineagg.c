@@ -172,7 +172,7 @@ static int run_contact_case(LIS_MATRIX A, LIS_VECTOR z)
     LIS_PRECON precon=NULL;
     LIS_VECTOR b=NULL,x=NULL,ax=NULL;
     LIS_VECTOR modes[1]={z};
-    LIS_INT label[TEST_N],levels[TEST_LEVEL_CAP],owns[TEST_LEVEL_CAP];
+    LIS_INT label[TEST_N],levels[TEST_LEVEL_CAP]={0},owns[TEST_LEVEL_CAP];
     LIS_INT nlevels=0,coarse_n=0,checked=0,violations=0;
     LIS_INT i,err=0;
     LIS_REAL b2=0.0,r2=0.0,bi,ri,defect;
