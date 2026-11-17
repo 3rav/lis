@@ -23,6 +23,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-export-comparison:
+    name: Export exact PR234 source for private local benchmark
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git ls-files -z | tar --null -T - -czf lis-pr234-source.tar.gz
+          sha256sum lis-pr234-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lis-pr234-source
+          path: lis-pr234-source.tar.gz
+          retention-days: 1
   generated-makefiles:
     name: Build from tracked Makefile.in (no autoreconf)
     runs-on: ubuntu-24.04
