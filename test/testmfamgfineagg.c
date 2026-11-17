@@ -176,32 +176,44 @@ static int run_contact_case(LIS_MATRIX A, LIS_VECTOR modes[], LIS_INT mode_count
     LIS_INT i,err=0;
     LIS_REAL b2=0.0,r2=0.0,bi,ri,defect;
     int failed=1;
+    const char *stage="init";
 
     for(i=0;i<TEST_N;i++)
         label[i]=(i<79) ? 0 : ((i<159) ? 1 : 2);
     err=lis_solver_create(&solver);
     if(err) goto done;
+    stage="options";
     err=lis_solver_set_option(
         "-i gmres -p ca-mfamg -scale none -print none",solver);
     if(err || solver->mfamg_contact_aware!=1) goto done;
+    stage="near-nullspace";
     err=lis_solver_set_near_nullspace(solver,mode_count,modes);
     if(err) goto done;
     /* Incomplete metadata must be rejected before any hierarchy setup. */
     err=lis_solver_set_matrix(A,solver);
     if(err) goto done;
+    stage="missing-label validation";
     if(lis_precon_create(solver,&precon)==LIS_SUCCESS) goto done;
     precon=NULL;
 
+    stage="set contact labels";
     err=lis_solver_set_mfamg_contact_partition(solver,TEST_N,label);
     if(err) goto done;
     if(solver->mfamg_contact_partition[0]!=0) goto done;
     label[0]=8; /* caller may release/mutate source after the setter */
     if(solver->mfamg_contact_partition[0]!=0) goto done;
 
+    stage="set contact matrix";
     err=lis_solver_set_matrix(A,solver);
     if(err) goto done;
+    stage="CA preconditioner setup";
     err=lis_precon_create(solver,&precon);
-    if(err) goto done;
+    if(err)
+    {
+        precon=NULL; /* lis_precon_create has already destroyed it. */
+        goto done;
+    }
+    stage="hierarchy readback";
     err=lis_precon_mfamg_get_hierarchy_info(
         precon,TEST_LEVEL_CAP,&nlevels,&coarse_n,levels,owns);
     if(err || nlevels<3 || levels[0]!=TEST_N ||
@@ -213,6 +225,7 @@ static int run_contact_case(LIS_MATRIX A, LIS_VECTOR modes[], LIS_INT mode_count
             (int)levels[1],(int)nlevels,(int)mode_count);
         goto done;
     }
+    stage="contact boundary checks";
     err=lis_precon_mfamg_get_contact_partition_info(
         precon,&checked,&violations);
     if(err || checked!=nlevels-1 || violations!=0)
@@ -232,6 +245,7 @@ static int run_contact_case(LIS_MATRIX A, LIS_VECTOR modes[], LIS_INT mode_count
     for(i=0;i<TEST_N;i++)
         b->value[i]=1.0+((LIS_REAL)(i%7))/7.0;
     solver->precon=precon;
+    stage="V-cycle";
     err=lis_psolve(solver,b,x);
     if(err) goto done;
     err=lis_matvec(A,x,ax);
@@ -260,7 +274,9 @@ static int run_contact_case(LIS_MATRIX A, LIS_VECTOR modes[], LIS_INT mode_count
            (int)mode_count,(int)levels[1],(int)nlevels,(double)defect);
     failed=0;
 done:
-    if(err && failed) fprintf(stderr,"CA-MFAMG LIS error=%d\n",(int)err);
+    if(err && failed) fprintf(stderr,
+        "CA-MFAMG error at %s: LIS code=%d modes=%d\n",
+        stage,(int)err,(int)mode_count);
     if(solver) solver->precon=NULL;
     if(ax) lis_vector_destroy(ax);
     if(x) lis_vector_destroy(x);
