@@ -27,6 +27,8 @@ extern double lis_half_to_double(uint16_t value);
 
 #define LIS_MFAMG_MAX_LEVELS 32
 #define LIS_MFAMG_COARSE_LIMIT 8
+/* Contact boundaries may stop strong aggregation above the 8-row terminal. */
+#define LIS_MFAMG_CA_COARSE_LIMIT 64
 #define LIS_MFAMG_STRENGTH_THETA ((LIS_REAL)0.05)
 #define LIS_MFAMG_DEFAULT_OMEGA ((LIS_REAL)(2.0/3.0))
 #define LIS_MFAMG_RANK_TOL ((LIS_REAL)1.0e-12)
@@ -52,6 +54,9 @@ struct LIS_MFAMG_LEVEL
 
     LIS_INT n;
     LIS_INT nc;
+
+    /* Local algebraic domain IDs; strong contact edges must not merge them. */
+    LIS_INT *contact_partition;
 
     LIS_INT global_nc;
     LIS_INT coarse_is;
@@ -467,6 +472,9 @@ lis_mfamg_state_free(
         {
             level =
                 &state->levels[level_id];
+
+            if(level->contact_partition)
+                lis_free(level->contact_partition);
 
             if(level->aggregate)
                 lis_free(level->aggregate);
@@ -3920,6 +3928,69 @@ lis_mfamg_dense_solve(
 }
 
 
+/* Copy fine partition IDs into every local coarse unknown of its aggregate.
+ * Transfer construction may assign several coarse modes to one aggregate.
+ * This preserves the contact barrier across the complete hierarchy while
+ * Galerkin retains all physical off-diagonal contact couplings.
+ */
+static LIS_INT
+lis_mfamg_propagate_contact_partition(
+    const struct LIS_MFAMG_LEVEL *fine,
+    struct LIS_MFAMG_LEVEL *coarse)
+{
+    LIS_INT i, a, q, first, last, count;
+    size_t bytes;
+
+    if(fine==NULL || coarse==NULL)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "CA-MFAMG partition transfer requires adjacent levels\n");
+        return LIS_ERR_ILL_ARG;
+    }
+    if(fine->contact_partition==NULL)
+        return LIS_SUCCESS;
+    if(fine->n<=0 || coarse->n<=0 || fine->aggregate==NULL ||
+       coarse->contact_partition!=NULL)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "CA-MFAMG partition transfer has inconsistent level metadata\n");
+        return LIS_ERR_ILL_ARG;
+    }
+    if((size_t)coarse->n > ((size_t)-1)/sizeof(LIS_INT))
+        return LIS_OUT_OF_MEMORY;
+    bytes=(size_t)coarse->n*sizeof(LIS_INT);
+    coarse->contact_partition=(LIS_INT *)lis_malloc(
+        bytes,"lis_mfamg_propagate_contact_partition::coarse");
+    if(coarse->contact_partition==NULL)
+    {
+        LIS_SETERR_MEM(bytes);
+        return LIS_OUT_OF_MEMORY;
+    }
+
+    count=fine->aggregate_offset ? fine->aggregate_count : fine->nc;
+    for(i=0;i<fine->n;i++)
+    {
+        a=fine->aggregate[i];
+        if(a<0 || a>=count)
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG partition transfer has invalid aggregate ID\n");
+            return LIS_ERR_ILL_ARG;
+        }
+        first=fine->aggregate_offset ? fine->aggregate_offset[a] : a;
+        last=fine->aggregate_offset ? fine->aggregate_offset[a+1] : a+1;
+        if(first<0 || last<first || last>coarse->n)
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG partition transfer exceeds coarse dimension\n");
+            return LIS_ERR_ILL_ARG;
+        }
+        for(q=first;q<last;q++)
+            coarse->contact_partition[q]=fine->contact_partition[i];
+    }
+    return LIS_SUCCESS;
+}
+
 static LIS_INT
 lis_mfamg_build_aggregates_sized(
     LIS_MATRIX A,
@@ -4145,7 +4216,11 @@ lis_mfamg_build_aggregates_sized(
                         ||
                         j==row
                         ||
-                        level->aggregate[j]>=0)
+                        level->aggregate[j]>=0
+                        ||
+                        (level->contact_partition!=NULL &&
+                         level->contact_partition[row]!=
+                         level->contact_partition[j]))
                     {
                         continue;
                     }
@@ -4211,7 +4286,8 @@ lis_mfamg_build_aggregates_sized(
                      * strength test.
                      */
                     if(
-                        target_size>2
+                        (target_size>2 ||
+                         level->contact_partition!=NULL)
                         &&
                         mag>fallback_mag)
                     {
@@ -4242,7 +4318,8 @@ lis_mfamg_build_aggregates_sized(
             if(
                 best<0
                 &&
-                target_size>2)
+                (target_size>2 ||
+                 level->contact_partition!=NULL))
             {
                 best =
                     fallback_best;
@@ -9228,7 +9305,8 @@ lis_mfamg_extend_hierarchy_multivector(
          * unchanged; the local QR still determines aggregate ranks.
          */
         if(level_id>=LIS_MFAMG_DEEP_SIBLING_MIN_LEVEL &&
-           state->deep_sibling_merge && level->A->nprocs==1)
+           state->deep_sibling_merge && level->A->nprocs==1 &&
+           level->contact_partition==NULL)
         {
             LIS_INT before_merge=level->nc;
             LIS_INT merge_target =
@@ -9395,6 +9473,8 @@ lis_mfamg_extend_hierarchy_multivector(
         state->nlevels =
             level_id+2;
 
+        err=lis_mfamg_propagate_contact_partition(level,next_level);
+        if(err) goto fail;
 
         err =
             lis_mfamg_create_basis_from_array(
@@ -9485,7 +9565,8 @@ fail:
 static LIS_INT
 lis_mfamg_extend_hierarchy(
     struct LIS_MFAMG_STRUCT *state,
-    LIS_VECTOR fine_z)
+    LIS_VECTOR fine_z,
+    LIS_INT terminal_limit)
 {
     struct LIS_MFAMG_LEVEL *level;
     struct LIS_MFAMG_LEVEL *next_level;
@@ -9555,7 +9636,7 @@ lis_mfamg_extend_hierarchy(
         &&
         state->levels[level_id].A->gn
             >
-        LIS_MFAMG_COARSE_LIMIT)
+        terminal_limit)
     {
         level =
             &state->levels[level_id];
@@ -9793,6 +9874,8 @@ lis_mfamg_extend_hierarchy(
         state->nlevels =
             level_id+2;
 
+        err=lis_mfamg_propagate_contact_partition(level,next_level);
+        if(err) goto fail;
 
         err =
             lis_mfamg_build_coarse_nullspace(
@@ -12587,7 +12670,8 @@ lis_precon_mfamg_get_distributed_hierarchy_info(
     err =
         lis_mfamg_extend_hierarchy(
             state,
-            z);
+            z,
+            LIS_MFAMG_COARSE_LIMIT);
 
     if(err)
         goto cleanup;
@@ -13471,6 +13555,46 @@ lis_precon_mfamg_get_hierarchy_info(
 }
 
 
+/* Verify that every coarse unknown inherits exactly its fine aggregate's
+ * contact class; this internal accessor is for numerical regressions only.
+ */
+LIS_INT lis_precon_mfamg_get_contact_partition_info(
+    LIS_PRECON precon, LIS_INT *checked_levels, LIS_INT *violations)
+{
+    struct LIS_MFAMG_STRUCT *state;
+    LIS_INT l,i,a,q,first,last,count;
+    if(precon==NULL || precon->precon_type!=LIS_PRECON_TYPE_MFAMG ||
+       precon->mfamg==NULL || checked_levels==NULL || violations==NULL)
+        return LIS_ERR_ILL_ARG;
+    state=precon->mfamg;
+    *checked_levels=0;
+    *violations=0;
+    for(l=0;l<state->nlevels-1;l++)
+    {
+        struct LIS_MFAMG_LEVEL *fine=&state->levels[l];
+        struct LIS_MFAMG_LEVEL *coarse=&state->levels[l+1];
+        if(fine->contact_partition==NULL)
+            continue;
+        if(coarse->contact_partition==NULL || fine->aggregate==NULL)
+            return LIS_ERR_ILL_ARG;
+        count=fine->aggregate_offset ? fine->aggregate_count : fine->nc;
+        for(i=0;i<fine->n;i++)
+        {
+            a=fine->aggregate[i];
+            if(a<0 || a>=count) return LIS_ERR_ILL_ARG;
+            first=fine->aggregate_offset ? fine->aggregate_offset[a] : a;
+            last=fine->aggregate_offset ? fine->aggregate_offset[a+1] : a+1;
+            if(first<0 || last<first || last>coarse->n)
+                return LIS_ERR_ILL_ARG;
+            for(q=first;q<last;q++)
+                if(fine->contact_partition[i]!=coarse->contact_partition[q])
+                    ++*violations;
+        }
+        ++*checked_levels;
+    }
+    return LIS_SUCCESS;
+}
+
 /*
  * Internal read-only diagnostics for MFAMG FP16 resident storage.
  * Report packed transfer levels and coefficients for regression tests.
@@ -13759,6 +13883,15 @@ lis_precon_create_mfamg(
     }
 
 
+    /* Contact partitions can inhibit deep coarsening. Retain a small,
+     * bounded dense terminal rather than failing at the 8-row threshold. */
+    if(solver->mfamg_contact_aware &&
+       terminal_limit<LIS_MFAMG_CA_COARSE_LIMIT)
+    {
+        terminal_limit=(A->gn<LIS_MFAMG_CA_COARSE_LIMIT)
+            ? A->gn : LIS_MFAMG_CA_COARSE_LIMIT;
+    }
+
     for(i=0;i<mode_count;i++)
     {
         if(
@@ -13870,6 +14003,29 @@ lis_precon_create_mfamg(
         return LIS_ERR_ILL_ARG;
     }
 
+    if(solver->mfamg_contact_aware!=0 &&
+       solver->mfamg_contact_aware!=1)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "CA-MFAMG mode must be 0 or 1\n");
+        return LIS_ERR_ILL_ARG;
+    }
+    if(solver->mfamg_contact_aware &&
+       (solver->mfamg_contact_partition==NULL ||
+        solver->mfamg_contact_partition_n!=A->n))
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "CA-MFAMG requires local partition labels for every matrix row\n");
+        return LIS_ERR_ILL_ARG;
+    }
+    /* Contiguous block Jacobi does not respect arbitrary contact classes. */
+    if(solver->mfamg_contact_aware && solver->mfamg_block_size!=1)
+    {
+        LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+            "CA-MFAMG requires mfamg_block_size=1\n");
+        return LIS_ERR_NOT_IMPLEMENTED;
+    }
+
     if(
         solver->mfamg_block_size<1
         ||
@@ -13968,7 +14124,26 @@ lis_precon_create_mfamg(
     level->n =
         A->n;
 
-
+    if(solver->mfamg_contact_aware)
+    {
+        size_t bytes;
+        if((size_t)level->n>((size_t)-1)/sizeof(LIS_INT))
+        {
+            lis_mfamg_state_free(state);
+            return LIS_OUT_OF_MEMORY;
+        }
+        bytes=(size_t)level->n*sizeof(LIS_INT);
+        level->contact_partition=(LIS_INT *)lis_malloc(
+            bytes,"lis_precon_create_mfamg::contact_partition");
+        if(level->contact_partition==NULL)
+        {
+            LIS_SETERR_MEM(bytes);
+            lis_mfamg_state_free(state);
+            return LIS_OUT_OF_MEMORY;
+        }
+        memcpy(level->contact_partition,
+            solver->mfamg_contact_partition,bytes);
+    }
 
     level->aggregate =
         (LIS_INT *)lis_malloc(
@@ -14149,6 +14324,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: fine aggregation failed\n");
         lis_free(vals);
         lis_free(cols);
         if(coarse_basis)
@@ -14188,6 +14366,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: initial transfer failed\n");
         lis_free(vals);
         lis_free(cols);
         if(coarse_basis)
@@ -14361,6 +14542,9 @@ lis_precon_create_mfamg(
         lis_free(cols);
         if(err)
         {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: initial Galerkin product failed\n");
             if(coarse_basis)
             {
                 lis_free(coarse_basis);
@@ -14372,12 +14556,22 @@ lis_precon_create_mfamg(
     }
 
 
+    err=lis_mfamg_propagate_contact_partition(level,coarse_level);
+    if(err)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "CA-MFAMG failed preparing initial coarse partition\n");
+        lis_mfamg_state_free(state);
+        return err;
+    }
+
     if(mode_count==1)
     {
         err =
             lis_mfamg_extend_hierarchy(
                 state,
-                solver->near_nullspace[0]);
+                solver->near_nullspace[0],
+                terminal_limit);
     }
     else
     {
@@ -14402,6 +14596,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG hierarchy extension failed\n");
         if(coarse_basis)
         {
             lis_free(coarse_basis);
@@ -14420,6 +14617,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: finest smoother failed\n");
         if(coarse_basis)
         {
             lis_free(coarse_basis);
@@ -14437,6 +14637,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: cycle vectors failed\n");
         if(coarse_basis)
         {
             lis_free(coarse_basis);
@@ -14483,6 +14686,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: terminal solver failed\n");
         if(coarse_basis)
         {
             lis_free(coarse_basis);
@@ -15142,7 +15348,8 @@ lis_precon_psd_update_mfamg(
 
 
     /* Packed transfer coefficients require transactional rebuilding. */
-    if(same_pattern && precon->mfamg->half_mode==LIS_PRECON_HALF_OFF &&
+    if(same_pattern && !solver->mfamg_contact_aware &&
+       precon->mfamg->half_mode==LIS_PRECON_HALF_OFF &&
        solver->precon_half_mode==LIS_PRECON_HALF_OFF)
     {
         err =
