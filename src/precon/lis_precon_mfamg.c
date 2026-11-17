@@ -12670,7 +12670,8 @@ lis_precon_mfamg_get_distributed_hierarchy_info(
     err =
         lis_mfamg_extend_hierarchy(
             state,
-            z);
+            z,
+            LIS_MFAMG_COARSE_LIMIT);
 
     if(err)
         goto cleanup;
