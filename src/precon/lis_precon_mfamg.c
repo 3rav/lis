@@ -14095,12 +14095,13 @@ lis_precon_create_mfamg(
 
     if(solver->mfamg_contact_aware)
     {
-        size_t bytes=(size_t)level->n*sizeof(LIS_INT);
+        size_t bytes;
         if((size_t)level->n>((size_t)-1)/sizeof(LIS_INT))
         {
             lis_mfamg_state_free(state);
             return LIS_OUT_OF_MEMORY;
         }
+        bytes=(size_t)level->n*sizeof(LIS_INT);
         level->contact_partition=(LIS_INT *)lis_malloc(
             bytes,"lis_precon_create_mfamg::contact_partition");
         if(level->contact_partition==NULL)
