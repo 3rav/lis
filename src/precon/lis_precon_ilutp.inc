@@ -273,6 +273,8 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
             fact=w[j]*D->value[j];
             if(!isfinite((double)fact))
             {
+                LIS_SETERR1(LIS_BREAKDOWN,
+                    "ILUTP lower multiplier became nonfinite at local factor row %D (0-based)\n",i);
                 err=LIS_BREAKDOWN;
                 goto cleanup;
             }
@@ -286,6 +288,8 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
                 delta=-fact*U->value[j][k];
                 if(!isfinite((double)delta))
                 {
+                    LIS_SETERR1(LIS_BREAKDOWN,
+                        "ILUTP elimination became nonfinite at local factor row %D (0-based)\n",i);
                     err=LIS_BREAKDOWN;
                     goto cleanup;
                 }
@@ -336,6 +340,13 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
         if(!isfinite((double)pivot) || pivot==0.0 ||
            !isfinite(1.0/(double)pivot))
         {
+            /* A nonzero input diagonal does not guarantee a usable
+             * pivot after sparse dropping and column swaps.
+             * This is the local, zero-based factorization-order row,
+             * not the original/global (or Fortran 1-based) matrix row. */
+            LIS_SETERR1(LIS_BREAKDOWN,
+                "ILUTP found no usable pivot at local factor row %D (0-based); "
+                "consider fill/drop and explicit pivot regularization\n",i);
             err=LIS_BREAKDOWN;
             goto cleanup;
         }

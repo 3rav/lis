@@ -43,7 +43,7 @@ extern "C" {
 #endif
 
 /**************************************/
-#define LIS_VERSION	"2.1.23"
+#define LIS_VERSION	"2.1.24"
 /**************************************/
 #include <stdio.h>
 #ifdef USE_COMPLEX
@@ -285,7 +285,7 @@ extern "C" {
 #define LIS_PRECONNAME_MAX 10
 #define LIS_PRECON_REGISTER_MAX 10
 
-#define LIS_PRECON_TYPE_LEN 13
+#define LIS_PRECON_TYPE_LEN 14
 #define LIS_PRECON_TYPE_NONE 0
 #define LIS_PRECON_TYPE_JACOBI 1
 #define LIS_PRECON_TYPE_ILU 2
@@ -299,6 +299,7 @@ extern "C" {
 #define LIS_PRECON_TYPE_BJACOBI 10
 #define LIS_PRECON_TYPE_ADDS 11
 #define LIS_PRECON_TYPE_MFAMG 12
+#define LIS_PRECON_TYPE_MFAMG_ILUTP 13
 #define LIS_PRECON_TYPE_USERDEF LIS_PRECON_TYPE_LEN
 
 /* Sequence policy selection. */
