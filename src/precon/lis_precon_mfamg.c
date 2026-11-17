@@ -3940,12 +3940,20 @@ lis_mfamg_propagate_contact_partition(
     size_t bytes;
 
     if(fine==NULL || coarse==NULL)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "CA-MFAMG partition transfer requires adjacent levels\n");
         return LIS_ERR_ILL_ARG;
+    }
     if(fine->contact_partition==NULL)
         return LIS_SUCCESS;
     if(fine->n<=0 || coarse->n<=0 || fine->aggregate==NULL ||
        coarse->contact_partition!=NULL)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "CA-MFAMG partition transfer has inconsistent level metadata\n");
         return LIS_ERR_ILL_ARG;
+    }
     if((size_t)coarse->n > ((size_t)-1)/sizeof(LIS_INT))
         return LIS_OUT_OF_MEMORY;
     bytes=(size_t)coarse->n*sizeof(LIS_INT);
@@ -3962,11 +3970,19 @@ lis_mfamg_propagate_contact_partition(
     {
         a=fine->aggregate[i];
         if(a<0 || a>=count)
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG partition transfer has invalid aggregate ID\n");
             return LIS_ERR_ILL_ARG;
+        }
         first=fine->aggregate_offset ? fine->aggregate_offset[a] : a;
         last=fine->aggregate_offset ? fine->aggregate_offset[a+1] : a+1;
         if(first<0 || last<first || last>coarse->n)
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG partition transfer exceeds coarse dimension\n");
             return LIS_ERR_ILL_ARG;
+        }
         for(q=first;q<last;q++)
             coarse->contact_partition[q]=fine->contact_partition[i];
     }
@@ -14519,6 +14535,8 @@ lis_precon_create_mfamg(
     err=lis_mfamg_propagate_contact_partition(level,coarse_level);
     if(err)
     {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "CA-MFAMG failed preparing initial coarse partition\n");
         lis_mfamg_state_free(state);
         return err;
     }
@@ -14553,6 +14571,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG hierarchy extension failed\n");
         if(coarse_basis)
         {
             lis_free(coarse_basis);
@@ -14565,7 +14586,7 @@ lis_precon_create_mfamg(
 
 
     err =
-        lis_mfamg_prepare_level_work(
+        lis_mfamg_prepare_level_work(amg_prepare_level_work(
                 level,
                 state->smoother_block_size);
 
