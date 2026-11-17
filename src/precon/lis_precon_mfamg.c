@@ -14309,6 +14309,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: fine aggregation failed\n");
         lis_free(vals);
         lis_free(cols);
         if(coarse_basis)
@@ -14348,6 +14351,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: initial transfer failed\n");
         lis_free(vals);
         lis_free(cols);
         if(coarse_basis)
@@ -14521,6 +14527,9 @@ lis_precon_create_mfamg(
         lis_free(cols);
         if(err)
         {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: initial Galerkin product failed\n");
             if(coarse_basis)
             {
                 lis_free(coarse_basis);
@@ -14592,6 +14601,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: finest smoother failed\n");
         if(coarse_basis)
         {
             lis_free(coarse_basis);
@@ -14609,6 +14621,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: cycle vectors failed\n");
         if(coarse_basis)
         {
             lis_free(coarse_basis);
@@ -14655,6 +14670,9 @@ lis_precon_create_mfamg(
 
     if(err)
     {
+        if(solver->mfamg_contact_aware)
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG setup: terminal solver failed\n");
         if(coarse_basis)
         {
             lis_free(coarse_basis);
