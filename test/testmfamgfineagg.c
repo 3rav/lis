@@ -21,6 +21,9 @@ extern LIS_INT lis_precon_mfamg_get_hierarchy_info(
     LIS_PRECON precon, LIS_INT max_levels, LIS_INT *nlevels,
     LIS_INT *coarse_n, LIS_INT *level_n, LIS_INT *owns_A);
 
+extern LIS_INT lis_precon_mfamg_get_contact_partition_info(
+    LIS_PRECON precon,LIS_INT *checked_levels,LIS_INT *violations);
+
 static int check_profile(void)
 {
     LIS_SOLVER solver=NULL;
@@ -46,6 +49,19 @@ static int check_profile(void)
        solver->mfamg_fine_agg_factor!=2) goto done;
     if(lis_solver_set_option("-mfamg_fine_agg_factor 5",solver)==LIS_SUCCESS ||
        solver->mfamg_fine_agg_factor!=2) goto done;
+    /* Alias, standalone mode and profile transitions are all transactional. */
+    if(lis_solver_set_option_replace(
+           "-i gmres -p ca-mfamg -scale none",solver)!=LIS_SUCCESS ||
+       solver->options[LIS_OPTIONS_PRECON]!=LIS_PRECON_TYPE_MFAMG ||
+       solver->mfamg_contact_aware!=1) goto done;
+    if(lis_solver_set_option_replace_if_changed(
+           "-i gmres -p ca-mfamg -scale none",solver,&changed)!=LIS_SUCCESS ||
+       changed!=LIS_FALSE) goto done;
+    if(lis_solver_set_option_replace_if_changed(
+           "-i gmres -p mfamg -scale none",solver,&changed)!=LIS_SUCCESS ||
+       changed!=LIS_TRUE || solver->mfamg_contact_aware!=0) goto done;
+    if(lis_solver_set_option("-mfamg_contact_aware 2",solver)==LIS_SUCCESS ||
+       solver->mfamg_contact_aware!=0) goto done;
     failed=0;
 done:
     if(failed) fprintf(stderr,"MFAMG FINE AGG: option-profile regression failed\n");
@@ -146,6 +162,114 @@ done:
     return failed;
 }
 
+/* Contact partitions describe algebraic DOF groups, not mesh vertices.
+ * Coupling across classes remains in A and the Galerkin coarse operator.
+ * The internal readback verifies that no coarse basis row merges classes.
+ */
+static int run_contact_case(LIS_MATRIX A, LIS_VECTOR z)
+{
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON precon=NULL;
+    LIS_VECTOR b=NULL,x=NULL,ax=NULL;
+    LIS_VECTOR modes[1]={z};
+    LIS_INT label[TEST_N],levels[TEST_LEVEL_CAP],owns[TEST_LEVEL_CAP];
+    LIS_INT nlevels=0,coarse_n=0,checked=0,violations=0;
+    LIS_INT i,err=0;
+    LIS_REAL b2=0.0,r2=0.0,bi,ri,defect;
+    int failed=1;
+
+    for(i=0;i<TEST_N;i++)
+        label[i]=(i<79) ? 0 : ((i<159) ? 1 : 2);
+    err=lis_solver_create(&solver);
+    if(err) goto done;
+    err=lis_solver_set_option(
+        "-i gmres -p ca-mfamg -scale none -print none",solver);
+    if(err || solver->mfamg_contact_aware!=1) goto done;
+    err=lis_solver_set_near_nullspace(solver,1,modes);
+    if(err) goto done;
+    /* Incomplete metadata must be rejected before any hierarchy setup. */
+    err=lis_solver_set_matrix(A,solver);
+    if(err) goto done;
+    if(lis_precon_create(solver,&precon)==LIS_SUCCESS) goto done;
+    precon=NULL;
+
+    err=lis_solver_set_mfamg_contact_partition(solver,TEST_N,label);
+    if(err) goto done;
+    if(solver->mfamg_contact_partition[0]!=0) goto done;
+    label[0]=8; /* caller may release/mutate source after the setter */
+    if(solver->mfamg_contact_partition[0]!=0) goto done;
+
+    err=lis_solver_set_matrix(A,solver);
+    if(err) goto done;
+    err=lis_precon_create(solver,&precon);
+    if(err) goto done;
+    err=lis_precon_mfamg_get_hierarchy_info(
+        precon,TEST_LEVEL_CAP,&nlevels,&coarse_n,levels,owns);
+    if(err || nlevels<3 || levels[0]!=TEST_N ||
+       levels[1]!=121 || coarse_n<=0)
+    {
+        fprintf(stderr,
+            "CA-MFAMG: invalid first coarse level (%d) or hierarchy (%d)\n",
+            (int)levels[1],(int)nlevels);
+        goto done;
+    }
+    err=lis_precon_mfamg_get_contact_partition_info(
+        precon,&checked,&violations);
+    if(err || checked!=nlevels-1 || violations!=0)
+    {
+        fprintf(stderr,
+            "CA-MFAMG: contact transfer mismatch (levels=%d checked=%d violations=%d)\n",
+            (int)nlevels,(int)checked,(int)violations);
+        goto done;
+    }
+
+    err=lis_vector_duplicate(A,&b);
+    if(err) goto done;
+    err=lis_vector_duplicate(A,&x);
+    if(err) goto done;
+    err=lis_vector_duplicate(A,&ax);
+    if(err) goto done;
+    for(i=0;i<TEST_N;i++)
+        b->value[i]=1.0+((LIS_REAL)(i%7))/7.0;
+    solver->precon=precon;
+    err=lis_psolve(solver,b,x);
+    if(err) goto done;
+    err=lis_matvec(A,x,ax);
+    if(err) goto done;
+    for(i=0;i<TEST_N;i++)
+    {
+#ifdef _COMPLEX
+        bi=(LIS_REAL)cabs(b->value[i]);
+        ri=(LIS_REAL)cabs(b->value[i]-ax->value[i]);
+#else
+        bi=(LIS_REAL)fabs(b->value[i]);
+        ri=(LIS_REAL)fabs(b->value[i]-ax->value[i]);
+#endif
+        b2+=bi*bi;
+        r2+=ri*ri;
+    }
+    if(!isfinite((double)b2) || !isfinite((double)r2) ||
+       b2<=0.0 || r2<0.0) goto done;
+    defect=sqrt(r2/b2);
+    if(!isfinite((double)defect) || defect>=0.99)
+    {
+        fprintf(stderr,"CA-MFAMG: physical defect=%.9e\n",(double)defect);
+        goto done;
+    }
+    printf("CA-MFAMG partitions=3 level1=%d levels=%d defect=%.9e PASS\n",
+           (int)levels[1],(int)nlevels,(double)defect);
+    failed=0;
+done:
+    if(err && failed) fprintf(stderr,"CA-MFAMG LIS error=%d\n",(int)err);
+    if(solver) solver->precon=NULL;
+    if(ax) lis_vector_destroy(ax);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(precon) lis_precon_destroy(precon);
+    if(solver) lis_solver_destroy(solver);
+    return failed;
+}
+
 static int run_test(void)
 {
     LIS_MATRIX A=NULL;
@@ -210,6 +334,7 @@ static int run_test(void)
             goto done;
         }
     }
+    if(run_contact_case(A,basis[0])!=0) goto done;
     failed=0;
 done:
     if(err) fprintf(stderr,"MFAMG FINE AGG setup LIS error=%d\n",(int)err);
