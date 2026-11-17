@@ -166,12 +166,11 @@ done:
  * Coupling across classes remains in A and the Galerkin coarse operator.
  * The internal readback verifies that no coarse basis row merges classes.
  */
-static int run_contact_case(LIS_MATRIX A, LIS_VECTOR z)
+static int run_contact_case(LIS_MATRIX A, LIS_VECTOR modes[], LIS_INT mode_count)
 {
     LIS_SOLVER solver=NULL;
     LIS_PRECON precon=NULL;
     LIS_VECTOR b=NULL,x=NULL,ax=NULL;
-    LIS_VECTOR modes[1]={z};
     LIS_INT label[TEST_N],levels[TEST_LEVEL_CAP]={0},owns[TEST_LEVEL_CAP];
     LIS_INT nlevels=0,coarse_n=0,checked=0,violations=0;
     LIS_INT i,err=0;
@@ -185,7 +184,7 @@ static int run_contact_case(LIS_MATRIX A, LIS_VECTOR z)
     err=lis_solver_set_option(
         "-i gmres -p ca-mfamg -scale none -print none",solver);
     if(err || solver->mfamg_contact_aware!=1) goto done;
-    err=lis_solver_set_near_nullspace(solver,1,modes);
+    err=lis_solver_set_near_nullspace(solver,mode_count,modes);
     if(err) goto done;
     /* Incomplete metadata must be rejected before any hierarchy setup. */
     err=lis_solver_set_matrix(A,solver);
@@ -206,11 +205,12 @@ static int run_contact_case(LIS_MATRIX A, LIS_VECTOR z)
     err=lis_precon_mfamg_get_hierarchy_info(
         precon,TEST_LEVEL_CAP,&nlevels,&coarse_n,levels,owns);
     if(err || nlevels<3 || levels[0]!=TEST_N ||
-       levels[1]!=121 || coarse_n<=0)
+       (mode_count==1 ? levels[1]!=121 :
+        (levels[1]<=0 || levels[1]>=TEST_N)) || coarse_n<=0)
     {
         fprintf(stderr,
-            "CA-MFAMG: invalid first coarse level (%d) or hierarchy (%d)\n",
-            (int)levels[1],(int)nlevels);
+            "CA-MFAMG: invalid first coarse level (%d) or hierarchy (%d), modes=%d\n",
+            (int)levels[1],(int)nlevels,(int)mode_count);
         goto done;
     }
     err=lis_precon_mfamg_get_contact_partition_info(
@@ -256,8 +256,8 @@ static int run_contact_case(LIS_MATRIX A, LIS_VECTOR z)
         fprintf(stderr,"CA-MFAMG: physical defect=%.9e\n",(double)defect);
         goto done;
     }
-    printf("CA-MFAMG partitions=3 level1=%d levels=%d defect=%.9e PASS\n",
-           (int)levels[1],(int)nlevels,(double)defect);
+    printf("CA-MFAMG partitions=3 modes=%d level1=%d levels=%d defect=%.9e PASS\n",
+           (int)mode_count,(int)levels[1],(int)nlevels,(double)defect);
     failed=0;
 done:
     if(err && failed) fprintf(stderr,"CA-MFAMG LIS error=%d\n",(int)err);
@@ -334,7 +334,8 @@ static int run_test(void)
             goto done;
         }
     }
-    if(run_contact_case(A,basis[0])!=0) goto done;
+    if(run_contact_case(A,basis,1)!=0 ||
+       run_contact_case(A,basis,2)!=0) goto done;
     failed=0;
 done:
     if(err) fprintf(stderr,"MFAMG FINE AGG setup LIS error=%d\n",(int)err);
