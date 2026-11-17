@@ -14586,7 +14586,7 @@ lis_precon_create_mfamg(
 
 
     err =
-        lis_mfamg_prepare_level_work(amg_prepare_level_work(
+        lis_mfamg_prepare_level_work(
                 level,
                 state->smoother_block_size);
 
