@@ -1,0 +1,44 @@
+name: Build native LIS benchmark binaries (no private inputs)
+on:
+  push:
+    branches:
+      - 'bench/native-lis-calculix-*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool pkg-config
+      - name: Compile current LIS head and package native executables
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          ./configure --disable-mpi --disable-omp --disable-fortran --disable-f90 --disable-saamg --enable-test CC=gcc CFLAGS="-O2"
+          make -j2
+          mkdir -p native-dist/include
+          test -f src/.libs/liblis.so
+          cp -L src/.libs/liblis.so native-dist/liblis.so.0
+          cp -L src/.libs/liblis.so native-dist/liblis.so
+          cp include/lis.h include/lis_condense_lis.h include/lis_condense_core.h native-dist/include/
+          if test -f include/lis_config.h; then cp include/lis_config.h native-dist/include/; fi
+          if test -f lis_config.h; then cp lis_config.h native-dist/include/; fi
+          if test -f test/.libs/lsolve; then cp -L test/.libs/lsolve native-dist/lsolve;
+          elif test -x test/lsolve && test ! -L test/lsolve; then cp -L test/lsolve native-dist/lsolve; fi
+          echo "--- LIS binary ---"
+          ls -alh native-dist native-dist/include
+          file native-dist/liblis.so.0
+          ldd native-dist/liblis.so.0
+      - name: Publish native LIS binary for private local benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-lis-serial-linux-af465c78
+          path: native-dist/
+          if-no-files-found: error
+          retention-days: 3
