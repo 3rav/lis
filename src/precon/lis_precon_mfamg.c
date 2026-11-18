@@ -159,7 +159,8 @@ struct LIS_MFAMG_STRUCT
     struct LIS_MFAMG_STAR_SOLVER *star;
 
     LIS_INT coarse_n;
-    /* Opt-in sparse terminal smoother for hierarchies that cannot coarsen. */
+    /* Bounded sparse terminal smoother when dense termination is unsafe.
+     * Ordinary MFAMG stays opt-in; explicit CA-MFAMG may auto-enable it. */
     LIS_INT sparse_terminal;
     LIS_INT sparse_terminal_passes;
 
@@ -177,6 +178,20 @@ struct LIS_MFAMG_STRUCT
     LIS_SCALAR *coarse_x;
 };
 
+
+/* The ordinary MFAMG default remains unchanged. An explicit environment
+ * setting wins: 1 enables, any other value disables. With no setting, the
+ * caller's opt-in CA partition metadata permits a bounded sparse terminal
+ * rather than rejecting an oversized final level. This is an approximate
+ * smoother, NOT a guarantee of convergence or an exact coarse solve. */
+static LIS_INT
+lis_mfamg_sparse_terminal_allowed(const struct LIS_MFAMG_LEVEL *level)
+{
+    const char *option=getenv("LIS_MFAMG_SPARSE_TERMINAL");
+    if(option!=NULL) return strcmp(option,"1")==0;
+    return level!=NULL && level->A!=NULL &&
+           level->A->nprocs==1 && level->contact_partition!=NULL;
+}
 
 static void
 lis_mfamg_smoother_destroy(
@@ -4265,7 +4280,7 @@ lis_mfamg_merge_sibling_aggregates(
     LIS_INT row_capacity, LIS_INT *cols, LIS_SCALAR *vals)
 {
     LIS_INT n, nc, i, j, k, a, b, nnz, new_nc, used, eligible;
-    LIS_INT *work=NULL,*counts,*anchors,*heads,*links,*remap;
+    LIS_INT *work=NULL,*counts,*anchors,*heads,*links,*remap,*parts;
     LIS_REAL *score=NULL, mag, diagonal_i, diagonal_j, strength;
     LIS_VECTOR diagonal=NULL;
     LIS_INT err=LIS_SUCCESS;
@@ -4277,11 +4292,11 @@ lis_mfamg_merge_sibling_aggregates(
     n=level->n;
     nc=level->nc;
     if(target>n) target=n;
-    if((size_t)nc>((size_t)-1)/(5*sizeof(LIS_INT)) ||
+    if((size_t)nc>((size_t)-1)/(6*sizeof(LIS_INT)) ||
        (size_t)nc>((size_t)-1)/sizeof(LIS_REAL))
         return LIS_OUT_OF_MEMORY;
     work=(LIS_INT *)lis_malloc(
-        (size_t)5*(size_t)nc*sizeof(LIS_INT),
+        (size_t)6*(size_t)nc*sizeof(LIS_INT),
         "lis_mfamg_merge_sibling_aggregates::work");
     score=(LIS_REAL *)lis_malloc(
         (size_t)nc*sizeof(LIS_REAL),
@@ -4295,7 +4310,7 @@ lis_mfamg_merge_sibling_aggregates(
     err=lis_matrix_get_diagonal(A,diagonal);
     if(err) goto done;
     counts=work; anchors=work+nc; heads=work+2*nc;
-    links=work+3*nc; remap=work+4*nc;
+    links=work+3*nc; remap=work+4*nc; parts=work+5*nc;
     for(a=0;a<nc;a++) {
         counts[a]=0; anchors[a]=-1; heads[a]=-1;
         links[a]=-1; remap[a]=-1; score[a]=0.0;
@@ -4303,6 +4318,18 @@ lis_mfamg_merge_sibling_aggregates(
     for(i=0;i<n;i++) {
         a=level->aggregate[i];
         if(a<0 || a>=nc) { err=LIS_ERR_ILL_ARG; goto done; }
+        /* Every pre-existing aggregate must already be partition-pure.
+         * This also works for negative and maximum LIS_INT label values:
+         * counts[a], not a magic label, tracks first assignment. */
+        if(level->contact_partition!=NULL) {
+            if(counts[a]==0) parts[a]=level->contact_partition[i];
+            else if(parts[a]!=level->contact_partition[i]) {
+                LIS_SETERR(LIS_ERR_ILL_ARG,
+                    "CA-MFAMG deep merge found a mixed contact aggregate\n");
+                err=LIS_ERR_ILL_ARG;
+                goto done;
+            }
+        }
         counts[a]++;
     }
     for(i=0;i<n;i++) {
@@ -4321,6 +4348,11 @@ lis_mfamg_merge_sibling_aggregates(
             if(j<0 || j>=n || j==i) continue;
             b=level->aggregate[j];
             if(b==a) continue;
+            /* Never let a two-hop sibling merge bridge a contact
+             * interface. Off-partition Galerkin couplings are preserved
+             * in A but are not eligible aggregation edges. */
+            if(level->contact_partition!=NULL && parts[a]!=parts[b])
+                continue;
 #ifdef _COMPLEX
             mag=(LIS_REAL)cabs(vals[k]);
 #else
@@ -4419,10 +4451,11 @@ lis_precon_mfamg_get_deep_merge_info(
     return LIS_SUCCESS;
 }
 
-/* Internal structural test hook (not part of the public LIS API). */
-LIS_INT
-lis_precon_mfamg_merge_siblings_for_test(
-    LIS_MATRIX A, LIS_INT target, LIS_INT *aggregate, LIS_INT *nc)
+/* Internal structural test hooks (not part of the public LIS API). */
+static LIS_INT
+lis_mfamg_merge_siblings_test_impl(
+    LIS_MATRIX A, LIS_INT target, LIS_INT *aggregate, LIS_INT *nc,
+    const LIS_INT *partitions)
 {
     struct LIS_MFAMG_LEVEL level;
     LIS_INT *cols=NULL, err;
@@ -4443,11 +4476,29 @@ lis_precon_mfamg_merge_siblings_for_test(
     }
     memset(&level,0,sizeof(level));
     level.n=A->n; level.nc=*nc; level.aggregate=aggregate;
+    level.contact_partition=(LIS_INT *)partitions; /* borrowed */
     err=lis_mfamg_merge_sibling_aggregates(
         A,&level,-1,target,A->n,cols,vals);
     if(err==LIS_SUCCESS) *nc=level.nc;
     lis_free(vals); lis_free(cols);
     return err;
+}
+
+LIS_INT
+lis_precon_mfamg_merge_siblings_for_test(
+    LIS_MATRIX A, LIS_INT target, LIS_INT *aggregate, LIS_INT *nc)
+{
+    return lis_mfamg_merge_siblings_test_impl(A,target,aggregate,nc,NULL);
+}
+
+LIS_INT
+lis_precon_mfamg_merge_partitioned_siblings_for_test(
+    LIS_MATRIX A, LIS_INT target, LIS_INT *aggregate, LIS_INT *nc,
+    const LIS_INT *partitions)
+{
+    if(partitions==NULL) return LIS_ERR_ILL_ARG;
+    return lis_mfamg_merge_siblings_test_impl(
+        A,target,aggregate,nc,partitions);
 }
 
 static LIS_INT
@@ -9189,12 +9240,14 @@ lis_mfamg_extend_hierarchy_multivector(
 
         /*
          * Optional serial grouping of two-hop siblings on deeper levels.
-         * Existing first-level aggregation and default behavior are
-         * unchanged; the local QR still determines aggregate ranks.
+         * CA-MFAMG explicitly opts in to guarded, intra-partition merging
+         * even without -mfamg_deep_sibling_merge. Ordinary MFAMG keeps
+         * its old default; the local QR still determines aggregate ranks.
          */
         if(level_id>=LIS_MFAMG_DEEP_SIBLING_MIN_LEVEL &&
-           state->deep_sibling_merge && level->A->nprocs==1 &&
-           level->contact_partition==NULL)
+           level->A->nprocs==1 &&
+           (state->deep_sibling_merge ||
+            level->contact_partition!=NULL))
         {
             LIS_INT before_merge=level->nc;
             LIS_INT merge_target =
@@ -9408,25 +9461,25 @@ lis_mfamg_extend_hierarchy_multivector(
          * The next CSR level is fully assembled and will be prepared as
          * the terminal smoother by lis_precon_create_mfamg().
          */
-        if(level->A->nprocs==1)
+        if(level->A->nprocs==1 &&
+           lis_mfamg_sparse_terminal_allowed(next_level))
         {
-            const char *fallback=getenv("LIS_MFAMG_SPARSE_TERMINAL");
-            if(fallback!=NULL && strcmp(fallback,"1")==0)
-            {
-                if((LIS_REAL)level->nc/(LIS_REAL)level->n
-                   >(LIS_REAL)0.90)
+            /* Coarse unknowns include the local QR basis rank: comparing
+             * nc (aggregate count) to n falsely reports coarsening when
+             * the actual Galerkin coarse dimension barely changes. */
+            if((LIS_REAL)next_level->A->gn/(LIS_REAL)level->A->gn
+               >(LIS_REAL)0.90)
                     weak_coarsening++;
-                else
-                    weak_coarsening=0;
-                if(weak_coarsening>=2)
-                {
-                    fprintf(stderr,
-                        "MFAMG COARSENING STAGNATION: level=%d "
-                        "n=%d coarse_n=%d; stopping hierarchy for "
-                        "sparse terminal smoothing\n",
-                        (int)level_id,(int)level->n,(int)level->nc);
-                    break;
-                }
+            else
+                weak_coarsening=0;
+            if(weak_coarsening>=2)
+            {
+                fprintf(stderr,
+                    "MFAMG COARSENING STAGNATION: level=%d "
+                    "n=%d coarse_n=%d; stopping hierarchy for "
+                    "sparse terminal smoothing\n",
+                    (int)level_id,(int)level->n,(int)next_level->A->gn);
+                break;
             }
         }
 
@@ -14616,24 +14669,23 @@ lis_precon_create_mfamg(
     else if(terminal_level->A!=NULL &&
             terminal_level->A->gn>terminal_limit)
     {
-        const char *fallback=getenv("LIS_MFAMG_SPARSE_TERMINAL");
-
         /*
          * Do not feed an oversized matrix into the small dense solver:
          * the old path returned an unexplained LIS_ERR_ILL_ARG here.
          *
-         * This serial-only, explicitly opted-in fallback reuses the
-         * existing Jacobi smoother at the final sparse level.  It never
+         * This serial-only fallback reuses the existing Jacobi smoother
+         * for explicit opt-in or contact-aware hierarchies.  It never
          * creates an O(n^2) terminal factor, does not claim an exact
          * inverse, and leaves normal coarsened hierarchies unchanged.
          */
         if(terminal_level->A->nprocs!=1 ||
-           fallback==NULL || strcmp(fallback,"1")!=0)
+           !lis_mfamg_sparse_terminal_allowed(terminal_level))
         {
             LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
                 "MFAMG hierarchy stalled before the dense terminal "
                 "limit; set LIS_MFAMG_SPARSE_TERMINAL=1 for an "
-                "experimental serial sparse terminal smoother\n");
+                "experimental serial sparse terminal smoother "
+                "(CA mode defaults to enabled unless overridden)\n");
             fprintf(stderr,
                 "MFAMG HIERARCHY STALLED: levels=%d terminal_n=%d "
                 "dense_limit=%d sparse_terminal=disabled\n",

@@ -17,6 +17,25 @@ application-driven static condensation API for arbitrary local internal blocks.
 - Callers explicitly construct the Schur session and pass the reduced matrix
   to lis_solve. -p ca-mfamg alone does NOT condense DOFs.
 
+## Contact-aware hierarchy robustness
+
+CA-MFAMG's opt-in contact partition metadata now permits safe deep sibling
+aggregation **within** a partition; two-hop merges never cross a contact
+boundary. The graph operator keeps all cross-contact couplings. Ordinary
+non-contact MFAMG's deep-merge default is unchanged.
+
+For a contact-aware hierarchy that remains above the bounded dense
+terminal limit, serial LIS selects the existing bounded sparse Jacobi
+terminal automatically, printing its level, size and number of passes.
+This is an **approximate** terminal smoother, not an exact coarse solve,
+and it cannot guarantee Krylov convergence. Set
+`LIS_MFAMG_SPARSE_TERMINAL=0` to disallow this contact-only fallback,
+or `=1` to request it explicitly for any supported serial MFAMG
+configuration. Set `LIS_MFAMG_SPARSE_TERMINAL_PASSES` (1..32; default 8)
+to tune its effort. Early stagnation detection now compares the actual
+next Galerkin matrix dimension, rather than the aggregate count.
+The outer Krylov solver must still verify the original residual.
+
 ## Limitations
 
 The condensation bridge supports serial real-double unsplit CSR. Distributed
@@ -55,8 +74,7 @@ element counts for source and destination buffers.
 ## Build integration
 
 Configure/build and regression checks pass after autoreconf -fiv.
-Generated Makefile.in files for new condensation sources and tests must be
-regenerated and reviewed before merging if downstream uses the checked-in
-Autotools build files directly.
+The tracked Automake Makefile.in files were regenerated at af465c78;
+the native CI checks that they stay consistent with Automake inputs.
 
 Private CalculiX matrix snapshots are excluded from this PR.
