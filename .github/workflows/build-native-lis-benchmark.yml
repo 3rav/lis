@@ -22,6 +22,7 @@ jobs:
           autoreconf -fiv
           ./configure --disable-mpi --disable-omp --disable-fortran --disable-f90 --disable-saamg --enable-test CC=gcc CFLAGS="-O2"
           make -j2
+          make -j2 check
           mkdir -p native-dist/include
           # Default LIS libtool configuration builds a static liblis.a.
           test -f src/.libs/liblis.a
