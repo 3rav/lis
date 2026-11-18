@@ -32,7 +32,7 @@ int main(int argc,char **argv)
     LIS_MATRIX A=NULL;
     LIS_SOLVER solver=NULL;
     LIS_VECTOR b=NULL,x=NULL;
-    LIS_INT i,err;
+    LIS_INT i,err,status;
     int failed=1;
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS) return 2;
     err=lis_matrix_create(LIS_COMM_WORLD,&A); if(err)goto done;
@@ -66,7 +66,9 @@ int main(int argc,char **argv)
     ctx.fail_on=2;
     err=lis_vector_set_all((LIS_SCALAR)0.0,x);if(err)goto done;
     err=lis_solve(A,b,x,solver);
-    if(err==LIS_SUCCESS || ctx.calls<2)goto done;
+    if(err)goto done;
+    err=lis_solver_get_status(solver,&status);
+    if(err || status!=LIS_ERR_ILL_ARG || ctx.calls<2)goto done;
     failed=0;
 done:
     if(failed)
