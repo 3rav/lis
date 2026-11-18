@@ -31,10 +31,10 @@ jobs:
           else
             export CFLAGS="-O2 -g"
           fi
-          ./configure --enable-test --enable-omp --disable-mpi \
+          ./configure --enable-test --enable-omp --enable-half --disable-mpi \
             --disable-fortran --disable-f90 --disable-saamg
           make -j2
-          make -C test testmfamgilutp
+          make -C test testhalfilut
           cc -Iinclude -I. -fopenmp "$PWD/test/testbsraudit.c" \
             -Lsrc/.libs -llis -lm ${CFLAGS} ${LDFLAGS:-} -o test/testbsraudit
           cc -Iinclude -I. -fopenmp "$PWD/test/testgcrodrmatvecerror.c" \
@@ -54,7 +54,7 @@ jobs:
           OMP_NUM_THREADS=8 ./test/testsemidefiniteb
           OMP_NUM_THREADS=1 ./test/testgcrodrsequence
           OMP_NUM_THREADS=1 ./test/testfgcrodr
-          OMP_NUM_THREADS=4 ./test/testmfamgilutp --parallel-ras
+          OMP_NUM_THREADS=8 ./test/testhalfilut --parallel-ras-ilutp
 
       - name: Upload diagnostic logs on failure
         if: failure()
