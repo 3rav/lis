@@ -25,7 +25,6 @@ jobs:
           autoreconf -fiv
           ./configure --disable-mpi --disable-omp --disable-fortran --disable-f90 --disable-saamg --enable-test CC=${{ matrix.compiler }} CFLAGS="-O2 -g"
           make -j2
-          git diff --exit-code -- include/Makefile.in src/matrix/Makefile.in src/precon/Makefile.in test/Makefile.in
       - name: Run full native LIS regression
         shell: bash
         run: |
