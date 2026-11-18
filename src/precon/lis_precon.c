@@ -226,6 +226,8 @@ void lis_precon_row_source_destroy(
 	{
 		lis_precon_row_source_release(source,source->value_buffer);
 	}
+    lis_precon_row_source_release(source,source->batch_index);
+    lis_precon_row_source_release(source,source->batch_value);
 
 	lis_precon_operator_row_source_destroy(source);
 
@@ -234,6 +236,94 @@ void lis_precon_row_source_destroy(
 
 
 #undef __FUNC__
+/* Two batched callbacks load up to 16 consecutive USER rows into
+ * source-private scratch.  Nonsequential row access simply refreshes
+ * the cache; no semantics of the legacy single-row callback change. */
+static LIS_INT
+lis_precon_user_batch_get(LIS_PRECON_ROW_SOURCE *source,LIS_INT local_row)
+{
+    LIS_MATRIX A=source->A;
+    LIS_INT begin,end,nrows,needed,i,k,err;
+    LIS_INT expected[17];
+    LIS_INT *new_index=NULL;
+    LIS_SCALAR *new_value=NULL;
+
+    if(local_row<source->batch_first ||
+       local_row>=source->batch_last)
+    {
+        begin=local_row;
+        end=A->n-begin>16 ? begin+16 : A->n;
+        nrows=end-begin;
+        source->batch_first=source->batch_last=0;
+        memset(source->batch_offset,0,sizeof(source->batch_offset));
+        err=A->user_get_rows_batch(A->user_data,begin,end,
+                    source->batch_offset,0,NULL,NULL);
+        if(err) return err;
+        if(source->batch_offset[0]!=0) return LIS_ERR_ILL_ARG;
+        for(i=0;i<nrows;i++)
+        {
+            if(source->batch_offset[i]<0 ||
+               source->batch_offset[i+1]<source->batch_offset[i])
+                return LIS_ERR_ILL_ARG;
+        }
+        needed=source->batch_offset[nrows];
+        memcpy(expected,source->batch_offset,
+               (size_t)(nrows+1)*sizeof(LIS_INT));
+        if(needed>source->batch_capacity)
+        {
+            if((size_t)needed>SIZE_MAX/sizeof(LIS_INT) ||
+               (size_t)needed>SIZE_MAX/sizeof(LIS_SCALAR))
+                return LIS_OUT_OF_MEMORY;
+            new_index=(LIS_INT *)lis_precon_row_source_alloc(
+                source,(size_t)needed*sizeof(LIS_INT),
+                "lis_precon_user_batch_get::index");
+            new_value=(LIS_SCALAR *)lis_precon_row_source_alloc(
+                source,(size_t)needed*sizeof(LIS_SCALAR),
+                "lis_precon_user_batch_get::value");
+            if(new_index==NULL || new_value==NULL)
+            {
+                lis_precon_row_source_release(source,new_index);
+                lis_precon_row_source_release(source,new_value);
+                return LIS_OUT_OF_MEMORY;
+            }
+            lis_precon_row_source_release(source,source->batch_index);
+            lis_precon_row_source_release(source,source->batch_value);
+            source->batch_index=new_index;
+            source->batch_value=new_value;
+            source->batch_capacity=needed;
+        }
+        if(needed>0)
+        {
+            err=A->user_get_rows_batch(A->user_data,begin,end,
+                    source->batch_offset,source->batch_capacity,
+                    source->batch_index,source->batch_value);
+            if(err) return err;
+            for(i=0;i<=nrows;i++)
+                if(source->batch_offset[i]!=expected[i])
+                    return LIS_ERR_ILL_ARG;
+            for(k=0;k<needed;k++)
+                if(source->batch_index[k]<0 ||
+                   source->batch_index[k]>=A->n)
+                    return LIS_ERR_ILL_ARG;
+        }
+        source->batch_first=begin;
+        source->batch_last=end;
+    }
+    i=local_row-source->batch_first;
+    source->nnz=source->batch_offset[i+1]-source->batch_offset[i];
+    if(source->nnz>0)
+    {
+        source->index=source->batch_index+source->batch_offset[i];
+        source->value=source->batch_value+source->batch_offset[i];
+    }
+    else
+    {
+        source->index=NULL;
+        source->value=NULL;
+    }
+    return LIS_SUCCESS;
+}
+
 #define __FUNC__ "lis_precon_row_source_get"
 LIS_INT lis_precon_row_source_get(
 	LIS_PRECON_ROW_SOURCE *source,
@@ -335,7 +425,8 @@ LIS_INT lis_precon_row_source_get(
 	{
 		return LIS_ERR_NOT_IMPLEMENTED;
 	}
-
+    if(A->user_get_rows_batch!=NULL)
+        return lis_precon_user_batch_get(source,local_row);
 
 	/*
 	 * First callback invocation is a row-size query.
