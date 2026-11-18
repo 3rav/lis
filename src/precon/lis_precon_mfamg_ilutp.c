@@ -56,6 +56,8 @@ lis_precon_destroy_mfamg_ilutp(LIS_PRECON precon)
     return LIS_SUCCESS;
 }
 
+#undef __FUNC__
+#define __FUNC__ "lis_mfamg_ilutp_create_child"
 static LIS_INT
 lis_mfamg_ilutp_create_child(LIS_SOLVER outer, LIS_INT kind,
                               LIS_SOLVER *created)
@@ -128,6 +130,10 @@ lis_mfamg_ilutp_create_child(LIS_SOLVER outer, LIS_INT kind,
         child->ilut_ras_domains=outer->ilut_ras_domains;
         child->ilut_schur=0;
     }
+
+    /* Metadata setters invalidate retained sequence state, including A.
+     * Restore the borrowed operator only after all child setters finish. */
+    child->A=outer->A;
 
     err=lis_precon_create(child,&child->precon);
     if(err)
