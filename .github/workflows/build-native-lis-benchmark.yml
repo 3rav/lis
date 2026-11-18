@@ -23,9 +23,9 @@ jobs:
           ./configure --disable-mpi --disable-omp --disable-fortran --disable-f90 --disable-saamg --enable-test CC=gcc CFLAGS="-O2"
           make -j2
           mkdir -p native-dist/include
-          test -f src/.libs/liblis.so
-          cp -L src/.libs/liblis.so native-dist/liblis.so.0
-          cp -L src/.libs/liblis.so native-dist/liblis.so
+          # Default LIS libtool configuration builds a static liblis.a.
+          test -f src/.libs/liblis.a
+          cp src/.libs/liblis.a native-dist/liblis.a
           cp include/lis.h include/lis_condense_lis.h include/lis_condense_core.h native-dist/include/
           if test -f include/lis_config.h; then cp include/lis_config.h native-dist/include/; fi
           if test -f lis_config.h; then cp lis_config.h native-dist/include/; fi
@@ -33,8 +33,8 @@ jobs:
           elif test -x test/lsolve && test ! -L test/lsolve; then cp -L test/lsolve native-dist/lsolve; fi
           echo "--- LIS binary ---"
           ls -alh native-dist native-dist/include
-          file native-dist/liblis.so.0
-          ldd native-dist/liblis.so.0
+          file native-dist/liblis.a
+          nm -g native-dist/liblis.a | grep -m 1 lis_sc_lis_create || true
       - name: Publish native LIS binary for private local benchmark
         uses: actions/upload-artifact@v4
         with:
