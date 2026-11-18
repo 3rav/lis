@@ -3785,6 +3785,7 @@ lis_mfamg_propagate_contact_partition(
 {
     LIS_INT i, a, q, first, last, count;
     size_t bytes;
+    unsigned char *assigned=NULL;
 
     if(fine==NULL || coarse==NULL)
     {
@@ -3804,10 +3805,21 @@ lis_mfamg_propagate_contact_partition(
     if((size_t)coarse->n > ((size_t)-1)/sizeof(LIS_INT))
         return LIS_OUT_OF_MEMORY;
     bytes=(size_t)coarse->n*sizeof(LIS_INT);
+    /* No label value can serve as an unassigned sentinel: contact IDs may
+     * use the entire LIS_INT range. Track assignments explicitly. */
+    assigned=(unsigned char *)lis_malloc(
+        (size_t)coarse->n,"lis_mfamg_propagate_contact_partition::assigned");
+    if(assigned==NULL)
+    {
+        LIS_SETERR_MEM((size_t)coarse->n);
+        return LIS_OUT_OF_MEMORY;
+    }
+    memset(assigned,0,(size_t)coarse->n);
     coarse->contact_partition=(LIS_INT *)lis_malloc(
         bytes,"lis_mfamg_propagate_contact_partition::coarse");
     if(coarse->contact_partition==NULL)
     {
+        lis_free(assigned);
         LIS_SETERR_MEM(bytes);
         return LIS_OUT_OF_MEMORY;
     }
@@ -3820,7 +3832,7 @@ lis_mfamg_propagate_contact_partition(
         {
             LIS_SETERR(LIS_ERR_ILL_ARG,
                 "CA-MFAMG partition transfer has invalid aggregate ID\n");
-            return LIS_ERR_ILL_ARG;
+            goto invalid;
         }
         first=fine->aggregate_offset ? fine->aggregate_offset[a] : a;
         last=fine->aggregate_offset ? fine->aggregate_offset[a+1] : a+1;
@@ -3831,9 +3843,36 @@ lis_mfamg_propagate_contact_partition(
             return LIS_ERR_ILL_ARG;
         }
         for(q=first;q<last;q++)
-            coarse->contact_partition[q]=fine->contact_partition[i];
+        {
+            if(!assigned[q])
+            {
+                coarse->contact_partition[q]=fine->contact_partition[i];
+                assigned[q]=1;
+            }
+            else if(coarse->contact_partition[q]!=fine->contact_partition[i])
+            {
+                LIS_SETERR(LIS_ERR_ILL_ARG,
+                    "CA-MFAMG aggregate mixes contact partition labels\n");
+                goto invalid;
+            }
+        }
     }
+    /* Every coarse mode must be assigned by at least one fine DOF. */
+    for(q=0;q<coarse->n;q++)
+        if(!assigned[q])
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                "CA-MFAMG partition transfer left an unlabelled coarse DOF\n");
+            goto invalid;
+        }
+    lis_free(assigned);
     return LIS_SUCCESS;
+
+invalid:
+    lis_free(assigned);
+    lis_free(coarse->contact_partition);
+    coarse->contact_partition=NULL;
+    return LIS_ERR_ILL_ARG;
 }
 
 static LIS_INT

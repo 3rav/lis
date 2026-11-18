@@ -37,8 +37,11 @@ lis_sc_status lis_sc_lis_reconstruct(const lis_sc_lis_session *session,
                                       LIS_VECTOR x_full);
 lis_sc_status lis_sc_lis_residual(const lis_sc_lis_session *session,
                                    LIS_VECTOR b_full,LIS_VECTOR x_full,double *rr);
+/* Caller supplies element counts for both buffers; invalid lengths leave the
+ * destination untouched. These are counts of LIS_INT, not byte lengths. */
 lis_sc_status lis_sc_lis_labels(const lis_sc_lis_session *session,
-                                 const LIS_INT *full_labels,LIS_INT *physical_labels);
+                                 const LIS_INT *full_labels,size_t full_label_count,
+                                 LIS_INT *physical_labels,size_t physical_label_count);
 /* Project caller-owned full-space LIS vectors to preallocated reduced vectors.
  * The function does not allocate or take ownership of either vector array.
  * No assumption is made about the number or physical meaning of the modes.

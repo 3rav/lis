@@ -266,9 +266,15 @@ static int run(int argc,char **argv){
         full_labels[phys[i]]=i/80; /* first step: three contact groups */
         full_changed[phys[i]]=i/60; /* second step: four groups */
     }
+    /* Short labels buffers must fail without touching the destination. */
+    labels[0]=-7777;
+    if(lis_sc_lis_labels(sc,full_labels,N-1,labels,NP)!=LIS_SC_BAD_ARGUMENT ||
+       labels[0]!=-7777 ||
+       lis_sc_lis_labels(sc,full_labels,N,labels,NP-1)!=LIS_SC_BAD_ARGUMENT ||
+       labels[0]!=-7777)goto done;
     /* Exercise the actual full->reduced partition projection API. */
-    if(lis_sc_lis_labels(sc,full_labels,labels)!=LIS_SC_OK ||
-       lis_sc_lis_labels(sc,full_changed,changed_labels)!=LIS_SC_OK)goto done;
+    if(lis_sc_lis_labels(sc,full_labels,N,labels,NP)!=LIS_SC_OK ||
+       lis_sc_lis_labels(sc,full_changed,N,changed_labels,NP)!=LIS_SC_OK)goto done;
     if(labels[0]!=0 || labels[NP-1]!=2 ||
        changed_labels[0]!=0 || changed_labels[NP-1]!=3)goto done;
     for(k=0;k<NMODES;k++){

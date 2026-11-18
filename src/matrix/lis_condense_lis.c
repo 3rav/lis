@@ -42,8 +42,9 @@ lis_sc_status lis_sc_lis_reconstruct(const lis_sc_lis_session*s,LIS_VECTOR u,LIS
 lis_sc_status lis_sc_lis_residual(const lis_sc_lis_session*s,LIS_VECTOR b,LIS_VECTOR x,double *rr){
     (void)s;(void)b;(void)x;(void)rr;return LIS_SC_UNSUPPORTED;
 }
-lis_sc_status lis_sc_lis_labels(const lis_sc_lis_session*s,const LIS_INT *a,LIS_INT *b){
-    (void)s;(void)a;(void)b;return LIS_SC_UNSUPPORTED;
+lis_sc_status lis_sc_lis_labels(const lis_sc_lis_session*s,const LIS_INT *a,
+                                 size_t an,LIS_INT *b,size_t bn){
+    (void)s;(void)a;(void)an;(void)b;(void)bn;return LIS_SC_UNSUPPORTED;
 }
 lis_sc_status lis_sc_lis_modes(const lis_sc_lis_session*s,LIS_INT nvec,
                                 LIS_VECTOR const full_modes[],
@@ -286,11 +287,21 @@ lis_sc_status lis_sc_lis_residual(const lis_sc_lis_session*s,LIS_VECTOR b,LIS_VE
        !dims(s,x,lis_sc_physical_dofs(s->plan)+lis_sc_internal_dofs(s->plan)))return LIS_SC_BAD_ARGUMENT;
     return lis_sc_true_residual(s->plan,b->value,x->value,rr);
 }
-lis_sc_status lis_sc_lis_labels(const lis_sc_lis_session*s,const LIS_INT *src,LIS_INT *out){
-    size_t i;
+lis_sc_status lis_sc_lis_labels(const lis_sc_lis_session*s,const LIS_INT *src,
+                                 size_t src_count,LIS_INT *out,size_t out_count){
+    size_t i,nphys,ninternal;
+    const size_t *u2full;
     if(!s||!s->plan||!src||!out)return LIS_SC_BAD_ARGUMENT;
-    const size_t *u2full=lis_sc_physical_to_full(s->plan);
-    for(i=0;i<lis_sc_physical_dofs(s->plan);i++)out[i]=src[u2full[i]];
+    nphys=lis_sc_physical_dofs(s->plan);
+    ninternal=lis_sc_internal_dofs(s->plan);
+    if(nphys>SIZE_MAX-ninternal || src_count<nphys+ninternal ||
+       out_count<nphys)return LIS_SC_BAD_ARGUMENT;
+    u2full=lis_sc_physical_to_full(s->plan);
+    if(!u2full)return LIS_SC_BAD_ARGUMENT;
+    /* Validate every index before changing the caller's output. */
+    for(i=0;i<nphys;i++)
+        if(u2full[i]>=src_count)return LIS_SC_BAD_ARGUMENT;
+    for(i=0;i<nphys;i++)out[i]=src[u2full[i]];
     return LIS_SC_OK;
 }
 
