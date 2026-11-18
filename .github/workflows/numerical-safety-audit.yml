@@ -34,6 +34,7 @@ jobs:
           ./configure --enable-test --enable-omp --disable-mpi \
             --disable-fortran --disable-f90 --disable-saamg
           make -j2
+          make -C test testmfamgilutp
           cc -Iinclude -I. -fopenmp "$PWD/test/testbsraudit.c" \
             -Lsrc/.libs -llis -lm ${CFLAGS} ${LDFLAGS:-} -o test/testbsraudit
           cc -Iinclude -I. -fopenmp "$PWD/test/testgcrodrmatvecerror.c" \
