@@ -952,16 +952,16 @@ static int check_gain_limit_policy(void)
     if(setenv("LIS_ILUTP_GAIN_LIMIT","1e-30",1)!=0)goto done;
 #endif
     err=lis_precon_create(solver,&pc);
+    if(err!=LIS_SUCCESS) pc=NULL; /* creation already destroyed failed pc */
     if(err!=LIS_BREAKDOWN)goto done;
-    pc=NULL;
 #ifdef _WIN32
     if(_putenv_s("LIS_ILUTP_GAIN_LIMIT","invalid")!=0)goto done;
 #else
     if(setenv("LIS_ILUTP_GAIN_LIMIT","invalid",1)!=0)goto done;
 #endif
     err=lis_precon_create(solver,&pc);
+    if(err!=LIS_SUCCESS) pc=NULL;
     if(err!=LIS_ERR_ILL_ARG)goto done;
-    pc=NULL;
 #ifdef _WIN32
     if(_putenv_s("LIS_ILUTP_GAIN_LIMIT","")!=0)goto done;
 #else
