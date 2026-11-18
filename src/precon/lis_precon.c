@@ -47,6 +47,7 @@
 #endif
 #include <math.h>
 #include <limits.h>
+#include <stdint.h>
 #include "lislib.h"
 
 /************************************************
