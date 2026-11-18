@@ -38,6 +38,8 @@ jobs:
             -Lsrc/.libs -llis -lm ${CFLAGS} ${LDFLAGS:-} -o test/testbsraudit
           cc -Iinclude -I. -fopenmp "$PWD/test/testgcrodrmatvecerror.c" \
             -Lsrc/.libs -llis -lm ${CFLAGS} ${LDFLAGS:-} -o test/testgcrodrmatvecerror
+          cc -Iinclude -I. -fopenmp "$PWD/test/testsemidefiniteb.c" \
+            -Lsrc/.libs -llis -lm ${CFLAGS} ${LDFLAGS:-} -o test/testsemidefiniteb
       - name: Run BSR numerical checks with one and eight threads
         shell: bash
         run: |
@@ -47,6 +49,8 @@ jobs:
           OMP_NUM_THREADS=8 ./test/testbsraudit
           OMP_NUM_THREADS=1 ./test/testgcrodrmatvecerror
           OMP_NUM_THREADS=1 ./test/testilutp
+          OMP_NUM_THREADS=1 ./test/testsemidefiniteb
+          OMP_NUM_THREADS=8 ./test/testsemidefiniteb
       - name: Upload diagnostic logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
