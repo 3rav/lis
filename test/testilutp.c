@@ -5,6 +5,7 @@
 #include "lis_solver_options.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -927,6 +928,62 @@ done:
     return failed;
 }
 
+
+/* The gain bound is an explicit opt-in failure policy; normal builds are
+ * unaffected by an unset limit and invalid user limits are rejected. */
+static int check_gain_limit_policy(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_INT err=0;
+    int failed=1;
+    err=make_sparse_matrix(&A,0);if(err)goto done;
+    err=lis_solver_create(&solver);if(err)goto done;
+    solver->A=A;
+    err=lis_solver_set_option(
+        "-p ilut -ilutp 1 -ilutp_threshold 0.5 "
+        "-ilut_drop 0.01 -ilut_rate 2 -scale none -omp_num_threads 1",
+        solver);
+    if(err)goto done;
+#ifdef _WIN32
+    if(_putenv_s("LIS_ILUTP_GAIN_LIMIT","1e-30")!=0)goto done;
+#else
+    if(setenv("LIS_ILUTP_GAIN_LIMIT","1e-30",1)!=0)goto done;
+#endif
+    err=lis_precon_create(solver,&pc);
+    if(err!=LIS_BREAKDOWN)goto done;
+    pc=NULL;
+#ifdef _WIN32
+    if(_putenv_s("LIS_ILUTP_GAIN_LIMIT","invalid")!=0)goto done;
+#else
+    if(setenv("LIS_ILUTP_GAIN_LIMIT","invalid",1)!=0)goto done;
+#endif
+    err=lis_precon_create(solver,&pc);
+    if(err!=LIS_ERR_ILL_ARG)goto done;
+    pc=NULL;
+#ifdef _WIN32
+    if(_putenv_s("LIS_ILUTP_GAIN_LIMIT","")!=0)goto done;
+#else
+    if(unsetenv("LIS_ILUTP_GAIN_LIMIT")!=0)goto done;
+#endif
+    err=lis_precon_create(solver,&pc);
+    if(err || pc==NULL)goto done;
+    failed=0;
+done:
+#ifdef _WIN32
+    _putenv_s("LIS_ILUTP_GAIN_LIMIT","");
+#else
+    unsetenv("LIS_ILUTP_GAIN_LIMIT");
+#endif
+    if(failed)
+        fprintf(stderr,"ILUTP gain-limit policy FAIL err=%d\n",(int)err);
+    if(pc)lis_precon_destroy(pc);
+    if(solver)lis_solver_destroy(solver);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     int failed=0;
@@ -955,6 +1012,7 @@ int main(int argc,char **argv)
     failed|=check_hybrid_equil_user_rejection();
     failed|=check_ilutp_half_guard();
     failed|=check_full_fill();
+    failed|=check_gain_limit_policy();
     err=lis_solver_create(&solver);
     if(err)failed=1;
     else
