@@ -1,0 +1,53 @@
+name: Validate CA-MFAMG contact hierarchy fix
+on:
+  push:
+    branches: ["fix/ca-mfamg-stall-*"]
+  workflow_dispatch:
+
+jobs:
+  native:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool clang
+      - name: Configure and compile native LIS
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          ./configure --disable-mpi --disable-omp --disable-fortran --disable-f90 --disable-saamg --enable-test CC=${{ matrix.compiler }} CFLAGS="-O2 -g"
+          make -j2
+          git diff --exit-code -- include/Makefile.in src/matrix/Makefile.in src/precon/Makefile.in test/Makefile.in
+      - name: Run full native LIS regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! make -j2 check; then
+            find test -name '*.log' -size +0c | xargs -r grep -n -E 'FAIL|ERROR|failed|MFAMG' | tail -100 || true
+            exit 1
+          fi
+      - name: Save benchmark-ready native library (no private data)
+        if: matrix.compiler == 'gcc'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p native-dist/include
+          cp src/.libs/liblis.a native-dist/liblis.a
+          cp include/lis.h include/lis_condense_lis.h include/lis_condense_core.h native-dist/include/
+          if test -f include/lis_config.h; then cp include/lis_config.h native-dist/include/; fi
+          if test -f lis_config.h; then cp lis_config.h native-dist/include/; fi
+      - uses: actions/upload-artifact@v4
+        if: matrix.compiler == 'gcc'
+        with:
+          name: native-lis-ca-hierarchy-validated
+          path: native-dist/
+          if-no-files-found: error
+          retention-days: 3
