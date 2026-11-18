@@ -20,6 +20,53 @@ typedef struct
     LIS_REAL magnitude;
 } LIS_ILUTP_ENTRY;
 
+
+/* Conservative infinity-norm bound for (L U)^-1, after final U remapping.
+ * Uses triangular majorants, not an exact condition number.  This is
+ * diagnostic / opt-in fail-fast only: never change the operator silently.
+ * work is the n-entry scratch array already owned by ILUTP setup.
+ */
+#if !defined(_COMPLEX) && !defined(USE_COMPLEX)
+static LIS_REAL
+lis_ilutp_inverse_gain_bound(LIS_MATRIX_ILU L,LIS_MATRIX_ILU U,
+                             LIS_VECTOR D,LIS_SCALAR *work,LIS_INT n,
+                             LIS_REAL *lower_bound,LIS_REAL *upper_bound)
+{
+    LIS_INT i,j,col;
+    LIS_REAL sum,lmax=(LIS_REAL)0.0,umax=(LIS_REAL)0.0;
+    for(i=0;i<n;i++)
+    {
+        sum=(LIS_REAL)1.0;
+        for(j=0;j<L->nnz[i];j++)
+        {
+            col=L->index[i][j];
+            if(col<0 || col>=i) return (LIS_REAL)HUGE_VAL;
+            sum+=fabs((double)L->value[i][j])*(LIS_REAL)work[col];
+        }
+        if(!isfinite((double)sum)) return (LIS_REAL)HUGE_VAL;
+        work[i]=(LIS_SCALAR)sum;
+        if(sum>lmax) lmax=sum;
+    }
+    for(i=n;i-- > 0;)
+    {
+        sum=(LIS_REAL)1.0;
+        for(j=0;j<U->nnz[i];j++)
+        {
+            col=U->index[i][j];
+            if(col<=i || col>=n) return (LIS_REAL)HUGE_VAL;
+            sum+=fabs((double)U->value[i][j])*(LIS_REAL)work[col];
+        }
+        sum*=fabs((double)D->value[i]);
+        if(!isfinite((double)sum)) return (LIS_REAL)HUGE_VAL;
+        work[i]=(LIS_SCALAR)sum;
+        if(sum>umax) umax=sum;
+    }
+    if(lower_bound) *lower_bound=lmax;
+    if(upper_bound) *upper_bound=umax;
+    return lmax*umax;
+}
+#endif
+
 static int
 lis_ilutp_compare_desc(const void *va,const void *vb)
 {
@@ -449,6 +496,48 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
             }
             U->index[i][j]=col;
         }
+
+    /* Optional post-factorization bound.  Defaults remain unchanged. */
+    {
+        const char *diag_env=getenv("LIS_ILUTP_GAIN_DIAG");
+        const char *limit_env=getenv("LIS_ILUTP_GAIN_LIMIT");
+        LIS_INT report=(diag_env!=NULL && *diag_env!='\\0' &&
+                        strcmp(diag_env,"0")!=0);
+        if(report || (limit_env!=NULL && *limit_env!='\\0'))
+        {
+            LIS_REAL lower_bound=0.0,upper_bound=0.0,gain;
+            LIS_REAL limit=(LIS_REAL)0.0;
+            if(limit_env!=NULL && *limit_env!='\\0')
+            {
+                char *end;
+                double parsed=strtod(limit_env,&end);
+                if(end==limit_env || *end!='\\0' || !isfinite(parsed) ||
+                   parsed<=0.0)
+                {
+                    LIS_SETERR(LIS_ERR_ILL_ARG,
+                               "LIS_ILUTP_GAIN_LIMIT must be positive and finite");
+                    err=LIS_ERR_ILL_ARG;
+                    goto cleanup;
+                }
+                limit=(LIS_REAL)parsed;
+            }
+            gain=lis_ilutp_inverse_gain_bound(
+                L,U,D,w,n,&lower_bound,&upper_bound);
+            if(report)
+                fprintf(stderr,
+                    "ILUTP_GAIN_BOUND n=%lld L=%.8g U=%.8g product=%.8g\\n",
+                    (long long)n,(double)lower_bound,
+                    (double)upper_bound,(double)gain);
+            if(limit>0.0 && (!isfinite((double)gain) || gain>limit))
+            {
+                LIS_SETERR(LIS_BREAKDOWN,
+                    "ILUTP estimated inverse-gain upper bound exceeds "
+                    "LIS_ILUTP_GAIN_LIMIT");
+                err=LIS_BREAKDOWN;
+                goto cleanup;
+            }
+        }
+    }
 
     precon->L=L; L=NULL;
     precon->U=U; U=NULL;
