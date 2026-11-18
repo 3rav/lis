@@ -542,17 +542,17 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
     {
         const char *diag_env=getenv("LIS_ILUTP_GAIN_DIAG");
         const char *limit_env=getenv("LIS_ILUTP_GAIN_LIMIT");
-        LIS_INT report=(diag_env!=NULL && *diag_env!='\\0' &&
+        LIS_INT report=(diag_env!=NULL && *diag_env!='\0' &&
                         strcmp(diag_env,"0")!=0);
-        if(report || (limit_env!=NULL && *limit_env!='\\0'))
+        if(report || (limit_env!=NULL && *limit_env!='\0'))
         {
             LIS_REAL lower_bound=0.0,upper_bound=0.0,gain;
             LIS_REAL limit=(LIS_REAL)0.0;
-            if(limit_env!=NULL && *limit_env!='\\0')
+            if(limit_env!=NULL && *limit_env!='\0')
             {
                 char *end;
                 double parsed=strtod(limit_env,&end);
-                if(end==limit_env || *end!='\\0' || !isfinite(parsed) ||
+                if(end==limit_env || *end!='\0' || !isfinite(parsed) ||
                    parsed<=0.0)
                 {
                     LIS_SETERR(LIS_ERR_ILL_ARG,
@@ -566,7 +566,7 @@ lis_precon_create_ilutp_csr(LIS_SOLVER solver,LIS_PRECON precon)
                 L,U,D,w,n,&lower_bound,&upper_bound);
             if(report)
                 fprintf(stderr,
-                    "ILUTP_GAIN_BOUND n=%lld L=%.8g U=%.8g product=%.8g\\n",
+                    "ILUTP_GAIN_BOUND n=%lld L=%.8g U=%.8g product=%.8g\n",
                     (long long)n,(double)lower_bound,
                     (double)upper_bound,(double)gain);
             if(limit>0.0 && (!isfinite((double)gain) || gain>limit))
