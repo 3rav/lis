@@ -41,6 +41,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <limits.h>
+#include <stdint.h>
 #ifdef USE_SSE2
 	#include <emmintrin.h>
 #endif
@@ -123,7 +124,7 @@ void lis_version(void)
 LIS_INT lis_initialize(int* argc, char** argv[])
 {
 	LIS_ARGS p;
-	LIS_INT	i,nprocs;
+	LIS_INT	i,nprocs,err;
 
 	LIS_DEBUG_FUNC_IN;
 
@@ -147,7 +148,8 @@ LIS_INT lis_initialize(int* argc, char** argv[])
 		nprocs = omp_get_max_threads();
 	#endif
 
-	lis_arg2args(*argc,*argv,&cmd_args);
+	err = lis_arg2args(*argc,*argv,&cmd_args);
+	if(err) return err;
 	p = cmd_args->next;
 	while( p!=cmd_args )
 	{
@@ -171,7 +173,17 @@ LIS_INT lis_initialize(int* argc, char** argv[])
 	}
 
 	#ifdef _OPENMP
-		omp_set_num_threads(nprocs);
+        if(nprocs<1 || (size_t)nprocs>INT_MAX ||
+           (size_t)nprocs>
+              SIZE_MAX/((size_t)LIS_VEC_TMP_PADD*sizeof(LIS_SCALAR)))
+        {
+            lis_args_free(cmd_args);
+            cmd_args=NULL;
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                       "OpenMP thread count is invalid or overflows scratch size");
+            return LIS_ERR_ILL_ARG;
+        }
+		omp_set_num_threads((int)nprocs);
 		lis_omp_thread_capacity = nprocs;
 		/*
 		 * lis_vec_tms is declared and indexed as LIS_SCALAR*.  Extended
