@@ -40,6 +40,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <limits.h>
 #ifdef USE_SSE2
 	#include <emmintrin.h>
 #endif
@@ -373,7 +374,8 @@ LIS_INT lis_arg2args(LIS_INT argc, char *argv[], LIS_ARGS *args)
            (i+1)<argc && argv[i+1]!=NULL)
         {
             size_t len1=strlen(argv[i]),len2=strlen(argv[i+1]);
-            if(len1>(size_t)LIS_INT_MAX || len2>(size_t)LIS_INT_MAX)
+            if(len1>(sizeof(LIS_INT)<=sizeof(int) ? (size_t)INT_MAX : (size_t)LLONG_MAX) ||
+               len2>(sizeof(LIS_INT)<=sizeof(int) ? (size_t)INT_MAX : (size_t)LLONG_MAX))
                 goto invalid;
             k1=(LIS_INT)len1;
             k2=(LIS_INT)len2;
