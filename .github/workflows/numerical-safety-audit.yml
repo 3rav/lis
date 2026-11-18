@@ -51,6 +51,10 @@ jobs:
           OMP_NUM_THREADS=1 ./test/testilutp
           OMP_NUM_THREADS=1 ./test/testsemidefiniteb
           OMP_NUM_THREADS=8 ./test/testsemidefiniteb
+          OMP_NUM_THREADS=1 ./test/testgcrodrsequence
+          OMP_NUM_THREADS=1 ./test/testfgcrodr
+          OMP_NUM_THREADS=4 ./test/testmfamgilutp --parallel-ras
+
       - name: Upload diagnostic logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
