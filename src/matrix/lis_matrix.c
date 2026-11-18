@@ -1407,6 +1407,7 @@ LIS_INT lis_matrix_set_user(LIS_MATRIX A, void *user_data,
 	A->user_matvech_block = NULL;
 	A->user_get_diagonal = NULL;
 	A->user_get_row      = NULL;
+	A->user_get_rows_batch = NULL;
 	A->user_get_row_thread_safe = LIS_FALSE;
 
 	LIS_DEBUG_FUNC_OUT;
@@ -1487,6 +1488,7 @@ LIS_INT lis_matrix_set_user_row(
         }
 
         A->user_get_row = get_row;
+        A->user_get_rows_batch = NULL;
         /*
          * Thread safety belongs to the currently installed callback.
          * Replacing the callback always requires a new explicit opt-in.
@@ -1495,6 +1497,33 @@ LIS_INT lis_matrix_set_user_row(
 
         LIS_DEBUG_FUNC_OUT;
         return LIS_SUCCESS;
+}
+
+#undef __FUNC__
+#define __FUNC__ "lis_matrix_set_user_rows_batch"
+LIS_INT lis_matrix_set_user_rows_batch(
+    LIS_MATRIX A,LIS_MATRIX_USER_GET_ROWS_BATCH get_rows_batch)
+{
+    LIS_INT err;
+    LIS_DEBUG_FUNC_IN;
+    err=lis_matrix_check(A,LIS_MATRIX_CHECK_ALL);
+    if(err) return err;
+    if(A->matrix_type!=LIS_MATRIX_USER)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,"batch row callback requires USER matrix");
+        return LIS_ERR_ILL_ARG;
+    }
+    if(get_rows_batch!=NULL && A->user_get_row==NULL)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "install single-row callback before batch-row optimization");
+        return LIS_ERR_ILL_ARG;
+    }
+    A->user_get_rows_batch=get_rows_batch;
+    /* Reaffirm callback thread safety after replacing an implementation. */
+    A->user_get_row_thread_safe=LIS_FALSE;
+    LIS_DEBUG_FUNC_OUT;
+    return LIS_SUCCESS;
 }
 
 #undef __FUNC__
