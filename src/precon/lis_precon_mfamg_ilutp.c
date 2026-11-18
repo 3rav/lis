@@ -305,6 +305,46 @@ lis_psolve_mfamg_ilutp(LIS_SOLVER solver,LIS_VECTOR b,LIS_VECTOR x)
     /* Save b first, including when caller aliases input and output. */
     err=lis_vector_copy(b,state->rhs);
     if(err) return err;
+#if !defined(USE_COMPLEX) && !defined(_COMPLEX)
+    /* Experimental contact-aware safeguard: use the native ILUTP factor
+     * first, then accept the CA-MFAMG residual correction only when it
+     * decreases the actual unpreconditioned residual in the 2-norm.
+     * This changes no default non-contact MFAMG_ILUTP behavior.
+     *
+     * For c = MFAMG(r), choose alpha in [0,1] minimizing
+     * ||r - alpha*A*c||_2. The FGMRES outer solver allows this
+     * nonlinear, variable preconditioner.
+     */
+    if(solver->mfamg_contact_aware)
+    {
+        LIS_SCALAR numer=0.0,denom=0.0;
+        LIS_REAL alpha;
+        /* The initial ILUTP application is the guaranteed baseline.
+         * The correction is optional: a nonfinite candidate is discarded. */
+        err=lis_psolve_ilut_csr(state->ilutp,state->rhs,x);
+        if(err) return err;
+        err=lis_matvec(solver->A,x,state->ax);
+        if(err) return err;
+        err=lis_vector_axpy((LIS_SCALAR)-1.0,state->ax,state->rhs);
+        if(err) return err;
+        err=lis_psolve_mfamg(state->mfamg,state->rhs,state->correction);
+        if(err) return err;
+        err=lis_matvec(solver->A,state->correction,state->ax);
+        if(err) return err;
+        err=lis_vector_dot(state->rhs,state->ax,&numer);
+        if(err) return err;
+        err=lis_vector_dot(state->ax,state->ax,&denom);
+        if(err) return err;
+        if(!isfinite((double)numer) || !isfinite((double)denom) ||
+           denom<=0.0 || numer<=0.0)
+            return LIS_SUCCESS;
+        alpha=(LIS_REAL)(numer/denom);
+        if(!isfinite((double)alpha) || alpha<=0.0)
+            return LIS_SUCCESS;
+        if(alpha>1.0) alpha=1.0;
+        return lis_vector_axpy((LIS_SCALAR)alpha,state->correction,x);
+    }
+#endif
     /* Use the saved input so b==x is also safe. */
     err=lis_psolve_mfamg(state->mfamg,state->rhs,x);
     if(err) return err;
