@@ -48,16 +48,11 @@ jobs:
       - name: Generate Autotools files
         shell: bash
         run: autoreconf -fiv
-      # Temporary diagnostic: capture generated Makefile.in changes from the
-      # very same autoreconf environment used for native LIS tests.
-      - name: Export generated Automake diff for tracked build files
-        if: matrix.mode == 'serial'
+      - name: Verify tracked Automake files match regeneration
         shell: bash
         run: |
-          git diff --no-ext-diff --no-color --             include/Makefile.in src/matrix/Makefile.in             src/precon/Makefile.in test/Makefile.in > /tmp/lis-autotools-generated.diff
-          echo 'AUTOTOOLS_DIFF_BEGIN'
-          sed 's/^/AUTOTOOLS_DIFF|/' /tmp/lis-autotools-generated.diff
-          echo 'AUTOTOOLS_DIFF_END'
+          git diff --exit-code -- include/Makefile.in \
+            src/matrix/Makefile.in src/precon/Makefile.in test/Makefile.in
       - name: Configure, compile and test with true LIS
         shell: bash
         env:

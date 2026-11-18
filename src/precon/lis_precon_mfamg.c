@@ -3840,7 +3840,7 @@ lis_mfamg_propagate_contact_partition(
         {
             LIS_SETERR(LIS_ERR_ILL_ARG,
                 "CA-MFAMG partition transfer exceeds coarse dimension\n");
-            return LIS_ERR_ILL_ARG;
+            goto invalid;
         }
         for(q=first;q<last;q++)
         {
