@@ -36,6 +36,8 @@ jobs:
           make -j2
           cc -Iinclude -I. -fopenmp "$PWD/test/testbsraudit.c" \
             -Lsrc/.libs -llis -lm ${CFLAGS} ${LDFLAGS:-} -o test/testbsraudit
+          cc -Iinclude -I. -fopenmp "$PWD/test/testgcrodrmatvecerror.c" \
+            -Lsrc/.libs -llis -lm ${CFLAGS} ${LDFLAGS:-} -o test/testgcrodrmatvecerror
       - name: Run BSR numerical checks with one and eight threads
         shell: bash
         run: |
@@ -43,6 +45,8 @@ jobs:
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
           OMP_NUM_THREADS=1 ./test/testbsraudit
           OMP_NUM_THREADS=8 ./test/testbsraudit
+          OMP_NUM_THREADS=1 ./test/testgcrodrmatvecerror
+          OMP_NUM_THREADS=1 ./test/testilutp
       - name: Upload diagnostic logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
