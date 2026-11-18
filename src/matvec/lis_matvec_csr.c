@@ -111,6 +111,7 @@ void lis_matvec_csr(LIS_MATRIX A, LIS_SCALAR x[], LIS_SCALAR y[])
 	}
 }
 
+#ifdef _OPENMP
 /* Allocation-free serial fallback for transpose SpMV, used when the
  * OpenMP thread-private reduction buffer cannot safely be allocated. */
 static void
@@ -168,6 +169,8 @@ lis_matvech_csr_thread_scratch(LIS_INT nthreads,LIS_INT np)
     return (LIS_SCALAR *)lis_malloc(
         threads*rows*sizeof(LIS_SCALAR),"lis_matvech_csr::w");
 }
+
+#endif /* _OPENMP */
 
 void lis_matvech_csr(LIS_MATRIX A, LIS_SCALAR x[], LIS_SCALAR y[])
 {
