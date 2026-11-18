@@ -866,6 +866,67 @@ done:
     return failed;
 }
 
+
+/* Check adjoint relation for the actual dropped factors, not just exact LU. */
+static int check_adjoint_identity(int rcm,int scale,int equil)
+{
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_VECTOR x=NULL,y=NULL,px=NULL,py=NULL;
+    LIS_INT err=0,i;
+    char opts[400];
+    double lhs=0.0,rhs=0.0;
+    int failed=1;
+    err=make_sparse_matrix(&A,0); if(err)goto done;
+    err=lis_vector_duplicate(A,&x); if(err)goto done;
+    err=lis_vector_duplicate(A,&y); if(err)goto done;
+    err=lis_vector_duplicate(A,&px); if(err)goto done;
+    err=lis_vector_duplicate(A,&py); if(err)goto done;
+    for(i=0;i<REG_N;i++)
+    {
+        x->value[i]=(LIS_SCALAR)(0.25+sin((double)i*0.23));
+        y->value[i]=(LIS_SCALAR)(0.45+cos((double)i*0.17));
+    }
+    err=lis_solver_create(&solver); if(err)goto done;
+    solver->A=A;
+    snprintf(opts,sizeof(opts),
+        "-p ilut -ilutp 1 -ilutp_threshold 0.5 "
+        "-ilut_rcm %d -ilut_row_scale %d -ilut_equil %d "
+        "-ilut_drop 0.03 -ilut_rate 1.4 "
+        "-ilu_pivot_tol 1e-9 -scale none -omp_num_threads 1",
+        rcm,scale,equil);
+    err=lis_solver_set_option(opts,solver); if(err)goto done;
+    err=lis_precon_create(solver,&pc);if(err){pc=NULL;goto done;}
+    solver->precon=pc;
+    err=lis_psolve_ilut_csr(solver,x,px);if(err)goto done;
+    err=lis_psolveh_ilut_csr(solver,y,py);if(err)goto done;
+    for(i=0;i<REG_N;i++)
+    {
+        lhs+=(double)px->value[i]*(double)y->value[i];
+        rhs+=(double)x->value[i]*(double)py->value[i];
+    }
+    if(!isfinite(lhs) || !isfinite(rhs) ||
+       fabs(lhs-rhs)>1e-9*(1.0+fabs(lhs)+fabs(rhs)))
+    {
+        fprintf(stderr,"ILUTP adjoint mismatch rcm=%d scale=%d equil=%d "
+            "lhs=%.17g rhs=%.17g\n",rcm,scale,equil,lhs,rhs);
+        goto done;
+    }
+    failed=0;
+done:
+    if(failed)fprintf(stderr,"ILUTP adjoint identity err=%d\n",(int)err);
+    if(solver) solver->precon=NULL;
+    if(pc) lis_precon_destroy(pc);
+    if(solver) lis_solver_destroy(solver);
+    if(py) lis_vector_destroy(py);
+    if(px) lis_vector_destroy(px);
+    if(y) lis_vector_destroy(y);
+    if(x) lis_vector_destroy(x);
+    if(A) lis_matrix_destroy(A);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     int failed=0;
@@ -885,6 +946,7 @@ int main(int argc,char **argv)
                 failed|=run_one(rcm,scale,equil,1);
                 failed|=check_tau_zero(rcm,scale,equil,0.0);
                 failed|=check_tau_zero(rcm,scale,equil,1e-300);
+                failed|=check_adjoint_identity((int)rcm,(int)scale,(int)equil);
             }
     failed|=check_fgmres_sequence();
     failed|=check_no_swap_kernel();
