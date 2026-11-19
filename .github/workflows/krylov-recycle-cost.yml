@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           autoreconf -fiv
-          ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg CFLAGS='-O2 -g'
+          ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg CFLAGS='-O2 -g -DLIS_RECYCLE_PROFILE'
           make -j2
           make -C test bench_recycle_cost
       - name: Time first and recycled solves at two problem sizes
