@@ -24,7 +24,7 @@ jobs:
           set -euo pipefail
           autoreconf -fiv
           if [ "${{ matrix.sanitizer }}" = asan-ubsan ]; then
-            export CFLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined"
+            export CFLAGS="-O1 -g -fno-omit-frame-pointer -DLIS_TEST_OOM -fsanitize=address,undefined"
             export LDFLAGS="-fsanitize=address,undefined"
           else
             export CFLAGS="-O2 -g"
