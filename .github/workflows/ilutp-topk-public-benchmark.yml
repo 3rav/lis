@@ -1,8 +1,6 @@
 name: Public ILUTP top-k A/B (numerical parity; timing non-gating)
 
 on:
-  push:
-    branches: ['bench/ilutp-topk-public-20261119']
   pull_request:
     branches: ['perf/ilutp-limited-fill-topk-20261119']
   workflow_dispatch:
@@ -18,7 +16,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - case: sparse-control
+          - case: banded-control
+            n: 1200
+            far: 0
+          - case: sparse-longrange
             n: 1200
             far: 1
           - case: medium-selection
