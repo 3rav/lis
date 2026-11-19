@@ -133,6 +133,56 @@ done:
     return bad;
 }
 
+/* Benchmark the actual generic USER SpMV path, rather than only direct
+ * row-source iteration. Repeats are fixed; timing is informational.
+ */
+static int run_spmv(int use_batch,int heavy,double *elapsed,
+                    double *checksum,unsigned long *dispatches)
+{
+    enum { N=2048, REPEATS=16 };
+    BENCH_CONTEXT ctx;
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR x=NULL,y=NULL;
+    LIS_INT i,r,err=0;
+    clock_t start,stop;
+    double sum=0.0;
+    int failed=1;
+    memset(&ctx,0,sizeof(ctx));
+    ctx.n=N;ctx.heavy=heavy;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err)goto done;
+    err=lis_matrix_set_size(A,0,N);if(err)goto done;
+    err=lis_matrix_set_user(A,&ctx,NULL,NULL);if(err)goto done;
+    err=lis_matrix_set_user_row(A,scalar_cb);if(err)goto done;
+    if(use_batch)
+    {
+        err=lis_matrix_set_user_rows_batch(A,batch_cb);
+        if(err)goto done;
+    }
+    err=lis_vector_duplicate(A,&x);if(err)goto done;
+    err=lis_vector_duplicate(A,&y);if(err)goto done;
+    for(i=0;i<N;i++) x->value[i]=(LIS_SCALAR)(1.0+0.0001*i);
+    start=clock();
+    for(r=0;r<REPEATS;r++)
+    {
+        err=lis_matvec(A,x,y);
+        if(err)goto done;
+        for(i=0;i<N;i++)sum+=(double)y->value[i];
+    }
+    stop=clock();
+    *elapsed=(double)(stop-start)/CLOCKS_PER_SEC;
+    *checksum=sum;
+    *dispatches=ctx.scalar_calls+ctx.batch_calls;
+    failed=0;
+done:
+    if(failed)fprintf(stderr,
+        "USER_BATCH_SPMV FAIL batch=%d heavy=%d err=%d\n",
+        use_batch,heavy,(int)err);
+    if(y)lis_vector_destroy(y);
+    if(x)lis_vector_destroy(x);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     int heavy,random_access,mode;
@@ -163,6 +213,33 @@ int main(int argc,char **argv)
                    heavy?"heavy":"light",
                    random_access?"strided":"sequential",
                    mode?"batch":"scalar",seconds,calls,checksum);
+        }
+    }
+    /* SpMV is the user-facing operation that benefits from this callback.
+     * Compare both callback variants on the identical matrix and vectors. */
+    for(heavy=0;heavy<=1;heavy++)
+    {
+        double reference=0.0;
+        for(mode=0;mode<=1;mode++)
+        {
+            double seconds=0.0,checksum=0.0;
+            unsigned long calls=0;
+            if(run_spmv(mode,heavy,&seconds,&checksum,&calls))
+            {
+                failed=1;
+                goto done;
+            }
+            if(mode==0)reference=checksum;
+            if(fabs(checksum-reference)>1e-10*(1.0+fabs(reference)))
+            {
+                failed=1;
+                fprintf(stderr,"USER_BATCH_SPMV checksum mismatch\n");
+                goto done;
+            }
+            printf("USER_BATCH_SPMV callback=%s mode=%s "
+                   "seconds=%.6f dispatches=%lu checksum=%.6f\n",
+                   heavy?"heavy":"light",mode?"batch":"scalar",
+                   seconds,calls,checksum);
         }
     }
 done:
