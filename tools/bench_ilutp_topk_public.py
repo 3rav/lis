@@ -40,12 +40,20 @@ def values_for_row(i, n, far, seed):
     diagonal = 1.0 + math.fsum(abs(v) for _, v in off)
     return sorted(off + [(i, diagonal)])
 
-def generate_inputs(n, far, seed, target):
+def generate_inputs(n, far, seed, target, pair_swap_columns=False):
     if n < 128 or not 0 <= far <= 32 or n <= 2 * far + 7:
         raise ValueError("require n>=128, 0<=far<=32, n>2*far+7")
+    if pair_swap_columns and n % 2:
+        raise ValueError("pair-swapped column benchmark requires even n")
     target.mkdir(parents=True, exist_ok=True)
     a_path, b_path = target / "synthetic_A.mtx", target / "synthetic_b.mtx"
     rows = [values_for_row(i, n, far, seed) for i in range(n)]
+    if pair_swap_columns:
+        # Apply a bijective source-column permutation to an invertible
+        # diagonally dominant matrix. This moves every dominant entry
+        # off the original diagonal and forces ILUTP column pivoting.
+        rows = [sorted(((j ^ 1, value) for j, value in row))
+                for row in rows]
     nnz = sum(map(len, rows))
     with a_path.open("w", encoding="ascii", newline="\n") as a, \
          b_path.open("w", encoding="ascii", newline="\n") as b:
@@ -63,6 +71,7 @@ def generate_inputs(n, far, seed, target):
             b.write(f"{rhs:.17g}\n")
     sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     return a_path, b_path, {"n": n, "nnz": nnz, "far_per_row": far,
+                            "pair_swap_columns": pair_swap_columns,
                             "seed": seed, "matrix_sha256": sha(a_path),
                             "rhs_sha256": sha(b_path)}
 
@@ -197,6 +206,8 @@ def main():
     p.add_argument("--out", type=Path, default=Path("ilutp-topk-results"))
     p.add_argument("--n", type=int, default=4000)
     p.add_argument("--far", type=int, default=8)
+    p.add_argument("--pair-swap-columns", action="store_true",
+                   help="swap source columns (0,1), (2,3), ... to exercise ILUTP pivoting")
     p.add_argument("--seed", type=int, default=20261119)
     p.add_argument("--rates", default="1,2,4,8")
     p.add_argument("--repeats", type=int, default=7)
@@ -221,7 +232,8 @@ def main():
         binaries[label] = binary
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    a, b, data_manifest = generate_inputs(args.n, args.far, args.seed, out / "inputs")
+    a, b, data_manifest = generate_inputs(args.n, args.far, args.seed,
+                                          out / "inputs", args.pair_swap_columns)
     config = {"maxiter": 220, "restart": 50, "rtol": 1e-8,
               "drop": 0, "pivot_tol": 1e-9}
     manifest = {"utc_started": datetime.now(timezone.utc).isoformat(),
