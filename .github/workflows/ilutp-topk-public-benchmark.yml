@@ -1,0 +1,64 @@
+name: Public ILUTP top-k A/B (numerical parity; timing non-gating)
+
+on:
+  push:
+    branches: ['bench/ilutp-topk-public-20261119']
+  pull_request:
+    branches: ['perf/ilutp-limited-fill-topk-20261119']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: harness
+      - uses: actions/checkout@v4
+        with:
+          ref: 3d027903ab079158d99bfc91f8ab6867c212dc20
+          path: base
+      - uses: actions/checkout@v4
+        with:
+          ref: 78e694a82fe15575b22df11977b7277617e9b039
+          path: candidate
+      - name: Install build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build pinned revisions with identical options
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tree in base candidate; do
+            (
+              cd "$tree"
+              autoreconf -fiv
+              ./configure --enable-test --disable-mpi --disable-fortran \
+                --disable-f90 --disable-saamg CFLAGS='-O2 -g'
+              make -j2
+              make -C test benchilutp
+            )
+          done
+      - name: Check parity and collect exploratory A/B CPU timings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 harness/tools/bench_ilutp_topk_public.py \
+            --baseline-bin "$PWD/base/test/benchilutp" \
+            --candidate-bin "$PWD/candidate/test/benchilutp" \
+            --n 1200 --far 8 --seed 20261119 \
+            --rates 1,2,4,8 --warmups 1 --repeats 3 \
+            --out "$PWD/public-ilutp-topk-results"
+      - name: Preserve inputs, every sample and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-ilutp-topk-ab-${{ github.run_id }}
+          path: public-ilutp-topk-results/
+          if-no-files-found: warn
