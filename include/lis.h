@@ -850,8 +850,6 @@ struct LIS_MATRIX_STRUCT
 	/* CSR ptr/index/value are borrowed from the application. */
 	LIS_INT csr_external;
 
-	/* Optional batched USER rows; appended to minimize ABI displacement. */
-	LIS_MATRIX_USER_GET_ROWS_BATCH user_get_rows_batch;
 };
 typedef struct LIS_MATRIX_STRUCT *LIS_MATRIX;
 
