@@ -55,8 +55,12 @@ not retain any of the scratch pointers beyond the call.
   fallback is still reported as an error.
 - Errors from the application batch callback, changing offsets between
   count/fill, and out-of-range column indices are **not** silently downgraded
-  to scalar callbacks. They invalidate the current batch and propagate to
-  the caller, including Krylov/preconditioner setup. A new request may retry
+  to scalar callbacks. They invalidate the current batch and return an error to
+  the direct row-source caller. The *solver* must also check error codes:
+  some older Krylov paths on baseline `develop` ignored USER matvec errors.
+  The independent correctness PR #98 fixes selected GCRO-DR paths; deploying
+  #97 without those changes does **not** guarantee end-to-end solver error
+  propagation for every Krylov algorithm. A new request may retry
   a failed batch after the application corrects its state.
 - Nonnegative column IDs below the local dimension are required in serial
   mode. Duplicate and **unsorted** columns remain permitted, as in the
