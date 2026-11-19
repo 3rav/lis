@@ -10,6 +10,7 @@
 typedef struct {
     LIS_INT n,scalar_queries,batch_queries,fail_mismatch;
     LIS_INT fail_fill_once,negative_col_once,reverse_order;
+    LIS_INT callback_oom_once;
 } CONTEXT;
 
 static LIS_INT count_row(CONTEXT *ctx,LIS_INT row)
@@ -65,6 +66,11 @@ static LIS_INT get_batch(void *opaque,LIS_INT first,LIS_INT last,
     {
         ctx->fail_fill_once=0;
         return LIS_ERR_ILL_ARG;
+    }
+    if(ctx->callback_oom_once)
+    {
+        ctx->callback_oom_once=0;
+        return LIS_OUT_OF_MEMORY;
     }
     if(ctx->negative_col_once)
     {
@@ -188,6 +194,13 @@ static int run_mode(int use_batch)
         ctx.reverse_order=1;
         err=lis_precon_row_source_get(&src,1);
         if(err || src.nnz!=3 || src.index[0]!=2)goto done;
+        /* Application callback OOM is an error, NOT an internal
+         * cache-allocation OOM: never silently downgrade it. */
+        ctx.callback_oom_once=1;
+        err=lis_precon_row_source_get(&src,120);
+        if(err!=LIS_OUT_OF_MEMORY || src.batch_disabled)goto done;
+        err=lis_precon_row_source_get(&src,120);
+        if(err || src.nnz!=3 || ctx.scalar_queries!=0)goto done;
     }
     failed=0;
 done:
