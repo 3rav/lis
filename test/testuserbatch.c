@@ -249,7 +249,7 @@ done:
         lis_matrix_destroy(A);
         if(lis_matrix_user_batch_lookup(old)!=NULL) failed=1;
     }
-    if(failed)fprintf(stderr,"USER_BATCH lifecycle FAIL err=%d\\n",(int)err);
+    if(failed)fprintf(stderr,"USER_BATCH lifecycle FAIL err=%d\n",(int)err);
     return failed;
 }
 
@@ -283,7 +283,7 @@ done:
     lis_test_oom_end();
     if(initialized)lis_precon_row_source_destroy(&src);
     if(A)lis_matrix_destroy(A);
-    if(bad)fprintf(stderr,"USER_BATCH OOM fallback FAIL err=%d\\n",(int)err);
+    if(bad)fprintf(stderr,"USER_BATCH OOM fallback FAIL err=%d\n",(int)err);
     return bad;
 }
 #endif
