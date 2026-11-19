@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           autoreconf -fiv
-          ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg CFLAGS='-O2 -g -DLIS_RECYCLE_PROFILE'
+          ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg CFLAGS='-O2 -g -DLIS_RECYCLE_THROTTLE_EXPERIMENT'
           make -j2
           make -C test bench_recycle_cost
       - name: Time first and recycled solves at two problem sizes
@@ -33,9 +33,20 @@ jobs:
           set -euo pipefail
           mkdir -p krylov-recycle-cost
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
-          ./test/bench_recycle_cost 28 4 > krylov-recycle-cost/n28.csv 2> krylov-recycle-cost/n28.stderr
-          ./test/bench_recycle_cost 40 4 > krylov-recycle-cost/n40.csv 2> krylov-recycle-cost/n40.stderr
-          tail -n 12 krylov-recycle-cost/n40.csv
+          for mode in 1 4 once 1_repeat; do
+            if [ "$mode" = "1_repeat" ]; then
+              export LIS_EXPERIMENT_RITZ_STRIDE=1
+            else
+              export LIS_EXPERIMENT_RITZ_STRIDE="$mode"
+            fi
+            for side in 28 40; do
+              ./test/bench_recycle_cost "$side" 4 \
+                > "krylov-recycle-cost/n${side}-${mode}.csv" \
+                2> "krylov-recycle-cost/n${side}-${mode}.stderr"
+            done
+          done
+          python3 tools/audit_recycle_cadence.py krylov-recycle-cost \
+            | tee krylov-recycle-cost/summary.txt
       - name: Preserve timings and errors
         if: always()
         uses: actions/upload-artifact@v4
