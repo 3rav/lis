@@ -41,8 +41,8 @@ def values_for_row(i, n, far, seed):
     return sorted(off + [(i, diagonal)])
 
 def generate_inputs(n, far, seed, target):
-    if n < 128 or not 1 <= far <= 32 or n <= 2 * far + 7:
-        raise ValueError("require n>=128, 1<=far<=32, n>2*far+7")
+    if n < 128 or not 0 <= far <= 32 or n <= 2 * far + 7:
+        raise ValueError("require n>=128, 0<=far<=32, n>2*far+7")
     target.mkdir(parents=True, exist_ok=True)
     a_path, b_path = target / "synthetic_A.mtx", target / "synthetic_b.mtx"
     rows = [values_for_row(i, n, far, seed) for i in range(n)]
