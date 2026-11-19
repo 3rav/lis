@@ -52,3 +52,49 @@ jobs:
             config.log
             test/*.log
           if-no-files-found: ignore
+
+  ilutp-ras-tsan:
+    name: RAS OpenMP race audit (TSan/Archer)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '8'
+      OMP_DYNAMIC: 'FALSE'
+      TSAN_OPTIONS: 'halt_on_error=1:exitcode=66:ignore_noninstrumented_modules=1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Clang and LLVM Archer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin clang-18 libomp-18-dev llvm-18
+      - name: Build LIS with ThreadSanitizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          ./configure --enable-test --enable-omp --enable-half --disable-mpi \
+            --disable-fortran --disable-f90 --disable-saamg \
+            CC=clang-18 CFLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=thread" \
+            LDFLAGS="-fsanitize=thread"
+          make -j2
+          make -C test testhalfilut
+      - name: Audit eight-thread RAS ILUTP
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          export LLVM_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer-18
+          archer=$(find /usr/lib/llvm-18 -name libarcher.so | head -1)
+          test -f "$archer"
+          export OMP_TOOL_LIBRARIES="$archer"
+          ./test/testhalfilut --parallel-ras-ilutp 2>&1 | tee ilutp-ras-tsan.log
+          grep -q 'ILUT_RAS_LOCAL_ILUTP threads=8' ilutp-ras-tsan.log
+      - name: Upload race diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ilutp-ras-tsan-diagnostics
+          path: |
+            config.log
+            ilutp-ras-tsan.log
+          if-no-files-found: ignore
