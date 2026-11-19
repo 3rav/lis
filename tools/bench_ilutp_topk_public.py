@@ -108,25 +108,31 @@ def invoke(executable, matrix, rhs, rate, run, order, label, out, config):
     return [{"build": label, "rate": rate, "run": run, "order": order,
              **r} for r in result]
 
-def check_pair(baseline, candidate, rate, run):
+def check_pair(baseline, candidate, rate, run, allow_legacy_nonconvergence=False):
     errors = []
     a = {r["variant"]: r for r in baseline}
     b = {r["variant"]: r for r in candidate}
     for variant in VARIANTS:
         left, right = a[variant], b[variant]
+        legacy_control = allow_legacy_nonconvergence and variant == "legacy_ilut"
         for field in ("status", "iterations", "nnz_L", "nnz_U",
                       "moved_columns", "api_error", "solver_status"):
             if left[field] != right[field]:
                 errors.append(f"rate={rate} run={run} {variant} {field}: "
                               f"{left[field]} != {right[field]}")
         for label, record in (("baseline", left), ("candidate", right)):
-            if (record["status"] != "converged" or
-                    record["api_error"] != "0"):
+            # The no-pivot legacy ILUT control can fail on an intentionally
+            # column-permuted system. Record that failure but require the
+            # baseline and candidate legacy outcomes to match exactly.
+            # Both pivoted ILUTP configurations MUST still converge.
+            if (record["api_error"] != "0" or
+                    (not legacy_control and record["status"] != "converged")):
                 errors.append(f"rate={rate} run={run} {variant} "
                               f"{label} not converged: {record['status']}")
             try:
                 resid = float(record["physical_relres"])
-                if not math.isfinite(resid) or resid > 1e-7 or resid < 0:
+                if (not math.isfinite(resid) or resid < 0 or
+                        (not legacy_control and resid > 1e-7)):
                     errors.append(f"rate={rate} run={run} {variant} "
                                   f"{label} invalid residual {resid}")
             except ValueError:
@@ -244,7 +250,8 @@ def main():
                 "input": data_manifest, "solver_options": config,
                 "rates": rates, "repeats": args.repeats, "warmups": args.warmups,
                 "measurement": "per-process CPU time (clock), not wall time",
-                "policy": "numeric parity gates only; speedup never gates CI"}
+                "policy": "numeric parity gates only; speedup never gates CI",
+                "legacy_control_nonconvergence_allowed": args.pair_swap_columns}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     rows, errors = [], []
     try:
@@ -259,7 +266,8 @@ def main():
                     if rep >= 0:
                         rows.extend(chunk)
                 if rep >= 0:
-                    errors.extend(check_pair(pair["baseline"], pair["candidate"], rate, rep))
+                    errors.extend(check_pair(pair["baseline"], pair["candidate"], rate, rep,
+                                             allow_legacy_nonconvergence=args.pair_swap_columns))
     except Exception as exc:
         errors.append(f"runner failure: {exc}")
     if args.pair_swap_columns:
