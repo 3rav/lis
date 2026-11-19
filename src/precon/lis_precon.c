@@ -485,7 +485,19 @@ LIS_INT lis_precon_row_source_get(
     {
         err=lis_precon_user_batch_get(source,local_row);
         if(err!=LIS_OUT_OF_MEMORY || !source->batch_scratch_oom)
+        {
+            /* A failed application callback is not evidence of random
+             * row access. In particular, repeated retries of a failed
+             * batch must not silently end up on the scalar fallback. */
+            if(err!=LIS_SUCCESS)
+            {
+                source->batch_seen=LIS_FALSE;
+                source->batch_remote_misses=0;
+                source->batch_linear_streak=0;
+                source->batch_prefer_scalar=LIS_FALSE;
+            }
             return err;
+        }
         /* A failed scratch allocation must not break an otherwise valid
          * USER matrix: abandon the cache and use one-row callbacks. */
         source->batch_disabled=LIS_TRUE;
