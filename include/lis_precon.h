@@ -82,6 +82,11 @@ typedef struct LIS_PRECON_ROW_SOURCE_STRUCT
      * All other cache arrays use the source's ordinary/raw allocator. */
     LIS_MATRIX_USER_GET_ROWS_BATCH batch_callback;
     LIS_INT batch_disabled; /* Internal scratch OOM: use scalar rows. */
+    /* Locality heuristic: stop fetching 16-row batches after two distant
+     * cache misses; resume once eight consecutive rows have been requested.
+     * Independent of the permanent internal-scratch-OOM fallback. */
+    LIS_INT batch_seen,batch_previous_row,batch_remote_misses;
+    LIS_INT batch_linear_streak,batch_prefer_scalar;
     LIS_INT batch_scratch_oom; /* Distinguish LIS OOM from callback error. */
     LIS_INT batch_first,batch_last,batch_capacity;
     LIS_INT batch_offset[17];
