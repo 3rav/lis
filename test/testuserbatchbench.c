@@ -183,6 +183,99 @@ done:
     return failed;
 }
 
+/* End-to-end solver microbenchmark. Unlike row-source measurements,
+ * this exercises lis_solve's real USER matvec/CG path. No preconditioner
+ * is used; true residuals are computed independently of the callback.
+ */
+static int run_cg_solve(int use_batch,int heavy,double *setup_sec,
+                        double *solve_sec,LIS_INT *iterations,
+                        double *true_relative,unsigned long *dispatches)
+{
+    enum { N=512, REPEATS=4 };
+    BENCH_CONTEXT ctx;
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR b=NULL,x=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_INT err=0,status=0,iter=0,i,r;
+    clock_t begin,end;
+    double configure=0.0,solving=0.0,rsum=0.0,bsum=0.0;
+    int failed=1;
+    memset(&ctx,0,sizeof(ctx));
+    ctx.n=N;ctx.heavy=heavy;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err)goto done;
+    err=lis_matrix_set_size(A,0,N);if(err)goto done;
+    err=lis_matrix_set_user(A,&ctx,NULL,NULL);if(err)goto done;
+    err=lis_matrix_set_user_row(A,scalar_cb);if(err)goto done;
+    if(use_batch)
+    {
+        err=lis_matrix_set_user_rows_batch(A,batch_cb);
+        if(err)goto done;
+    }
+    err=lis_vector_duplicate(A,&b);if(err)goto done;
+    err=lis_vector_duplicate(A,&x);if(err)goto done;
+    for(i=0;i<N;i++)
+    {
+        double exact_i=1.0+0.001*i;
+        double rhs=4.0*exact_i;
+        if(i>0) rhs-=(1.0+0.001*(i-1));
+        if(i+1<N) rhs-=(1.0+0.001*(i+1));
+        b->value[i]=(LIS_SCALAR)rhs;
+        bsum+=rhs*rhs;
+    }
+    for(r=0;r<REPEATS;r++)
+    {
+        err=lis_vector_set_all((LIS_SCALAR)0.0,x);
+        if(err)goto done;
+        begin=clock();
+        err=lis_solver_create(&solver);
+        if(err)goto done;
+        err=lis_solver_set_option(
+            "-i cg -p none -scale none -tol 1e-11 "
+            "-maxiter 150 -print none",solver);
+        if(err)goto done;
+        end=clock();
+        configure+=(double)(end-begin)/CLOCKS_PER_SEC;
+        begin=clock();
+        err=lis_solve(A,b,x,solver);
+        end=clock();
+        solving+=(double)(end-begin)/CLOCKS_PER_SEC;
+        if(err)goto done;
+        err=lis_solver_get_status(solver,&status);
+        if(err || status!=LIS_SUCCESS)goto done;
+        err=lis_solver_get_iter(solver,&iter);
+        if(err)goto done;
+        lis_solver_destroy(solver);
+        solver=NULL;
+    }
+    for(i=0;i<N;i++)
+    {
+        double ax=4.0*(double)x->value[i];
+        if(i>0) ax-=(double)x->value[i-1];
+        if(i+1<N) ax-=(double)x->value[i+1];
+        ax-=(double)b->value[i];
+        rsum+=ax*ax;
+    }
+    *true_relative=sqrt(rsum/bsum);
+    if(!isfinite(*true_relative) || *true_relative>1e-9)
+        goto done;
+    *setup_sec=configure/REPEATS;
+    *solve_sec=solving/REPEATS;
+    *iterations=iter;
+    *dispatches=ctx.scalar_calls+ctx.batch_calls;
+    failed=0;
+done:
+    if(failed)
+        fprintf(stderr,"USER_BATCH_SOLVE FAIL batch=%d heavy=%d "
+                "err=%d status=%d true_rel=%.6e\n",
+                use_batch,heavy,(int)err,(int)status,
+                sqrt(bsum>0?rsum/bsum:0.0));
+    if(solver)lis_solver_destroy(solver);
+    if(x)lis_vector_destroy(x);
+    if(b)lis_vector_destroy(b);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     int heavy,random_access,mode;
@@ -241,6 +334,26 @@ int main(int argc,char **argv)
                    heavy?"heavy":"light",mode?"batch":"scalar",
                    seconds,calls,checksum);
         }
+    }
+    /* Real solver API: configuration and four full CG solves, with
+     * independent analytical true-residual validation. */
+    for(heavy=0;heavy<=1;heavy++)
+    for(mode=0;mode<=1;mode++)
+    {
+        double setup=0.0,solve=0.0,true_rel=0.0;
+        unsigned long calls=0;
+        LIS_INT iter=0;
+        if(run_cg_solve(mode,heavy,&setup,&solve,
+                        &iter,&true_rel,&calls))
+        {
+            failed=1;
+            goto done;
+        }
+        printf("USER_BATCH_SOLVE callback=%s mode=%s "
+               "configure_s=%.6f solve_s=%.6f iterations=%d "
+               "true_relative=%.3e dispatches=%lu\n",
+               heavy?"heavy":"light",mode?"batch":"scalar",
+               setup,solve,(int)iter,true_rel,calls);
     }
 done:
     lis_finalize();
