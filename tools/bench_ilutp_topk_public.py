@@ -83,7 +83,14 @@ def invoke(executable, matrix, rhs, rate, run, order, label, out, config):
     (out / f"{tag}.stdout.csv").write_text(p.stdout, encoding="utf-8")
     if p.returncode != 0:
         raise RuntimeError(f"benchmark {tag} exited {p.returncode}; see logs")
-    rd = csv.DictReader(io.StringIO(p.stdout))
+    # LIS prints its matrix-size banner before the benchmark CSV header.
+    lines = p.stdout.splitlines(keepends=True)
+    header = ",".join(FIELDS)
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == header)
+    except StopIteration:
+        raise RuntimeError(f"benchmark {tag} emitted no expected CSV header; see logs")
+    rd = csv.DictReader(io.StringIO("".join(lines[start:])))
     if rd.fieldnames != list(FIELDS):
         raise RuntimeError(f"unexpected CSV schema for {tag}: {rd.fieldnames}")
     result = list(rd)
