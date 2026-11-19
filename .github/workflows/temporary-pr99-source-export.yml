@@ -3,6 +3,7 @@ name: Temporary PR99 source export (public code only)
 on:
   push:
     branches: ['ci/export-pr99-sources-20261119']
+  pull_request:
 
 permissions:
   contents: read
