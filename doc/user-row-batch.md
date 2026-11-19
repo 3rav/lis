@@ -42,13 +42,21 @@ not retain any of the scratch pointers beyond the call.
 
 ## Performance and safety
 
-- Each row-source instance caches up to **16 adjacent rows**; the next
-  request outside that range rebuilds the cache. Sixteen is a conservative
-  initial upper bound: the 17-entry offset array stays inline per worker
-  and typical sequential matrix traversal amortizes two callback calls over
-  up to 16 rows. It is **not automatically optimal**. The benchmark below
-  includes strided (nearly random) access, where repeated 16-row refreshes
-  can be slower than scalar callbacks.
+- Each row-source instance caches up to **16 adjacent rows**. Sixteen
+  is a conservative initial upper bound: the 17-entry offset array stays
+  inline per worker and a sequential traversal amortizes two callback calls
+  over up to 16 rows. It is **not universally optimal**.
+- **Adaptive locality policy:** after two nonconsecutive misses of the
+  cached window, that worker temporarily uses the ordinary scalar callback.
+  After eight consecutive requests it resumes batch mode. The adaptation is
+  per row-source, deterministic given the row order, and requires no public
+  configuration or additional matrix storage. It avoids repeatedly fetching
+  16-row windows for random-looking access while preserving batching in
+  ordinary SpMV. A single random jump does not permanently disable batching.
+- The locality heuristic is independent of allocation-failure fallback and
+  does not suppress failures returned by the application callback in a
+  batch operation that is actually attempted. On the scalar route,
+  errors from the scalar callback are propagated as usual.
 - If allocating the batch index/value scratch fails, the worker disables
   batching for the lifetime of that row-source object and retries through
   the original scalar callback. Insufficient memory for even the scalar
@@ -110,9 +118,11 @@ callback dispatches. The separate `user-batch-regression.yml` workflow
 runs one and eight OpenMP threads with normal and ASan/UBSan builds.
 
 The benchmark `test/testuserbatchbench.c` prints CPU time and callback
-counts for four cases: lightweight versus deliberately expensive callback
-dispatch, each in sequential versus strided row-access order. It verifies
-that scalar and batched paths return the same numerical checksum.
+counts for four row-source cases: lightweight versus deliberately expensive
+callback dispatch, each in sequential versus strided row-access order.
+It additionally benchmarks **the actual generic `lis_matvec` USER path**
+for both callback types. Scalar and batched paths must return identical
+numerical checksums.
 Timing results are not CI pass/fail thresholds: small hosted runners have
 no stable benchmark isolation. A large callback-count reduction is not
 evidence for equal gains in SpMV or the full FEA solver.
