@@ -434,7 +434,8 @@ LIS_INT lis_precon_row_source_get(
          * USER matrix: abandon the cache and use one-row callbacks. */
         source->batch_disabled=LIS_TRUE;
         source->batch_first=source->batch_last=0;
-        source->index=source->value=NULL;
+        source->index=NULL;
+        source->value=NULL;
         source->nnz=0;
     }
 
