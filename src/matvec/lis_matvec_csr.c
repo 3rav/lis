@@ -40,6 +40,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdint.h> /* SIZE_MAX */
+#include <limits.h> /* INT_MAX, LLONG_MAX */
 #ifdef USE_SSE2
 	#include <emmintrin.h>
 #endif
@@ -163,8 +164,12 @@ lis_matvech_csr_thread_scratch(LIS_INT nthreads,LIS_INT np)
     if(nthreads<=0 || np<=0) return NULL;
     threads=(size_t)nthreads;
     rows=(size_t)np;
+    /* The allocation and the legacy k*np/j*np index arithmetic need
+     * separate bounds: size_t may be wider than LIS_INT. */
     if(threads>SIZE_MAX/rows ||
-       threads*rows>SIZE_MAX/sizeof(LIS_SCALAR))
+       threads*rows>SIZE_MAX/sizeof(LIS_SCALAR) ||
+       threads>(sizeof(LIS_INT)<=sizeof(int) ?
+                (size_t)INT_MAX/rows : (size_t)LLONG_MAX/rows))
         return NULL;
     return (LIS_SCALAR *)lis_malloc(
         threads*rows*sizeof(LIS_SCALAR),"lis_matvech_csr::w");
