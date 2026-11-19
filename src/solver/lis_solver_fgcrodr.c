@@ -6610,7 +6610,7 @@ lis_fgcrodr_flexible_core(
 #ifdef LIS_RECYCLE_THROTTLE_EXPERIMENT
         /* Reuse exact A Z = C when a harmonic Ritz refresh is deferred.
          * Enable only in this diagnostic build for numeric comparison. */
-        LIS_INT do_update=(recycle_stride==1 ||
+        LIS_INT do_update=(intra_recycle || recycle_stride==1 ||
                           (recycle_stride==0 && recycle_opportunities==0) ||
                           (recycle_stride==4 && recycle_opportunities%4==0));
         recycle_opportunities++;
