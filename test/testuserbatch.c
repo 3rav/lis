@@ -274,6 +274,57 @@ done:
     return failed;
 }
 
+/* Exercise the private binding registry concurrently on distinct matrices.
+ * Setters still must not race with a solve for the SAME matrix. */
+#ifdef _OPENMP
+static int check_parallel_registrations(void)
+{
+    enum { MATRICES=8 };
+    LIS_MATRIX matrices[MATRICES];
+    CONTEXT contexts[MATRICES];
+    LIS_INT i,err=0;
+    int faults=0;
+    memset(matrices,0,sizeof(matrices));
+    memset(contexts,0,sizeof(contexts));
+    for(i=0;i<MATRICES;i++)
+    {
+        contexts[i].n=32;
+        err=lis_matrix_create(LIS_COMM_WORLD,&matrices[i]);
+        if(err)goto done;
+        err=lis_matrix_set_size(matrices[i],0,32);
+        if(err)goto done;
+        err=lis_matrix_set_user(matrices[i],&contexts[i],NULL,NULL);
+        if(err)goto done;
+        err=lis_matrix_set_user_row(matrices[i],get_row);
+        if(err)goto done;
+    }
+#pragma omp parallel for num_threads(8) reduction(+:faults)
+    for(i=0;i<MATRICES;i++)
+    {
+        if(lis_matrix_set_user_rows_batch(matrices[i],get_batch)
+           !=LIS_SUCCESS) faults++;
+        if(lis_matrix_user_batch_lookup(matrices[i])!=get_batch)
+            faults++;
+        if(lis_matrix_set_user_rows_batch(matrices[i],NULL)
+           !=LIS_SUCCESS) faults++;
+        if(lis_matrix_user_batch_lookup(matrices[i])!=NULL)
+            faults++;
+        if(lis_matrix_set_user_rows_batch(matrices[i],get_batch)
+           !=LIS_SUCCESS) faults++;
+    }
+done:
+    for(i=0;i<MATRICES;i++)
+        if(matrices[i])lis_matrix_destroy(matrices[i]);
+    if(err || faults)
+    {
+        fprintf(stderr,"USER_BATCH parallel registry FAIL err=%d faults=%d\n",
+                (int)err,faults);
+        return 1;
+    }
+    return 0;
+}
+#endif
+
 #ifdef LIS_TEST_OOM
 static int check_batch_cache_oom(void)
 {
@@ -326,6 +377,9 @@ int main(int argc,char **argv)
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS)return 2;
     failed=run_mode(0)|run_mode(1);
     failed|=check_registration_lifecycle();
+#ifdef _OPENMP
+    failed|=check_parallel_registrations();
+#endif
 #ifdef LIS_TEST_OOM
     failed|=check_batch_cache_oom();
 #endif
