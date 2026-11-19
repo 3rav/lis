@@ -443,6 +443,92 @@ LIS_INT lis_matrix_storage_destroy(LIS_MATRIX Amat)
 	return LIS_SUCCESS;
 }
 
+/* Keep optional USER batch callbacks outside public LIS_MATRIX_STRUCT,
+ * preserving field offsets and sizeof across header versions.
+ * Callback setters and matrix destruction must not race with an active solve.
+ * Per-worker row sources snapshot the callback at initialization.
+ */
+typedef struct LIS_USER_BATCH_BINDING_STRUCT
+{
+    LIS_MATRIX matrix;
+    LIS_MATRIX_USER_GET_ROWS_BATCH get_rows;
+    struct LIS_USER_BATCH_BINDING_STRUCT *next;
+} LIS_USER_BATCH_BINDING;
+static LIS_USER_BATCH_BINDING *lis_user_batch_bindings=NULL;
+
+LIS_MATRIX_USER_GET_ROWS_BATCH lis_matrix_user_batch_lookup(LIS_MATRIX A)
+{
+    LIS_USER_BATCH_BINDING *item;
+    LIS_MATRIX_USER_GET_ROWS_BATCH result=NULL;
+#ifdef _OPENMP
+#pragma omp critical(lis_user_batch_binding)
+#endif
+    {
+        for(item=lis_user_batch_bindings;item!=NULL;item=item->next)
+        {
+            if(item->matrix==A)
+            {
+                result=item->get_rows;
+                break;
+            }
+        }
+    }
+    return result;
+}
+
+static void lis_matrix_user_batch_forget(LIS_MATRIX A)
+{
+    LIS_USER_BATCH_BINDING *item=NULL,**cursor;
+#ifdef _OPENMP
+#pragma omp critical(lis_user_batch_binding)
+#endif
+    {
+        cursor=&lis_user_batch_bindings;
+        while(*cursor!=NULL && (*cursor)->matrix!=A)
+            cursor=&(*cursor)->next;
+        if(*cursor!=NULL)
+        {
+            item=*cursor;
+            *cursor=item->next;
+        }
+    }
+    if(item!=NULL) lis_free(item);
+}
+
+static LIS_INT lis_matrix_user_batch_install(
+    LIS_MATRIX A,LIS_MATRIX_USER_GET_ROWS_BATCH callback)
+{
+    LIS_USER_BATCH_BINDING *item=NULL,*old=NULL,**cursor;
+    if(callback!=NULL)
+    {
+        item=(LIS_USER_BATCH_BINDING *)lis_malloc(
+            sizeof(*item),"lis_matrix_user_batch_install");
+        if(item==NULL) return LIS_OUT_OF_MEMORY;
+        item->matrix=A;
+        item->get_rows=callback;
+    }
+#ifdef _OPENMP
+#pragma omp critical(lis_user_batch_binding)
+#endif
+    {
+        cursor=&lis_user_batch_bindings;
+        while(*cursor!=NULL && (*cursor)->matrix!=A)
+            cursor=&(*cursor)->next;
+        if(*cursor!=NULL)
+        {
+            old=*cursor;
+            *cursor=old->next;
+        }
+        if(item!=NULL)
+        {
+            item->next=lis_user_batch_bindings;
+            lis_user_batch_bindings=item;
+        }
+    }
+    if(old!=NULL) lis_free(old);
+    return LIS_SUCCESS;
+}
+
 #undef __FUNC__
 #define __FUNC__ "lis_matrix_destroy"
 LIS_INT lis_matrix_destroy(LIS_MATRIX Amat)
@@ -451,6 +537,7 @@ LIS_INT lis_matrix_destroy(LIS_MATRIX Amat)
 
 	if( lis_is_malloc(Amat) )
 	{
+        lis_matrix_user_batch_forget(Amat);
 		if( Amat->operator_work )
 		{
 			lis_vector_destroy(Amat->operator_work);
@@ -1407,7 +1494,7 @@ LIS_INT lis_matrix_set_user(LIS_MATRIX A, void *user_data,
 	A->user_matvech_block = NULL;
 	A->user_get_diagonal = NULL;
 	A->user_get_row      = NULL;
-	A->user_get_rows_batch = NULL;
+        lis_matrix_user_batch_forget(A);
 	A->user_get_row_thread_safe = LIS_FALSE;
 
 	LIS_DEBUG_FUNC_OUT;
@@ -1488,7 +1575,7 @@ LIS_INT lis_matrix_set_user_row(
         }
 
         A->user_get_row = get_row;
-        A->user_get_rows_batch = NULL;
+        lis_matrix_user_batch_forget(A);
         /*
          * Thread safety belongs to the currently installed callback.
          * Replacing the callback always requires a new explicit opt-in.
@@ -1519,7 +1606,8 @@ LIS_INT lis_matrix_set_user_rows_batch(
             "install single-row callback before batch-row optimization");
         return LIS_ERR_ILL_ARG;
     }
-    A->user_get_rows_batch=get_rows_batch;
+    err=lis_matrix_user_batch_install(A,get_rows_batch);
+    if(err) return err;
     /* Reaffirm callback thread safety after replacing an implementation. */
     A->user_get_row_thread_safe=LIS_FALSE;
     LIS_DEBUG_FUNC_OUT;
