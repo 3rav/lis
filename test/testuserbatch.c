@@ -9,6 +9,7 @@
 
 typedef struct {
     LIS_INT n,scalar_queries,batch_queries,fail_mismatch;
+    LIS_INT fail_fill_once,negative_col_once,reverse_order;
 } CONTEXT;
 
 static LIS_INT count_row(CONTEXT *ctx,LIS_INT row)
@@ -59,6 +60,31 @@ static LIS_INT get_batch(void *opaque,LIS_INT first,LIS_INT last,
         if(row>0){cols[k]=row-1;vals[k++]=-1.0;}
         cols[k]=row;vals[k++]=4.0;
         if(row+1<ctx->n){cols[k]=row+1;vals[k++]=-1.0;}
+    }
+    if(ctx->fail_fill_once)
+    {
+        ctx->fail_fill_once=0;
+        return LIS_ERR_ILL_ARG;
+    }
+    if(ctx->negative_col_once)
+    {
+        ctx->negative_col_once=0;
+        cols[0]=-1;
+    }
+    if(ctx->reverse_order)
+    {
+        for(row=first;row<last;row++)
+        {
+            LIS_INT lo=offsets[row-first],hi=offsets[row-first+1]-1;
+            while(lo<hi)
+            {
+                LIS_INT tcol=cols[lo];
+                LIS_SCALAR tval=vals[lo];
+                cols[lo]=cols[hi]; vals[lo]=vals[hi];
+                cols[hi]=tcol; vals[hi]=tval;
+                lo++; hi--;
+            }
+        }
     }
     if(ctx->fail_mismatch)
     {
@@ -145,6 +171,23 @@ static int run_mode(int use_batch)
         ctx.fail_mismatch=1;
         err=lis_precon_row_source_get(&src,210);
         if(err!=LIS_ERR_ILL_ARG)goto done;
+        ctx.fail_mismatch=0;
+        err=lis_precon_row_source_get(&src,210);
+        if(err || src.nnz!=3)goto done;
+        ctx.fail_fill_once=1;
+        err=lis_precon_row_source_get(&src,230);
+        if(err!=LIS_ERR_ILL_ARG)goto done;
+        err=lis_precon_row_source_get(&src,230);
+        if(err || src.nnz!=3)goto done;
+        ctx.negative_col_once=1;
+        err=lis_precon_row_source_get(&src,245);
+        if(err!=LIS_ERR_ILL_ARG)goto done;
+        err=lis_precon_row_source_get(&src,245);
+        if(err || src.nnz!=3)goto done;
+        /* Column ordering has never been required for USER rows. */
+        ctx.reverse_order=1;
+        err=lis_precon_row_source_get(&src,1);
+        if(err || src.nnz!=3 || src.index[0]!=2)goto done;
     }
     failed=0;
 done:
@@ -161,11 +204,88 @@ done:
     return failed;
 }
 
+/* Verify registration reset and destruction without expanding LIS_MATRIX. */
+static int check_registration_lifecycle(void)
+{
+    CONTEXT ctx;
+    LIS_MATRIX A=NULL;
+    LIS_INT err=0;
+    int failed=1;
+    memset(&ctx,0,sizeof(ctx));
+    ctx.n=32;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err)goto done;
+    err=lis_matrix_set_size(A,0,ctx.n);if(err)goto done;
+    err=lis_matrix_set_user(A,&ctx,NULL,NULL);if(err)goto done;
+    err=lis_matrix_set_user_row(A,get_row);if(err)goto done;
+    if(lis_matrix_user_batch_lookup(A)!=NULL)goto done;
+    err=lis_matrix_set_user_rows_batch(A,get_batch);if(err)goto done;
+    if(lis_matrix_user_batch_lookup(A)!=get_batch)goto done;
+    err=lis_matrix_set_user_rows_batch(A,NULL);if(err)goto done;
+    if(lis_matrix_user_batch_lookup(A)!=NULL)goto done;
+    err=lis_matrix_set_user_rows_batch(A,get_batch);if(err)goto done;
+    err=lis_matrix_set_user_row(A,get_row);if(err)goto done;
+    if(lis_matrix_user_batch_lookup(A)!=NULL)goto done;
+    err=lis_matrix_set_user_rows_batch(A,get_batch);if(err)goto done;
+    err=lis_matrix_set_user(A,&ctx,NULL,NULL);if(err)goto done;
+    if(lis_matrix_user_batch_lookup(A)!=NULL)goto done;
+    err=lis_matrix_set_user_row(A,get_row);if(err)goto done;
+    err=lis_matrix_set_user_rows_batch(A,get_batch);if(err)goto done;
+    failed=0;
+done:
+    if(A)
+    {
+        LIS_MATRIX old=A;
+        lis_matrix_destroy(A);
+        if(lis_matrix_user_batch_lookup(old)!=NULL) failed=1;
+    }
+    if(failed)fprintf(stderr,"USER_BATCH lifecycle FAIL err=%d\\n",(int)err);
+    return failed;
+}
+
+#ifdef LIS_TEST_OOM
+static int check_batch_cache_oom(void)
+{
+    CONTEXT ctx;
+    LIS_MATRIX A=NULL;
+    LIS_PRECON_ROW_SOURCE src;
+    LIS_INT err=0;
+    int bad=1,initialized=0;
+    memset(&ctx,0,sizeof(ctx));memset(&src,0,sizeof(src));
+    ctx.n=64;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err)goto done;
+    err=lis_matrix_set_size(A,0,ctx.n);if(err)goto done;
+    err=lis_matrix_set_user(A,&ctx,NULL,NULL);if(err)goto done;
+    err=lis_matrix_set_user_row(A,get_row);if(err)goto done;
+    err=lis_matrix_set_user_rows_batch(A,get_batch);if(err)goto done;
+    err=lis_precon_row_source_init(A,&src);if(err)goto done;
+    initialized=1;
+    lis_test_oom_begin(1);
+    err=lis_precon_row_source_get(&src,3);
+    lis_test_oom_end();
+    if(err || !src.batch_disabled || src.nnz!=3 ||
+       src.index[1]!=3 || ctx.scalar_queries==0)
+        goto done;
+    err=lis_precon_row_source_get(&src,4);
+    if(err || src.nnz!=3)goto done;
+    bad=0;
+done:
+    lis_test_oom_end();
+    if(initialized)lis_precon_row_source_destroy(&src);
+    if(A)lis_matrix_destroy(A);
+    if(bad)fprintf(stderr,"USER_BATCH OOM fallback FAIL err=%d\\n",(int)err);
+    return bad;
+}
+#endif
+
 int main(int argc,char **argv)
 {
     int failed;
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS)return 2;
     failed=run_mode(0)|run_mode(1);
+    failed|=check_registration_lifecycle();
+#ifdef LIS_TEST_OOM
+    failed|=check_batch_cache_oom();
+#endif
     lis_finalize();
     return failed;
 }
