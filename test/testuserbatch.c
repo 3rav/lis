@@ -100,6 +100,12 @@ static LIS_INT get_batch(void *opaque,LIS_INT first,LIS_INT last,
     return LIS_SUCCESS;
 }
 
+static LIS_INT reset_batch_source(LIS_MATRIX A,LIS_PRECON_ROW_SOURCE *src)
+{
+    lis_precon_row_source_destroy(src);
+    return lis_precon_row_source_init(A,src);
+}
+
 static int run_mode(int use_batch)
 {
     enum { N=256 };
@@ -142,6 +148,11 @@ static int run_mode(int use_batch)
         if(i+1<N)expected-=x->value[i+1];
         if(fabs((double)y->value[i]-expected)>1e-11)goto done;
     }
+    if(use_batch && ctx.scalar_queries!=0)
+    {
+        fprintf(stderr,"USER matvec unexpectedly used the scalar callback\n");
+        goto done;
+    }
     err=lis_precon_row_source_init(A,&src);if(err)goto done;
     initialized=1;
     /* Non-monotone order must trigger safe cache refresh. */
@@ -157,12 +168,7 @@ static int run_mode(int use_batch)
         }
     }
 
-    if(use_batch && ctx.scalar_queries!=0)
-    {
-        fprintf(stderr,"unexpected scalar callback count %d\n",
-                (int)ctx.scalar_queries);
-        goto done;
-    }
+
     if(use_batch && ctx.batch_queries>=2*N)
     {
         fprintf(stderr,"batch callback count too high %d\n",
@@ -173,6 +179,16 @@ static int run_mode(int use_batch)
 
     if(use_batch)
     {
+        /* A second distant miss favors one-row callbacks. Eight adjacent
+         * requests restore batching after the random-access phase. */
+        if(!src.batch_prefer_scalar)goto done;
+        for(k=100;k<=107;k++)
+        {
+            err=lis_precon_row_source_get(&src,k);
+            if(err || src.nnz!=3)goto done;
+        }
+        if(src.batch_prefer_scalar)goto done;
+        err=reset_batch_source(A,&src);if(err)goto done;
         /* Explicit mismatch must be rejected, not produce stale row data. */
         ctx.fail_mismatch=1;
         err=lis_precon_row_source_get(&src,210);
@@ -180,22 +196,27 @@ static int run_mode(int use_batch)
         ctx.fail_mismatch=0;
         err=lis_precon_row_source_get(&src,210);
         if(err || src.nnz!=3)goto done;
+        err=reset_batch_source(A,&src);if(err)goto done;
         ctx.fail_fill_once=1;
         err=lis_precon_row_source_get(&src,230);
         if(err!=LIS_ERR_ILL_ARG)goto done;
         err=lis_precon_row_source_get(&src,230);
         if(err || src.nnz!=3)goto done;
+        err=reset_batch_source(A,&src);if(err)goto done;
         ctx.negative_col_once=1;
         err=lis_precon_row_source_get(&src,247);
         if(err!=LIS_ERR_ILL_ARG)goto done;
         err=lis_precon_row_source_get(&src,247);
         if(err || src.nnz!=3)goto done;
         /* Column ordering has never been required for USER rows. */
+        err=reset_batch_source(A,&src);if(err)goto done;
         ctx.reverse_order=1;
         err=lis_precon_row_source_get(&src,1);
         if(err || src.nnz!=3 || src.index[0]!=2)goto done;
         /* Application callback OOM is an error, NOT an internal
          * cache-allocation OOM: never silently downgrade it. */
+        err=reset_batch_source(A,&src);if(err)goto done;
+        ctx.scalar_queries=0; /* inspect only callback-error segment */
         ctx.callback_oom_once=1;
         err=lis_precon_row_source_get(&src,120);
         if(err!=LIS_OUT_OF_MEMORY || src.batch_disabled)goto done;
