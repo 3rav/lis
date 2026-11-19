@@ -693,6 +693,10 @@ typedef LIS_INT (*LIS_MATRIX_USER_GET_ROW)(void *user_data,
  * capacity>=required and must reproduce the same offsets and entries.
  * Rows and columns are zero-based; column IDs are global. Callback state
  * must remain stable throughout a query/fill pair.
+ * CRITICAL: the batch callback and the required single-row callback must
+ * return the same mathematical matrix for every row, as either may be used
+ * within an operation (e.g. for locality or allocation fallback). Do not
+ * replace callbacks, destroy A or change its values during an operation.
  */
 typedef LIS_INT (*LIS_MATRIX_USER_GET_ROWS_BATCH)(
     void *user_data, LIS_INT begin, LIS_INT end,
