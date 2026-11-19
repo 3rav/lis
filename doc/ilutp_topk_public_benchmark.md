@@ -6,7 +6,7 @@ This is an independent, synthetic benchmark supporting [fork PR #101](https://gi
 
 - Baseline: `3d027903ab079158d99bfc91f8ab6867c212dc20` (upstream `develop`).
 - Candidate: `78e694a82fe15575b22df11977b7277617e9b039` (bounded top-k, #101).
-- Deterministically generated sparse, nonsymmetric, strictly row-diagonally dominant Matrix Market A and manufactured b=A*x; nearby and distant couplings.
+- Deterministically generated sparse, nonsymmetric Matrix Market A and manufactured b=A*x; ordinary cases are strictly row diagonally dominant. The pivot-stress case applies a bijective adjacent-pair **source-column permutation** to that invertible matrix, moving every dominant entry off the diagonal.
 - `test/benchilutp` from both revisions: separately measures CPU setup and CPU solve, computes independent physical residual, factor nnz, column permutations and Krylov iterations.
 - Sweep `-ilut_rate 1,2,4,8`; fixed one thread, FGMRES, no RCM/row scaling/equilibration, drop=0, tau=0.5/1.0; legacy ILUT as control.
 
@@ -33,16 +33,27 @@ python3 tools/bench_ilutp_topk_public.py \
   --out ./ilutp-topk-results
 ```
 
-The harness resides on the benchmark branch and can run from any directory if the binary paths are adjusted. For a smoke test, use `--n 1200 --repeats 3`; the GitHub Actions workflow instead runs four named profiles on pinned clean checkouts, each with seven paired A/B repetitions: `banded-control` (n=1200, far=0), `sparse-longrange` (n=1200, far=1), `medium-selection` (n=1200, far=8) and `large-selection` (n=4000, far=8).
+The harness resides on the benchmark branch and can run from any directory if the binary paths are adjusted. For a smoke test, use `--n 1200 --repeats 3`. The CI matrix runs five profiles, each with seven paired A/B repetitions: `banded-control` (n=1200, far=0), `sparse-longrange` (n=1200, far=1), `medium-selection` (n=1200, far=8), `pivoted-selection` (n=1200, far=8, `--pair-swap-columns`) and `large-selection` (n=4000, far=8). For a local pivot-stress run, add `--pair-swap-columns` with an even `--n` (e.g. 1200).
 
 ## Outputs and acceptance criteria
 
 `inputs/synthetic_A.mtx`, `inputs/synthetic_b.mtx`, and `manifest.json` record the public data, SHA-256 hashes, seed, refs, host and options. `raw.csv` retains each paired observation. `summary.csv` includes per-rate median setup and solve CPU times and `(candidate/baseline-1)*100%` changes, plus the median, minimum and maximum of **paired A/B** percentage changes (matched by repetition index). Per-run stderr/stdout and `validation.txt` are also stored.
 
-Pairs alternate baseline/candidate order, use separate processes and one thread; warmups are excluded. For each rate and variant, **status, iterations, factor L/U counts, moved-column count, API/solver statuses must be identical**, true residuals close (abs tol 5e-12, relative tol 1e-8) and no greater than 1e-7, and all cases must converge.
+Pairs alternate baseline/candidate order, use separate processes and one thread; warmups are excluded. For each rate and variant, **status, iterations, factor L/U counts, moved-column count, API/solver statuses must be identical**, true residuals close (abs tol 5e-12, relative tol 1e-8) and no greater than 1e-7, and all ordinary-profile cases must converge. In the intentionally pivoted fixture, **the legacy no-pivot ILUT control may fail to converge**; its baseline/candidate statuses, iterations, factor counts and true residuals must still match. Both pivoted ILUTP variants must converge within the residual bound. The pivot-stress fixture **fails CI if no ILUTP column swaps are observed at any fill rate**.
 
 **The legacy ILUT variant is a negative timing control. The `far=0` banded profile is intended to test whether the heap stops helping when fill remains bounded; `far=1` is NOT a negative control, as even one distant connection can create elimination fill. Timing never gates CI.** Shared GitHub runners exhibit noisy timing and CPU frequency variation. Publish 7+ paired repetitions on an otherwise idle dedicated machine before claiming performance improvement; report neutral/high-fill results too.
 
 ## Limits
 
-These synthetic matrices are deliberately diagonal dominant and not pivot-sensitive nonlinear FEA contact problems. This test cannot establish Newton convergence, peak memory, production speedups, or generality. It does not replace independent code review.
+The ordinary synthetic matrices are deliberately diagonally dominant; the pivot-stress variant is a source-column permutation of such a matrix and forces column swaps, but still does not represent pivot-sensitive nonlinear FEA contact problems. The legacy ILUT control is **not a substitute for ILUTP** on this deliberately column-permuted case, so its lack of convergence cannot invalidate an otherwise matching and converged ILUTP A/B comparison. This test cannot establish Newton convergence, peak memory, production speedups, or generality. It does not replace independent code review.
+
+## Byte-for-byte factor identity check
+
+The additional CI job `factor-identity` tests a stronger property than the main solver A/B gate. It checks the **complete serialized factor data** in two clean, pinned LIS revisions:
+
+- Identical native `test/benchilutp.c` source is checked by SHA-256 and instrumented with exactly the same temporary diagnostic code in each checkout. Neither preconditioner implementation is patched.
+- After factor setup has already been timed, it serializes every L and U row length, column index and raw `LIS_SCALAR` value, all entries of the diagonal inverse D, the column permutation and swap counter. The generated files are compared **byte for byte**, not just via hash equality.
+- Cases are n=1200 banded, long-range selection and column-pivoted selection, at fill rates 1, 2, 4 and 8. This checks 3 variants × 3 cases × 4 rates = 36 matched baseline/candidate snapshots, all with the same ABI on one runner. ILUTP also must converge and, in the permuted case, actually pivot. Legacy unpivoted ILUT may fail to converge on the permuted case but must match the other build exactly.
+- Full raw factor files, a CSV of comparisons and SHA-256 hashes, and the source/solver manifest are preserved for forensic inspection.
+
+This is a bitwise identity check of **built factors**, not a bitwise guarantee about every Krylov intermediate or about binaries built using different platforms/compiler flags. It is also not a benchmark of production CalculiX matrices; timing remains secondary.

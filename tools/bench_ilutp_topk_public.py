@@ -40,12 +40,20 @@ def values_for_row(i, n, far, seed):
     diagonal = 1.0 + math.fsum(abs(v) for _, v in off)
     return sorted(off + [(i, diagonal)])
 
-def generate_inputs(n, far, seed, target):
+def generate_inputs(n, far, seed, target, pair_swap_columns=False):
     if n < 128 or not 0 <= far <= 32 or n <= 2 * far + 7:
         raise ValueError("require n>=128, 0<=far<=32, n>2*far+7")
+    if pair_swap_columns and n % 2:
+        raise ValueError("pair-swapped column benchmark requires even n")
     target.mkdir(parents=True, exist_ok=True)
     a_path, b_path = target / "synthetic_A.mtx", target / "synthetic_b.mtx"
     rows = [values_for_row(i, n, far, seed) for i in range(n)]
+    if pair_swap_columns:
+        # Apply a bijective source-column permutation to an invertible
+        # diagonally dominant matrix. This moves every dominant entry
+        # off the original diagonal and forces ILUTP column pivoting.
+        rows = [sorted(((j ^ 1, value) for j, value in row))
+                for row in rows]
     nnz = sum(map(len, rows))
     with a_path.open("w", encoding="ascii", newline="\n") as a, \
          b_path.open("w", encoding="ascii", newline="\n") as b:
@@ -63,6 +71,7 @@ def generate_inputs(n, far, seed, target):
             b.write(f"{rhs:.17g}\n")
     sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     return a_path, b_path, {"n": n, "nnz": nnz, "far_per_row": far,
+                            "pair_swap_columns": pair_swap_columns,
                             "seed": seed, "matrix_sha256": sha(a_path),
                             "rhs_sha256": sha(b_path)}
 
@@ -99,25 +108,31 @@ def invoke(executable, matrix, rhs, rate, run, order, label, out, config):
     return [{"build": label, "rate": rate, "run": run, "order": order,
              **r} for r in result]
 
-def check_pair(baseline, candidate, rate, run):
+def check_pair(baseline, candidate, rate, run, allow_legacy_nonconvergence=False):
     errors = []
     a = {r["variant"]: r for r in baseline}
     b = {r["variant"]: r for r in candidate}
     for variant in VARIANTS:
         left, right = a[variant], b[variant]
+        legacy_control = allow_legacy_nonconvergence and variant == "legacy_ilut"
         for field in ("status", "iterations", "nnz_L", "nnz_U",
                       "moved_columns", "api_error", "solver_status"):
             if left[field] != right[field]:
                 errors.append(f"rate={rate} run={run} {variant} {field}: "
                               f"{left[field]} != {right[field]}")
         for label, record in (("baseline", left), ("candidate", right)):
-            if (record["status"] != "converged" or
-                    record["api_error"] != "0"):
+            # The no-pivot legacy ILUT control can fail on an intentionally
+            # column-permuted system. Record that failure but require the
+            # baseline and candidate legacy outcomes to match exactly.
+            # Both pivoted ILUTP configurations MUST still converge.
+            if (record["api_error"] != "0" or
+                    (not legacy_control and record["status"] != "converged")):
                 errors.append(f"rate={rate} run={run} {variant} "
                               f"{label} not converged: {record['status']}")
             try:
                 resid = float(record["physical_relres"])
-                if not math.isfinite(resid) or resid > 1e-7 or resid < 0:
+                if (not math.isfinite(resid) or resid < 0 or
+                        (not legacy_control and resid > 1e-7)):
                     errors.append(f"rate={rate} run={run} {variant} "
                                   f"{label} invalid residual {resid}")
             except ValueError:
@@ -197,6 +212,8 @@ def main():
     p.add_argument("--out", type=Path, default=Path("ilutp-topk-results"))
     p.add_argument("--n", type=int, default=4000)
     p.add_argument("--far", type=int, default=8)
+    p.add_argument("--pair-swap-columns", action="store_true",
+                   help="swap source columns (0,1), (2,3), ... to exercise ILUTP pivoting")
     p.add_argument("--seed", type=int, default=20261119)
     p.add_argument("--rates", default="1,2,4,8")
     p.add_argument("--repeats", type=int, default=7)
@@ -221,7 +238,8 @@ def main():
         binaries[label] = binary
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    a, b, data_manifest = generate_inputs(args.n, args.far, args.seed, out / "inputs")
+    a, b, data_manifest = generate_inputs(args.n, args.far, args.seed,
+                                          out / "inputs", args.pair_swap_columns)
     config = {"maxiter": 220, "restart": 50, "rtol": 1e-8,
               "drop": 0, "pivot_tol": 1e-9}
     manifest = {"utc_started": datetime.now(timezone.utc).isoformat(),
@@ -232,7 +250,8 @@ def main():
                 "input": data_manifest, "solver_options": config,
                 "rates": rates, "repeats": args.repeats, "warmups": args.warmups,
                 "measurement": "per-process CPU time (clock), not wall time",
-                "policy": "numeric parity gates only; speedup never gates CI"}
+                "policy": "numeric parity gates only; speedup never gates CI",
+                "legacy_control_nonconvergence_allowed": args.pair_swap_columns}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     rows, errors = [], []
     try:
@@ -247,9 +266,17 @@ def main():
                     if rep >= 0:
                         rows.extend(chunk)
                 if rep >= 0:
-                    errors.extend(check_pair(pair["baseline"], pair["candidate"], rate, rep))
+                    errors.extend(check_pair(pair["baseline"], pair["candidate"], rate, rep,
+                                             allow_legacy_nonconvergence=args.pair_swap_columns))
     except Exception as exc:
         errors.append(f"runner failure: {exc}")
+    if args.pair_swap_columns:
+        # A pivot-stress fixture is only useful if the native ILUTP kernel
+        # actually performs swaps. Do not silently label no-swap runs "pivoted".
+        for rate in rates:
+            if not any(int(r["moved_columns"]) > 0 for r in rows
+                       if r["rate"] == rate and r["variant"].startswith("ilutp_")):
+                errors.append(f"pivoted fixture did not trigger swaps: rate={rate}")
     write_csv(out / "raw.csv", rows)
     if rows and all(sum(r["build"] == build and r["rate"] == rate and
                         r["variant"] == variant for r in rows) == args.repeats
