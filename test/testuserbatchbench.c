@@ -126,7 +126,7 @@ static int run_one(int use_batch,int heavy,int random_access,
     bad=0;
 done:
     if(bad)fprintf(stderr,
-        "USER_BATCH_BENCH FAIL batch=%d heavy=%d random=%d err=%d\\n",
+        "USER_BATCH_BENCH FAIL batch=%d heavy=%d random=%d err=%d\n",
         use_batch,heavy,random_access,(int)err);
     if(initialized)lis_precon_row_source_destroy(&src);
     if(A)lis_matrix_destroy(A);
@@ -155,11 +155,11 @@ int main(int argc,char **argv)
             if(fabs(checksum-reference)>1e-10*(1.0+fabs(reference)))
             {
                 failed=1;
-                fprintf(stderr,"USER_BATCH_BENCH checksum mismatch\\n");
+                fprintf(stderr,"USER_BATCH_BENCH checksum mismatch\n");
                 goto done;
             }
             printf("USER_BATCH_BENCH callback=%s rows=%s mode=%s "
-                   "seconds=%.6f dispatches=%lu checksum=%.6f\\n",
+                   "seconds=%.6f dispatches=%lu checksum=%.6f\n",
                    heavy?"heavy":"light",
                    random_access?"strided":"sequential",
                    mode?"batch":"scalar",seconds,calls,checksum);
