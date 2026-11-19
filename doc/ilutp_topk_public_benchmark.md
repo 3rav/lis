@@ -33,7 +33,7 @@ python3 tools/bench_ilutp_topk_public.py \
   --out ./ilutp-topk-results
 ```
 
-The harness resides on the benchmark branch and can run from any directory if the binary paths are adjusted. For a smoke test, use `--n 1200 --repeats 3`; the GitHub Actions workflow instead runs three named profiles on pinned clean checkouts, each with seven paired A/B repetitions: `sparse-control` (n=1200, far=1), `medium-selection` (n=1200, far=8) and `large-selection` (n=4000, far=8).
+The harness resides on the benchmark branch and can run from any directory if the binary paths are adjusted. For a smoke test, use `--n 1200 --repeats 3`; the GitHub Actions workflow instead runs four named profiles on pinned clean checkouts, each with seven paired A/B repetitions: `banded-control` (n=1200, far=0), `sparse-longrange` (n=1200, far=1), `medium-selection` (n=1200, far=8) and `large-selection` (n=4000, far=8).
 
 ## Outputs and acceptance criteria
 
@@ -41,7 +41,7 @@ The harness resides on the benchmark branch and can run from any directory if th
 
 Pairs alternate baseline/candidate order, use separate processes and one thread; warmups are excluded. For each rate and variant, **status, iterations, factor L/U counts, moved-column count, API/solver statuses must be identical**, true residuals close (abs tol 5e-12, relative tol 1e-8) and no greater than 1e-7, and all cases must converge.
 
-**The legacy ILUT variant is a negative timing control, and the `far=1` profile probes when top-k has little work to do. Timing never gates CI.** Shared GitHub runners exhibit noisy timing and CPU frequency variation. Publish 7+ paired repetitions on an otherwise idle dedicated machine before claiming performance improvement; report neutral/high-fill results too.
+**The legacy ILUT variant is a negative timing control. The `far=0` banded profile is intended to test whether the heap stops helping when fill remains bounded; `far=1` is NOT a negative control, as even one distant connection can create elimination fill. Timing never gates CI.** Shared GitHub runners exhibit noisy timing and CPU frequency variation. Publish 7+ paired repetitions on an otherwise idle dedicated machine before claiming performance improvement; report neutral/high-fill results too.
 
 ## Limits
 
