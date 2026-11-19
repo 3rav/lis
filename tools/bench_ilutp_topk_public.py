@@ -262,6 +262,13 @@ def main():
                     errors.extend(check_pair(pair["baseline"], pair["candidate"], rate, rep))
     except Exception as exc:
         errors.append(f"runner failure: {exc}")
+    if args.pair_swap_columns:
+        # A pivot-stress fixture is only useful if the native ILUTP kernel
+        # actually performs swaps. Do not silently label no-swap runs "pivoted".
+        for rate in rates:
+            if not any(int(r["moved_columns"]) > 0 for r in rows
+                       if r["rate"] == rate and r["variant"].startswith("ilutp_")):
+                errors.append(f"pivoted fixture did not trigger swaps: rate={rate}")
     write_csv(out / "raw.csv", rows)
     if rows and all(sum(r["build"] == build and r["rate"] == rate and
                         r["variant"] == variant for r in rows) == args.repeats
