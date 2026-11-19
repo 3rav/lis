@@ -88,3 +88,53 @@ jobs:
           name: public-ilutp-topk-${{ matrix.case }}-${{ github.run_id }}
           path: public-ilutp-topk-results/${{ matrix.case }}/
           if-no-files-found: warn
+
+  factor-identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: harness
+      - uses: actions/checkout@v4
+        with:
+          ref: 3d027903ab079158d99bfc91f8ab6867c212dc20
+          path: base
+      - uses: actions/checkout@v4
+        with:
+          ref: 78e694a82fe15575b22df11977b7277617e9b039
+          path: candidate
+      - name: Install build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build the same pinned LIS libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tree in base candidate; do
+            (
+              cd "$tree"
+              autoreconf -fiv
+              ./configure --enable-test --disable-mpi --disable-fortran \
+                --disable-f90 --disable-saamg CFLAGS='-O2 -g'
+              make -j2
+              make -C test benchilutp
+            )
+          done
+      - name: Instrument identical native benchmark and compare full factor bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 harness/tools/check_ilutp_factor_identity.py \
+            --baseline-root "$PWD/base" \
+            --candidate-root "$PWD/candidate" \
+            --out "$PWD/ilutp-topk-factor-identity"
+      - name: Preserve complete factor snapshots and bytewise comparisons
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ilutp-topk-factor-identity-${{ github.run_id }}
+          path: ilutp-topk-factor-identity/
+          if-no-files-found: warn
