@@ -1,0 +1,44 @@
+name: Temporary PR99 source export (public code only)
+
+on:
+  push:
+    branches: ['ci/export-pr99-sources-20261119']
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout pinned upstream baseline
+        uses: actions/checkout@v4
+        with:
+          repository: 3rav/lis
+          ref: 3d027903ab079158d99bfc91f8ab6867c212dc20
+          path: export/baseline
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout pinned PR99 candidate
+        uses: actions/checkout@v4
+        with:
+          repository: 3rav/lis
+          ref: 9068ac297c511e2966f5345ca386da5557b2d8af
+          path: export/candidate
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify revisions and pack source trees
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C export/baseline rev-parse HEAD)" = 3d027903ab079158d99bfc91f8ab6867c212dc20
+          test "$(git -C export/candidate rev-parse HEAD)" = 9068ac297c511e2966f5345ca386da5557b2d8af
+          tar -czf lis-pr99-public-sources.tgz -C export baseline candidate
+          sha256sum lis-pr99-public-sources.tgz
+      - name: Upload public sources for private local benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: lis-pr99-public-sources
+          path: lis-pr99-public-sources.tgz
+          retention-days: 1
+          if-no-files-found: error
