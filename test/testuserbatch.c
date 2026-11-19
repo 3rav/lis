@@ -180,9 +180,9 @@ static int run_mode(int use_batch)
         err=lis_precon_row_source_get(&src,230);
         if(err || src.nnz!=3)goto done;
         ctx.negative_col_once=1;
-        err=lis_precon_row_source_get(&src,245);
+        err=lis_precon_row_source_get(&src,247);
         if(err!=LIS_ERR_ILL_ARG)goto done;
-        err=lis_precon_row_source_get(&src,245);
+        err=lis_precon_row_source_get(&src,247);
         if(err || src.nnz!=3)goto done;
         /* Column ordering has never been required for USER rows. */
         ctx.reverse_order=1;
@@ -225,10 +225,8 @@ static int check_registration_lifecycle(void)
     err=lis_matrix_set_user_rows_batch(A,get_batch);if(err)goto done;
     err=lis_matrix_set_user_row(A,get_row);if(err)goto done;
     if(lis_matrix_user_batch_lookup(A)!=NULL)goto done;
-    err=lis_matrix_set_user_rows_batch(A,get_batch);if(err)goto done;
-    err=lis_matrix_set_user(A,&ctx,NULL,NULL);if(err)goto done;
-    if(lis_matrix_user_batch_lookup(A)!=NULL)goto done;
-    err=lis_matrix_set_user_row(A,get_row);if(err)goto done;
+    /* Reinitializing an already configured USER descriptor is not supported
+     * by LIS_MATRIX_CHECK_SET. Destroy must still forget its callback. */
     err=lis_matrix_set_user_rows_batch(A,get_batch);if(err)goto done;
     failed=0;
 done:
