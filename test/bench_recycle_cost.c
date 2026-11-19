@@ -75,7 +75,7 @@ fail:
     return err;
 }
 static int run_method(LIS_MATRIX A,int side,int restart,int repeats,
-                      const METHOD *method)
+                      const METHOD *method,const char *precon)
 {
     LIS_SOLVER solver=NULL;
     LIS_VECTOR truth=NULL,b=NULL,x=NULL,ax=NULL;
@@ -92,9 +92,12 @@ static int run_method(LIS_MATRIX A,int side,int restart,int repeats,
             method->k,method->intra);
     else extra[0]='\0';
     snprintf(opt,sizeof(opt),
-        "-i %s -p jacobi -scale none -print none -restart %d "
-        "-maxiter 360 -tol 1e-8%s",
-        method->method,restart,extra);
+        "-i %s -p %s -scale none -print none -restart %d "
+        "-maxiter 360 -tol 1e-8%s%s",
+        method->method,strcmp(precon,"ilutp")==0?"ilut":"jacobi",
+        restart,extra,
+        strcmp(precon,"ilutp")==0?
+        " -ilutp 1 -ilut_rate 2 -ilut_drop 0 -ilutp_threshold 0.5":"");
     err=lis_solver_create(&solver);
     if(err)goto finish;
     err=lis_solver_set_option(opt,solver);
@@ -172,10 +175,12 @@ int main(int argc,char **argv)
     LIS_INT err;
     int side=(argc>1)?atoi(argv[1]):36;
     int repeats=(argc>2)?atoi(argv[2]):4;
+    const char *precon=(argc>3)?argv[3]:"jacobi";
     size_t j,k;
-    if(side<8 || side>80 || repeats<2 || repeats>10)
+    if(side<8 || side>80 || repeats<2 || repeats>10 ||
+       (strcmp(precon,"jacobi") && strcmp(precon,"ilutp")))
     {
-        fprintf(stderr,"Usage: %s [side 8..80] [repeats 2..10]\n",argv[0]);
+        fprintf(stderr,"Usage: %s [side 8..80] [repeats 2..10] [jacobi|ilutp]\n",argv[0]);
         return 2;
     }
     err=lis_initialize(&argc,&argv);
@@ -185,7 +190,7 @@ int main(int argc,char **argv)
     puts("method,k,intra,restart,solve_index,side,wall_seconds,cpu_seconds,iterations,api_error,solver_status,true_relres,precon_apply_wall");
     for(j=0;j<sizeof(restarts)/sizeof(restarts[0]);j++)
         for(k=0;k<sizeof(methods)/sizeof(methods[0]);k++)
-            (void)run_method(A,side,restarts[j],repeats,&methods[k]);
+            (void)run_method(A,side,restarts[j],repeats,&methods[k],precon);
     lis_matrix_destroy(A);
     lis_finalize();
     return 0;
