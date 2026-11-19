@@ -249,6 +249,7 @@ lis_precon_user_batch_get(LIS_PRECON_ROW_SOURCE *source,LIS_INT local_row)
     LIS_INT *new_index=NULL;
     LIS_SCALAR *new_value=NULL;
 
+    source->batch_scratch_oom=LIS_FALSE;
     if(local_row<source->batch_first ||
        local_row>=source->batch_last)
     {
@@ -274,7 +275,10 @@ lis_precon_user_batch_get(LIS_PRECON_ROW_SOURCE *source,LIS_INT local_row)
         {
             if((size_t)needed>SIZE_MAX/sizeof(LIS_INT) ||
                (size_t)needed>SIZE_MAX/sizeof(LIS_SCALAR))
+            {
+                source->batch_scratch_oom=LIS_TRUE;
                 return LIS_OUT_OF_MEMORY;
+            }
             new_index=(LIS_INT *)lis_precon_row_source_alloc(
                 source,(size_t)needed*sizeof(LIS_INT),
                 "lis_precon_user_batch_get::index");
@@ -285,6 +289,7 @@ lis_precon_user_batch_get(LIS_PRECON_ROW_SOURCE *source,LIS_INT local_row)
             {
                 lis_precon_row_source_release(source,new_index);
                 lis_precon_row_source_release(source,new_value);
+                source->batch_scratch_oom=LIS_TRUE;
                 return LIS_OUT_OF_MEMORY;
             }
             lis_precon_row_source_release(source,source->batch_index);
@@ -429,7 +434,8 @@ LIS_INT lis_precon_row_source_get(
     if(source->batch_callback!=NULL && !source->batch_disabled)
     {
         err=lis_precon_user_batch_get(source,local_row);
-        if(err!=LIS_OUT_OF_MEMORY) return err;
+        if(err!=LIS_OUT_OF_MEMORY || !source->batch_scratch_oom)
+            return err;
         /* A failed scratch allocation must not break an otherwise valid
          * USER matrix: abandon the cache and use one-row callbacks. */
         source->batch_disabled=LIS_TRUE;
