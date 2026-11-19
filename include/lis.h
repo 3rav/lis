@@ -43,7 +43,7 @@ extern "C" {
 #endif
 
 /**************************************/
-#define LIS_VERSION	"2.1.23"
+#define LIS_VERSION	"2.1.24"
 /**************************************/
 #include <stdio.h>
 #ifdef USE_COMPLEX
@@ -285,7 +285,7 @@ extern "C" {
 #define LIS_PRECONNAME_MAX 10
 #define LIS_PRECON_REGISTER_MAX 10
 
-#define LIS_PRECON_TYPE_LEN 13
+#define LIS_PRECON_TYPE_LEN 14
 #define LIS_PRECON_TYPE_NONE 0
 #define LIS_PRECON_TYPE_JACOBI 1
 #define LIS_PRECON_TYPE_ILU 2
@@ -299,6 +299,7 @@ extern "C" {
 #define LIS_PRECON_TYPE_BJACOBI 10
 #define LIS_PRECON_TYPE_ADDS 11
 #define LIS_PRECON_TYPE_MFAMG 12
+#define LIS_PRECON_TYPE_MFAMG_ILUTP 13
 #define LIS_PRECON_TYPE_USERDEF LIS_PRECON_TYPE_LEN
 
 /* Sequence policy selection. */
@@ -1131,6 +1132,12 @@ struct LIS_SOLVER_STRUCT
 	/* Opt-in two-sided row/column equilibration for ILUT and ILUTP. */
 	LIS_INT ilut_equil;
 	LIS_INT sequence_precon_ilut_equil;
+
+	/* Opt-in CA-MFAMG: solver-owned local DOF partition labels. */
+	LIS_INT mfamg_contact_aware;
+	LIS_INT *mfamg_contact_partition;
+	LIS_INT mfamg_contact_partition_n;
+	LIS_INT sequence_precon_mfamg_contact_aware;
 };
 typedef struct LIS_SOLVER_STRUCT *LIS_SOLVER;
 
@@ -1548,6 +1555,9 @@ extern LIS_INT lis_vector_export_real64_tolerant(
 	extern LIS_INT lis_solver_get_rhs_compatibility_tolerance(
 	    LIS_SOLVER solver, LIS_REAL *tolerance);
 	extern LIS_INT lis_solver_set_near_nullspace(LIS_SOLVER solver, LIS_INT nvec, LIS_VECTOR vectors[]);
+	/* Equal labels may aggregate; differing labels define contact boundaries. */
+	extern LIS_INT lis_solver_set_mfamg_contact_partition(LIS_SOLVER solver,
+		LIS_INT nlocal, const LIS_INT *partition);
 	extern LIS_INT lis_solver_clear_near_nullspace(LIS_SOLVER solver);
 	extern LIS_INT lis_solver_set_gcrodr_recycle(
 		LIS_SOLVER solver, LIS_INT dim,

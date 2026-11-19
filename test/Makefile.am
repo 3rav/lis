@@ -373,3 +373,24 @@ TESTS += testmfamgfineagg$(EXEEXT)
 test_PROGRAMS += testmfamgdeepmerge
 testmfamgdeepmerge_SOURCES = testmfamgdeepmerge.c
 TESTS += testmfamgdeepmerge$(EXEEXT)
+
+
+# Serial experimental MFAMG -> ILUTP composition regression.
+test_PROGRAMS += testmfamgilutp
+testmfamgilutp_SOURCES = testmfamgilutp.c
+testmfamgilutp_LDADD = $(LDADD) -lm
+TESTS += testmfamgilutp$(EXEEXT)
+
+# Opt-in generic static condensation and contact-aware solver integration.
+test_PROGRAMS += testcondense_core testcomposite_core testcondense_lis testcondense_oom
+testcondense_core_SOURCES = testcondense_core.c
+testcondense_core_LDADD = $(LDADD) -lm
+testcondense_oom_SOURCES = testcondense_oom.c
+testcondense_oom_LDADD = $(LDADD) -lm
+testcomposite_core_SOURCES = testcomposite_core.c
+testcomposite_core_LDADD = $(LDADD) -lm
+testcondense_lis_SOURCES = testcondense_lis.c
+testcondense_lis_LDADD = $(LDADD) -lm
+TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
+TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh

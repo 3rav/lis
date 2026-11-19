@@ -162,7 +162,10 @@ test_PROGRAMS = testesubspaceretry$(EXEEXT) etest1$(EXEEXT) \
 	test_krylov_both_ends$(EXEEXT) \
 	test_krylov_be_lock_order$(EXEEXT) testilucbsrsmoke$(EXEEXT) \
 	testfgmresprojected$(EXEEXT) testmfamgvcycle$(EXEEXT) \
-	testmfamgfineagg$(EXEEXT) testmfamgdeepmerge$(EXEEXT)
+	testmfamgfineagg$(EXEEXT) testmfamgdeepmerge$(EXEEXT) \
+	testmfamgilutp$(EXEEXT) testcondense_core$(EXEEXT) \
+	testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) \
+	testcondense_oom$(EXEEXT)
 @ENABLE_HALF_REAL_DOUBLE_TRUE@am__append_1 = testhalfstorage testhalfprobe testhalfdispatch testhalfilukmemory testhalfiluksimd testhalfilut
 @ENABLE_FORTRAN_TRUE@am__append_2 = etest1f etest4f test1f test4f test7f
 @ENABLE_F90_TRUE@am__append_3 = test2f test6f 
@@ -544,6 +547,19 @@ am_testcomponentnullspace_OBJECTS = testcomponentnullspace.$(OBJEXT)
 testcomponentnullspace_OBJECTS = $(am_testcomponentnullspace_OBJECTS)
 testcomponentnullspace_LDADD = $(LDADD)
 testcomponentnullspace_DEPENDENCIES =
+am_testcomposite_core_OBJECTS = testcomposite_core.$(OBJEXT)
+testcomposite_core_OBJECTS = $(am_testcomposite_core_OBJECTS)
+am__DEPENDENCIES_1 =
+testcomposite_core_DEPENDENCIES = $(am__DEPENDENCIES_1)
+am_testcondense_core_OBJECTS = testcondense_core.$(OBJEXT)
+testcondense_core_OBJECTS = $(am_testcondense_core_OBJECTS)
+testcondense_core_DEPENDENCIES = $(am__DEPENDENCIES_1)
+am_testcondense_lis_OBJECTS = testcondense_lis.$(OBJEXT)
+testcondense_lis_OBJECTS = $(am_testcondense_lis_OBJECTS)
+testcondense_lis_DEPENDENCIES = $(am__DEPENDENCIES_1)
+am_testcondense_oom_OBJECTS = testcondense_oom.$(OBJEXT)
+testcondense_oom_OBJECTS = $(am_testcondense_oom_OBJECTS)
+testcondense_oom_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am_testdiagonal_OBJECTS = testdiagonal.$(OBJEXT)
 testdiagonal_OBJECTS = $(am_testdiagonal_OBJECTS)
 testdiagonal_LDADD = $(LDADD)
@@ -602,7 +618,6 @@ testfgcrodrtransport_LDADD = $(LDADD)
 testfgcrodrtransport_DEPENDENCIES =
 am_testfgmresprojected_OBJECTS = testfgmresprojected.$(OBJEXT)
 testfgmresprojected_OBJECTS = $(am_testfgmresprojected_OBJECTS)
-am__DEPENDENCIES_1 =
 testfgmresprojected_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am_testfrozenilut_OBJECTS = testfrozenilut.$(OBJEXT)
 testfrozenilut_OBJECTS = $(am_testfrozenilut_OBJECTS)
@@ -743,6 +758,9 @@ am_testmfamggalerkin_OBJECTS = testmfamggalerkin.$(OBJEXT)
 testmfamggalerkin_OBJECTS = $(am_testmfamggalerkin_OBJECTS)
 testmfamggalerkin_LDADD = $(LDADD)
 testmfamggalerkin_DEPENDENCIES =
+am_testmfamgilutp_OBJECTS = testmfamgilutp.$(OBJEXT)
+testmfamgilutp_OBJECTS = $(am_testmfamgilutp_OBJECTS)
+testmfamgilutp_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am_testmfamgvcycle_OBJECTS = testmfamgvcycle.$(OBJEXT)
 testmfamgvcycle_OBJECTS = $(am_testmfamgvcycle_OBJECTS)
 testmfamgvcycle_DEPENDENCIES = $(am__DEPENDENCIES_1)
@@ -1032,7 +1050,11 @@ am__depfiles_remade = ./$(DEPDIR)/benchautojacobirefresh.Po \
 	./$(DEPDIR)/testchangingsystem.Po \
 	./$(DEPDIR)/testcoarseapply.Po ./$(DEPDIR)/testcoarsesetup.Po \
 	./$(DEPDIR)/testcomponentnullspace.Po \
-	./$(DEPDIR)/testdiagonal.Po ./$(DEPDIR)/testeigenbreakdown.Po \
+	./$(DEPDIR)/testcomposite_core.Po \
+	./$(DEPDIR)/testcondense_core.Po \
+	./$(DEPDIR)/testcondense_lis.Po \
+	./$(DEPDIR)/testcondense_oom.Po ./$(DEPDIR)/testdiagonal.Po \
+	./$(DEPDIR)/testeigenbreakdown.Po \
 	./$(DEPDIR)/testesolverselection.Po \
 	./$(DEPDIR)/testesubspaceretry.Po \
 	./$(DEPDIR)/testexactnullspace.Po \
@@ -1069,7 +1091,7 @@ am__depfiles_remade = ./$(DEPDIR)/benchautojacobirefresh.Po \
 	./$(DEPDIR)/testmatvecblock.Po ./$(DEPDIR)/testmfamg.Po \
 	./$(DEPDIR)/testmfamgdeepmerge.Po \
 	./$(DEPDIR)/testmfamgfineagg.Po \
-	./$(DEPDIR)/testmfamggalerkin.Po \
+	./$(DEPDIR)/testmfamggalerkin.Po ./$(DEPDIR)/testmfamgilutp.Po \
 	./$(DEPDIR)/testmfamgvcycle.Po \
 	./$(DEPDIR)/testnearnullspace.Po \
 	./$(DEPDIR)/testnullspacecandidates.Po \
@@ -1175,25 +1197,28 @@ SOURCES = $(benchautojacobirefresh_SOURCES) $(benchfrozenilut_SOURCES) \
 	$(testblockrank_SOURCES) $(testbreakretry_SOURCES) \
 	$(testcapabilities_SOURCES) $(testchangingsystem_SOURCES) \
 	$(testcoarseapply_SOURCES) $(testcoarsesetup_SOURCES) \
-	$(testcomponentnullspace_SOURCES) $(testdiagonal_SOURCES) \
-	$(testeigenbreakdown_SOURCES) $(testesolverselection_SOURCES) \
-	$(testesubspaceretry_SOURCES) testexactnullspace.c \
-	$(testexternalstorage_SOURCES) $(testfeastcontour_SOURCES) \
-	$(testfeastfoundation_SOURCES) $(testfeastshifted_SOURCES) \
-	$(testfgcrodr_SOURCES) $(testfgcrodrblocked_SOURCES) \
-	$(testfgcrodrintra_SOURCES) $(testfgcrodrmaxiter_SOURCES) \
-	$(testfgcrodrtransport_SOURCES) $(testfgmresprojected_SOURCES) \
-	$(testfrozenilut_SOURCES) $(testgcrodrconfig_SOURCES) \
-	$(testgcrodroptions_SOURCES) $(testgcrodrsequence_SOURCES) \
-	$(testgesolvepair_SOURCES) $(testgmreswork_SOURCES) \
-	$(testhalfconfig_SOURCES) $(testhalfconvert_SOURCES) \
-	$(testhalfdispatch_SOURCES) $(testhalfilukmemory_SOURCES) \
-	$(testhalfiluksimd_SOURCES) $(testhalfilut_SOURCES) \
-	$(testhalfprobe_SOURCES) $(testhalfstorage_SOURCES) \
-	$(testhybridnested_SOURCES) $(testilucbsrsmoke_SOURCES) \
-	$(testilupivot_SOURCES) $(testilutequil_SOURCES) \
-	$(testilutp_SOURCES) $(testjacobiuser_SOURCES) \
-	$(testkrylovrobust_SOURCES) $(testmatrixautosession_SOURCES) \
+	$(testcomponentnullspace_SOURCES) \
+	$(testcomposite_core_SOURCES) $(testcondense_core_SOURCES) \
+	$(testcondense_lis_SOURCES) $(testcondense_oom_SOURCES) \
+	$(testdiagonal_SOURCES) $(testeigenbreakdown_SOURCES) \
+	$(testesolverselection_SOURCES) $(testesubspaceretry_SOURCES) \
+	testexactnullspace.c $(testexternalstorage_SOURCES) \
+	$(testfeastcontour_SOURCES) $(testfeastfoundation_SOURCES) \
+	$(testfeastshifted_SOURCES) $(testfgcrodr_SOURCES) \
+	$(testfgcrodrblocked_SOURCES) $(testfgcrodrintra_SOURCES) \
+	$(testfgcrodrmaxiter_SOURCES) $(testfgcrodrtransport_SOURCES) \
+	$(testfgmresprojected_SOURCES) $(testfrozenilut_SOURCES) \
+	$(testgcrodrconfig_SOURCES) $(testgcrodroptions_SOURCES) \
+	$(testgcrodrsequence_SOURCES) $(testgesolvepair_SOURCES) \
+	$(testgmreswork_SOURCES) $(testhalfconfig_SOURCES) \
+	$(testhalfconvert_SOURCES) $(testhalfdispatch_SOURCES) \
+	$(testhalfilukmemory_SOURCES) $(testhalfiluksimd_SOURCES) \
+	$(testhalfilut_SOURCES) $(testhalfprobe_SOURCES) \
+	$(testhalfstorage_SOURCES) $(testhybridnested_SOURCES) \
+	$(testilucbsrsmoke_SOURCES) $(testilupivot_SOURCES) \
+	$(testilutequil_SOURCES) $(testilutp_SOURCES) \
+	$(testjacobiuser_SOURCES) $(testkrylovrobust_SOURCES) \
+	$(testmatrixautosession_SOURCES) \
 	$(testmatrixgeneration_SOURCES) $(testmatrixgraph_SOURCES) \
 	$(testmatrixmaterialize_SOURCES) \
 	$(testmatrixmaterializeomp_SOURCES) \
@@ -1202,7 +1227,8 @@ SOURCES = $(benchautojacobirefresh_SOURCES) $(benchfrozenilut_SOURCES) \
 	$(testmatrixpolicysolve_SOURCES) $(testmatvecblock_SOURCES) \
 	$(testmfamg_SOURCES) $(testmfamgdeepmerge_SOURCES) \
 	$(testmfamgfineagg_SOURCES) $(testmfamggalerkin_SOURCES) \
-	$(testmfamgvcycle_SOURCES) $(testnearnullspace_SOURCES) \
+	$(testmfamgilutp_SOURCES) $(testmfamgvcycle_SOURCES) \
+	$(testnearnullspace_SOURCES) \
 	$(testnullspacecandidates_SOURCES) \
 	$(testnullspacelift_SOURCES) $(testompelastic_SOURCES) \
 	$(testoomalloc_SOURCES) $(testoomdiag_SOURCES) \
@@ -1265,25 +1291,28 @@ DIST_SOURCES = $(benchautojacobirefresh_SOURCES) \
 	$(testblockrank_SOURCES) $(testbreakretry_SOURCES) \
 	$(testcapabilities_SOURCES) $(testchangingsystem_SOURCES) \
 	$(testcoarseapply_SOURCES) $(testcoarsesetup_SOURCES) \
-	$(testcomponentnullspace_SOURCES) $(testdiagonal_SOURCES) \
-	$(testeigenbreakdown_SOURCES) $(testesolverselection_SOURCES) \
-	$(testesubspaceretry_SOURCES) testexactnullspace.c \
-	$(testexternalstorage_SOURCES) $(testfeastcontour_SOURCES) \
-	$(testfeastfoundation_SOURCES) $(testfeastshifted_SOURCES) \
-	$(testfgcrodr_SOURCES) $(testfgcrodrblocked_SOURCES) \
-	$(testfgcrodrintra_SOURCES) $(testfgcrodrmaxiter_SOURCES) \
-	$(testfgcrodrtransport_SOURCES) $(testfgmresprojected_SOURCES) \
-	$(testfrozenilut_SOURCES) $(testgcrodrconfig_SOURCES) \
-	$(testgcrodroptions_SOURCES) $(testgcrodrsequence_SOURCES) \
-	$(testgesolvepair_SOURCES) $(testgmreswork_SOURCES) \
-	$(testhalfconfig_SOURCES) $(testhalfconvert_SOURCES) \
-	$(testhalfdispatch_SOURCES) $(testhalfilukmemory_SOURCES) \
-	$(testhalfiluksimd_SOURCES) $(testhalfilut_SOURCES) \
-	$(testhalfprobe_SOURCES) $(testhalfstorage_SOURCES) \
-	$(testhybridnested_SOURCES) $(testilucbsrsmoke_SOURCES) \
-	$(testilupivot_SOURCES) $(testilutequil_SOURCES) \
-	$(testilutp_SOURCES) $(testjacobiuser_SOURCES) \
-	$(testkrylovrobust_SOURCES) $(testmatrixautosession_SOURCES) \
+	$(testcomponentnullspace_SOURCES) \
+	$(testcomposite_core_SOURCES) $(testcondense_core_SOURCES) \
+	$(testcondense_lis_SOURCES) $(testcondense_oom_SOURCES) \
+	$(testdiagonal_SOURCES) $(testeigenbreakdown_SOURCES) \
+	$(testesolverselection_SOURCES) $(testesubspaceretry_SOURCES) \
+	testexactnullspace.c $(testexternalstorage_SOURCES) \
+	$(testfeastcontour_SOURCES) $(testfeastfoundation_SOURCES) \
+	$(testfeastshifted_SOURCES) $(testfgcrodr_SOURCES) \
+	$(testfgcrodrblocked_SOURCES) $(testfgcrodrintra_SOURCES) \
+	$(testfgcrodrmaxiter_SOURCES) $(testfgcrodrtransport_SOURCES) \
+	$(testfgmresprojected_SOURCES) $(testfrozenilut_SOURCES) \
+	$(testgcrodrconfig_SOURCES) $(testgcrodroptions_SOURCES) \
+	$(testgcrodrsequence_SOURCES) $(testgesolvepair_SOURCES) \
+	$(testgmreswork_SOURCES) $(testhalfconfig_SOURCES) \
+	$(testhalfconvert_SOURCES) $(testhalfdispatch_SOURCES) \
+	$(testhalfilukmemory_SOURCES) $(testhalfiluksimd_SOURCES) \
+	$(testhalfilut_SOURCES) $(testhalfprobe_SOURCES) \
+	$(testhalfstorage_SOURCES) $(testhybridnested_SOURCES) \
+	$(testilucbsrsmoke_SOURCES) $(testilupivot_SOURCES) \
+	$(testilutequil_SOURCES) $(testilutp_SOURCES) \
+	$(testjacobiuser_SOURCES) $(testkrylovrobust_SOURCES) \
+	$(testmatrixautosession_SOURCES) \
 	$(testmatrixgeneration_SOURCES) $(testmatrixgraph_SOURCES) \
 	$(testmatrixmaterialize_SOURCES) \
 	$(testmatrixmaterializeomp_SOURCES) \
@@ -1292,7 +1321,8 @@ DIST_SOURCES = $(benchautojacobirefresh_SOURCES) \
 	$(testmatrixpolicysolve_SOURCES) $(testmatvecblock_SOURCES) \
 	$(testmfamg_SOURCES) $(testmfamgdeepmerge_SOURCES) \
 	$(testmfamgfineagg_SOURCES) $(testmfamggalerkin_SOURCES) \
-	$(testmfamgvcycle_SOURCES) $(testnearnullspace_SOURCES) \
+	$(testmfamgilutp_SOURCES) $(testmfamgvcycle_SOURCES) \
+	$(testnearnullspace_SOURCES) \
 	$(testnullspacecandidates_SOURCES) \
 	$(testnullspacelift_SOURCES) $(testompelastic_SOURCES) \
 	$(am__testoomalloc_SOURCES_DIST) \
@@ -1564,6 +1594,7 @@ FCFLAGS = @FCFLAGS@
 FCLDFLAGS = @FCLDFLAGS@
 FFLAGS = @FFLAGS@
 FGREP = @FGREP@
+FILECMD = @FILECMD@
 FLIBS = @FLIBS@
 GREP = @GREP@
 INSTALL = @INSTALL@
@@ -1688,7 +1719,11 @@ LDADD = -L$(top_builddir)/src -llis@LIBSUFFIX@
 AM_CPPFLAGS = -I$(top_builddir) -I$(top_srcdir)/include
 AM_FFLAGS = -I$(top_builddir) -I$(top_srcdir)/include
 AM_LDFLAGS = $(AMDEFS)
-EXTRA_DIST = gen_ilutp_fullfill_case.py gen_stokes_saddle.py benchilutp_rhs_100.mtx defs test.sh testmat.mtx testmat2.mtx testmat3.mtx testmat4.mtx testmat0.mtx testvec0.mtx
+EXTRA_DIST = gen_ilutp_fullfill_case.py gen_stokes_saddle.py \
+	benchilutp_rhs_100.mtx defs test.sh testmat.mtx testmat2.mtx \
+	testmat3.mtx testmat4.mtx testmat0.mtx testvec0.mtx \
+	testca_mfamg_ilutp.sh testca_mfamg_profiles.sh \
+	testcondense_differential.sh
 testdir = ${prefix}/share/examples/lis
 test_DATA = testmat.mtx testmat2.mtx testmat3.mtx testmat4.mtx testmat0.mtx testvec0.mtx
 test_SCRIPTS = defs test.sh
@@ -1925,7 +1960,11 @@ TESTS = testsnapshot$(EXEEXT) test.sh testuserrow$(EXEEXT) \
 	test_krylov_be_lock_order$(EXEEXT) testilucbsrsmoke$(EXEEXT) \
 	$(am__append_6) $(am__append_8) testfgmresprojected$(EXEEXT) \
 	testmfamgvcycle$(EXEEXT) testmfamgfineagg$(EXEEXT) \
-	testmfamgdeepmerge$(EXEEXT)
+	testmfamgdeepmerge$(EXEEXT) testmfamgilutp$(EXEEXT) \
+	testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) \
+	testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT) \
+	testca_mfamg_ilutp.sh testca_mfamg_profiles.sh \
+	testcondense_differential.sh
 testthreads_SOURCES = testthreads.c
 testfgcrodr_SOURCES = testfgcrodr.c
 testfgcrodrmaxiter_SOURCES = testfgcrodrmaxiter.c
@@ -1968,6 +2007,16 @@ testmfamgvcycle_LDADD = $(LDADD) -lm
 testmfamgfineagg_SOURCES = testmfamgfineagg.c
 testmfamgfineagg_LDADD = $(LDADD) -lm
 testmfamgdeepmerge_SOURCES = testmfamgdeepmerge.c
+testmfamgilutp_SOURCES = testmfamgilutp.c
+testmfamgilutp_LDADD = $(LDADD) -lm
+testcondense_core_SOURCES = testcondense_core.c
+testcondense_core_LDADD = $(LDADD) -lm
+testcondense_oom_SOURCES = testcondense_oom.c
+testcondense_oom_LDADD = $(LDADD) -lm
+testcomposite_core_SOURCES = testcomposite_core.c
+testcomposite_core_LDADD = $(LDADD) -lm
+testcondense_lis_SOURCES = testcondense_lis.c
+testcondense_lis_LDADD = $(LDADD) -lm
 all: all-am
 
 .SUFFIXES:
@@ -2398,6 +2447,22 @@ testcomponentnullspace$(EXEEXT): $(testcomponentnullspace_OBJECTS) $(testcompone
 	@rm -f testcomponentnullspace$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(testcomponentnullspace_OBJECTS) $(testcomponentnullspace_LDADD) $(LIBS)
 
+testcomposite_core$(EXEEXT): $(testcomposite_core_OBJECTS) $(testcomposite_core_DEPENDENCIES) $(EXTRA_testcomposite_core_DEPENDENCIES) 
+	@rm -f testcomposite_core$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testcomposite_core_OBJECTS) $(testcomposite_core_LDADD) $(LIBS)
+
+testcondense_core$(EXEEXT): $(testcondense_core_OBJECTS) $(testcondense_core_DEPENDENCIES) $(EXTRA_testcondense_core_DEPENDENCIES) 
+	@rm -f testcondense_core$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testcondense_core_OBJECTS) $(testcondense_core_LDADD) $(LIBS)
+
+testcondense_lis$(EXEEXT): $(testcondense_lis_OBJECTS) $(testcondense_lis_DEPENDENCIES) $(EXTRA_testcondense_lis_DEPENDENCIES) 
+	@rm -f testcondense_lis$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testcondense_lis_OBJECTS) $(testcondense_lis_LDADD) $(LIBS)
+
+testcondense_oom$(EXEEXT): $(testcondense_oom_OBJECTS) $(testcondense_oom_DEPENDENCIES) $(EXTRA_testcondense_oom_DEPENDENCIES) 
+	@rm -f testcondense_oom$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testcondense_oom_OBJECTS) $(testcondense_oom_LDADD) $(LIBS)
+
 testdiagonal$(EXEEXT): $(testdiagonal_OBJECTS) $(testdiagonal_DEPENDENCIES) $(EXTRA_testdiagonal_DEPENDENCIES) 
 	@rm -f testdiagonal$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(testdiagonal_OBJECTS) $(testdiagonal_LDADD) $(LIBS)
@@ -2593,6 +2658,10 @@ testmfamgfineagg$(EXEEXT): $(testmfamgfineagg_OBJECTS) $(testmfamgfineagg_DEPEND
 testmfamggalerkin$(EXEEXT): $(testmfamggalerkin_OBJECTS) $(testmfamggalerkin_DEPENDENCIES) $(EXTRA_testmfamggalerkin_DEPENDENCIES) 
 	@rm -f testmfamggalerkin$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(testmfamggalerkin_OBJECTS) $(testmfamggalerkin_LDADD) $(LIBS)
+
+testmfamgilutp$(EXEEXT): $(testmfamgilutp_OBJECTS) $(testmfamgilutp_DEPENDENCIES) $(EXTRA_testmfamgilutp_DEPENDENCIES) 
+	@rm -f testmfamgilutp$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testmfamgilutp_OBJECTS) $(testmfamgilutp_LDADD) $(LIBS)
 
 testmfamgvcycle$(EXEEXT): $(testmfamgvcycle_OBJECTS) $(testmfamgvcycle_DEPENDENCIES) $(EXTRA_testmfamgvcycle_DEPENDENCIES) 
 	@rm -f testmfamgvcycle$(EXEEXT)
@@ -2888,6 +2957,10 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testcoarseapply.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testcoarsesetup.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testcomponentnullspace.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testcomposite_core.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testcondense_core.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testcondense_lis.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testcondense_oom.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testdiagonal.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testeigenbreakdown.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testesolverselection.Po@am__quote@ # am--include-marker
@@ -2937,6 +3010,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testmfamgdeepmerge.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testmfamgfineagg.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testmfamggalerkin.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testmfamgilutp.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testmfamgvcycle.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testnearnullspace.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testnullspacecandidates.Po@am__quote@ # am--include-marker
@@ -4090,6 +4164,62 @@ testmfamgdeepmerge.log: testmfamgdeepmerge$(EXEEXT)
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
 	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testmfamgilutp.log: testmfamgilutp$(EXEEXT)
+	@p='testmfamgilutp$(EXEEXT)'; \
+	b='testmfamgilutp'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testcondense_core.log: testcondense_core$(EXEEXT)
+	@p='testcondense_core$(EXEEXT)'; \
+	b='testcondense_core'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testcomposite_core.log: testcomposite_core$(EXEEXT)
+	@p='testcomposite_core$(EXEEXT)'; \
+	b='testcomposite_core'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testcondense_lis.log: testcondense_lis$(EXEEXT)
+	@p='testcondense_lis$(EXEEXT)'; \
+	b='testcondense_lis'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testcondense_oom.log: testcondense_oom$(EXEEXT)
+	@p='testcondense_oom$(EXEEXT)'; \
+	b='testcondense_oom'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testca_mfamg_ilutp.sh.log: testca_mfamg_ilutp.sh
+	@p='testca_mfamg_ilutp.sh'; \
+	b='testca_mfamg_ilutp.sh'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testca_mfamg_profiles.sh.log: testca_mfamg_profiles.sh
+	@p='testca_mfamg_profiles.sh'; \
+	b='testca_mfamg_profiles.sh'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testcondense_differential.sh.log: testcondense_differential.sh
+	@p='testcondense_differential.sh'; \
+	b='testcondense_differential.sh'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
 .test.log:
 	@p='$<'; \
 	$(am__set_b); \
@@ -4246,6 +4376,10 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/testcoarseapply.Po
 	-rm -f ./$(DEPDIR)/testcoarsesetup.Po
 	-rm -f ./$(DEPDIR)/testcomponentnullspace.Po
+	-rm -f ./$(DEPDIR)/testcomposite_core.Po
+	-rm -f ./$(DEPDIR)/testcondense_core.Po
+	-rm -f ./$(DEPDIR)/testcondense_lis.Po
+	-rm -f ./$(DEPDIR)/testcondense_oom.Po
 	-rm -f ./$(DEPDIR)/testdiagonal.Po
 	-rm -f ./$(DEPDIR)/testeigenbreakdown.Po
 	-rm -f ./$(DEPDIR)/testesolverselection.Po
@@ -4295,6 +4429,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/testmfamgdeepmerge.Po
 	-rm -f ./$(DEPDIR)/testmfamgfineagg.Po
 	-rm -f ./$(DEPDIR)/testmfamggalerkin.Po
+	-rm -f ./$(DEPDIR)/testmfamgilutp.Po
 	-rm -f ./$(DEPDIR)/testmfamgvcycle.Po
 	-rm -f ./$(DEPDIR)/testnearnullspace.Po
 	-rm -f ./$(DEPDIR)/testnullspacecandidates.Po
@@ -4450,6 +4585,10 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/testcoarseapply.Po
 	-rm -f ./$(DEPDIR)/testcoarsesetup.Po
 	-rm -f ./$(DEPDIR)/testcomponentnullspace.Po
+	-rm -f ./$(DEPDIR)/testcomposite_core.Po
+	-rm -f ./$(DEPDIR)/testcondense_core.Po
+	-rm -f ./$(DEPDIR)/testcondense_lis.Po
+	-rm -f ./$(DEPDIR)/testcondense_oom.Po
 	-rm -f ./$(DEPDIR)/testdiagonal.Po
 	-rm -f ./$(DEPDIR)/testeigenbreakdown.Po
 	-rm -f ./$(DEPDIR)/testesolverselection.Po
@@ -4499,6 +4638,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/testmfamgdeepmerge.Po
 	-rm -f ./$(DEPDIR)/testmfamgfineagg.Po
 	-rm -f ./$(DEPDIR)/testmfamggalerkin.Po
+	-rm -f ./$(DEPDIR)/testmfamgilutp.Po
 	-rm -f ./$(DEPDIR)/testmfamgvcycle.Po
 	-rm -f ./$(DEPDIR)/testnearnullspace.Po
 	-rm -f ./$(DEPDIR)/testnullspacecandidates.Po
