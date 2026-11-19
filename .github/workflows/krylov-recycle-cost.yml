@@ -27,6 +27,20 @@ jobs:
           ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg CFLAGS='-O2 -g -DLIS_RECYCLE_THROTTLE_EXPERIMENT'
           make -j2
           make -C test bench_recycle_cost
+      - name: Check GCRODR and FGCRODR recycling lifecycle with both cadences
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p krylov-recycle-cost/lifecycle
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          for mode in 1 4; do
+            export LIS_EXPERIMENT_RITZ_STRIDE="$mode"
+            for executable in testgcrodrsequence testfgcrodrintra testfgcrodrtransport; do
+              "./test/$executable" \
+                > "krylov-recycle-cost/lifecycle/${executable}-${mode}.log" 2>&1
+              echo "PASS: $executable stride=$mode"
+            done
+          done
       - name: Time first and recycled solves at two problem sizes
         shell: bash
         run: |
