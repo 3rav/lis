@@ -42,8 +42,25 @@ not retain any of the scratch pointers beyond the call.
 
 ## Performance and safety
 
-- Each row-source instance caches up to 16 adjacent rows; the next request
-  outside that range rebuilds the cache.
+- Each row-source instance caches up to **16 adjacent rows**; the next
+  request outside that range rebuilds the cache. Sixteen is a conservative
+  initial upper bound: the 17-entry offset array stays inline per worker
+  and typical sequential matrix traversal amortizes two callback calls over
+  up to 16 rows. It is **not automatically optimal**. The benchmark below
+  includes strided (nearly random) access, where repeated 16-row refreshes
+  can be slower than scalar callbacks.
+- If allocating the batch index/value scratch fails, the worker disables
+  batching for the lifetime of that row-source object and retries through
+  the original scalar callback. Insufficient memory for even the scalar
+  fallback is still reported as an error.
+- Errors from the application batch callback, changing offsets between
+  count/fill, and out-of-range column indices are **not** silently downgraded
+  to scalar callbacks. They invalidate the current batch and propagate to
+  the caller, including Krylov/preconditioner setup. A new request may retry
+  a failed batch after the application corrects its state.
+- Nonnegative column IDs below the local dimension are required in serial
+  mode. Duplicate and **unsorted** columns remain permitted, as in the
+  existing scalar USER row interface; no sorting is performed.
 - USER matvec and matrix materialization create worker-private row-source
   state; cache buffers and offsets are never shared across workers.
 - Only serial/local USER column numbering is supported by the row-source
@@ -60,11 +77,26 @@ not retain any of the scratch pointers beyond the call.
 
 ## Compatibility
 
-This adds an optional function pointer at the end of the public
-`LIS_MATRIX_STRUCT`. It is a source-compatible extension but **not a
-promise of binary compatibility** for applications compiled with older LIS
-headers. Rebuild applications and review SONAME/version policy before
-release.
+**No fields have been added to `LIS_MATRIX_STRUCT`.** The public
+structure remains byte-for-byte unchanged relative to the upstream develop
+baseline. The new exported setter is additive and stores the optional
+callback in a private, globally synchronized registry keyed by the matrix
+pointer. Destruction of the matrix unregisters the callback; replacing
+`lis_matrix_set_user()` or the one-row callback also unregisters it, and
+calling the new setter with `NULL` disables it.
+
+There is one registry lookup per worker-local row-source **initialization**,
+not per row. Worker-local row sources snapshot the registered function.
+For that reason, no callback re-registration, matrix destruction, or matrix
+coefficient mutation may overlap an active matvec, preconditioner operation,
+or row-source object's lifetime. Destroy/recreate a row source after
+replacing callbacks. Creating/destroying separate matrices can use the
+registry concurrently in OpenMP builds.
+
+Keeping the original public layout avoids changing `sizeof(LIS_MATRIX_STRUCT)`
+and its field offsets. It does not eliminate the need to rebuild LIS itself
+and use an ABI-compatible library release/version policy when deploying
+the new exported setter symbol.
 
 ## Validation
 
@@ -73,6 +105,16 @@ out-of-order row requests, validates malformed offset rejection, and counts
 callback dispatches. The separate `user-batch-regression.yml` workflow
 runs one and eight OpenMP threads with normal and ASan/UBSan builds.
 
-The expected performance benefit depends on callback overhead and row
-density. No speedup is claimed without representative application
-benchmarks.
+The benchmark `test/testuserbatchbench.c` prints CPU time and callback
+counts for four cases: lightweight versus deliberately expensive callback
+dispatch, each in sequential versus strided row-access order. It verifies
+that scalar and batched paths return the same numerical checksum.
+Timing results are not CI pass/fail thresholds: small hosted runners have
+no stable benchmark isolation. A large callback-count reduction is not
+evidence for equal gains in SpMV or the full FEA solver.
+
+For release acceptance, independently measure whole SpMV and setup+solve
+performance on real application matrices with two representative callback
+implementations, plus a random-row preconditioner workload. Record total
+time, true residuals, iterations, allocations and peak RSS against upstream
+develop.
