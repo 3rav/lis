@@ -144,15 +144,42 @@ def summarize(rows):
                     field: statistics.median(float(r[field]) for r in chosen)
                     for field in ("setup_cpu_s", "solve_cpu_s")}
             a, b = vals["baseline"], vals["candidate"]
+            # Distributions use matched A/B runs, not ratios of independently
+            # chosen medians. The legacy ILUT row is a negative timing control.
+            by_build = {
+                name: {int(r["run"]): r for r in rows
+                       if r["rate"] == rate and r["variant"] == variant
+                       and r["build"] == name}
+                for name in ("baseline", "candidate")
+            }
+            runs = sorted(set(by_build["baseline"]) & set(by_build["candidate"]))
+            def paired_changes(field):
+                result = []
+                for run in runs:
+                    baseline = float(by_build["baseline"][run][field])
+                    candidate = float(by_build["candidate"][run][field])
+                    if baseline <= 0:
+                        raise ValueError(f"nonpositive {field}: rate={rate} run={run}")
+                    result.append((candidate / baseline - 1) * 100)
+                return result
+            setup_pairs = paired_changes("setup_cpu_s")
+            solve_pairs = paired_changes("solve_cpu_s")
             summary.append({"rate": rate, "variant": variant,
+                            "paired_runs": len(runs),
                             "baseline_setup_median_s": a["setup_cpu_s"],
                             "candidate_setup_median_s": b["setup_cpu_s"],
                             "setup_delta_percent": ((b["setup_cpu_s"] / a["setup_cpu_s"] - 1) * 100
                                                     if a["setup_cpu_s"] > 0 else ""),
+                            "paired_setup_delta_median_percent": statistics.median(setup_pairs),
+                            "paired_setup_delta_min_percent": min(setup_pairs),
+                            "paired_setup_delta_max_percent": max(setup_pairs),
                             "baseline_solve_median_s": a["solve_cpu_s"],
                             "candidate_solve_median_s": b["solve_cpu_s"],
                             "solve_delta_percent": ((b["solve_cpu_s"] / a["solve_cpu_s"] - 1) * 100
-                                                    if a["solve_cpu_s"] > 0 else "")})
+                                                    if a["solve_cpu_s"] > 0 else ""),
+                            "paired_solve_delta_median_percent": statistics.median(solve_pairs),
+                            "paired_solve_delta_min_percent": min(solve_pairs),
+                            "paired_solve_delta_max_percent": max(solve_pairs)})
     return summary
 
 def write_csv(filename, records):
