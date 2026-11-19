@@ -51,6 +51,8 @@ struct LIS_ILUT_RAS_STRUCT {
     LIS_INT n,ndomains,overlap;
     struct LIS_ILUT_RAS_PART *parts;
     LIS_INT *owner;
+    LIS_INT *apply_order; /* Heaviest local factors first during psolve. */
+    uint64_t *apply_cost;
     LIS_INT *gamma,*gamma_of,*pivots;
     LIS_INT ngamma;
     LIS_SCALAR *diag_inv,*schur_lu,*schur_rhs,*schur_delta;
@@ -78,6 +80,8 @@ void lis_precon_ilut_ras_destroy(struct LIS_ILUT_RAS_STRUCT *s)
     }
     lis_free(s->parts);
     lis_free(s->owner);
+    lis_free(s->apply_order);
+    lis_free(s->apply_cost);
     lis_free(s->gamma);
     lis_free(s->gamma_of);
     lis_free(s->pivots);
@@ -473,6 +477,39 @@ lis_precon_create_ilut_ras(LIS_SOLVER solver, LIS_PRECON precon)
      * partially initialized domains (including OOM paths). */
     for(d=0;d<s->ndomains;d++)
         if(s->parts[d].parallel_error) return s->parts[d].parallel_error;
+    /* Factor nnz predicts triangular-apply work better than row counts.
+     * Cache a descending-cost task order (stable on domain ID) once at
+     * setup; no shared mutable scheduling state is used during psolve. */
+    s->apply_order=(LIS_INT *)lis_malloc(
+        (size_t)s->ndomains*sizeof(LIS_INT),"RAS apply order");
+    s->apply_cost=(uint64_t *)lis_malloc(
+        (size_t)s->ndomains*sizeof(uint64_t),"RAS apply work");
+    if(!s->apply_order || !s->apply_cost) return LIS_OUT_OF_MEMORY;
+    for(d=0;d<s->ndomains;d++)
+    {
+        struct LIS_ILUT_RAS_PART *p=&s->parts[d];
+        uint64_t work=(uint64_t)p->nlocal;
+        for(i=0;i<p->nlocal;i++)
+        {
+            uint64_t row=0;
+            if(p->pc && p->pc->L) row+=(uint64_t)p->pc->L->nnz[i];
+            if(p->pc && p->pc->U) row+=(uint64_t)p->pc->U->nnz[i];
+            work=(UINT64_MAX-work<row) ? UINT64_MAX : work+row;
+        }
+        s->apply_order[d]=d;
+        s->apply_cost[d]=work;
+    }
+    for(d=1;d<s->ndomains;d++)
+    {
+        LIS_INT key=s->apply_order[d],pos=d;
+        while(pos>0 &&
+              s->apply_cost[s->apply_order[pos-1]]<s->apply_cost[key])
+        {
+            s->apply_order[pos]=s->apply_order[pos-1];
+            pos--;
+        }
+        s->apply_order[pos]=key;
+    }
     if(solver->ilut_schur)
     {
         err=lis_ilut_ras_make_schur(s);
@@ -485,7 +522,7 @@ LIS_INT
 lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
 {
     struct LIS_ILUT_RAS_STRUCT *s=solver->precon->ilut_ras;
-    LIS_INT d,i,k,gi,err,ng;
+    LIS_INT task,d,i,k,gi,err,ng;
     LIS_SCALAR val;
 #ifdef _OPENMP
     int workers;
@@ -500,10 +537,11 @@ lis_psolve_ilut_ras(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X)
 #ifdef _OPENMP
     workers=omp_get_max_threads();
     if(workers>s->ndomains) workers=(int)s->ndomains;
-#pragma omp parallel for schedule(static) private(i,gi,err) num_threads(workers) if(workers>1)
+#pragma omp parallel for schedule(dynamic,1) private(d,i,gi,err) num_threads(workers) if(workers>1)
 #endif
-    for(d=0;d<s->ndomains;d++)
+    for(task=0;task<s->ndomains;task++)
     {
+        d=s->apply_order[task];
         struct LIS_ILUT_RAS_PART *p=&s->parts[d];
 #ifdef _OPENMP
         int previous_threads=omp_get_max_threads();
