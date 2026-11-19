@@ -3,6 +3,7 @@
 #include "lis_config.h"
 #endif
 #include "lislib.h"
+#include "lis_matrix_materialize.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -371,11 +372,64 @@ done:
 }
 #endif
 
+/* Materialization is a core consumer of USER row sources. Verify its
+ * entire CSR representation, not just matvec output, in both modes. */
+static int check_materialization(int use_batch)
+{
+    enum { N=256 };
+    CONTEXT ctx;
+    LIS_MATRIX A=NULL,B=NULL;
+    LIS_INT err=0,i,k,expected,cols[3];
+    LIS_SCALAR vals[3];
+    int failed=1;
+    memset(&ctx,0,sizeof(ctx));
+    ctx.n=N;
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err)goto done;
+    err=lis_matrix_set_size(A,0,N);if(err)goto done;
+    err=lis_matrix_set_user(A,&ctx,NULL,NULL);if(err)goto done;
+    err=lis_matrix_set_user_row(A,get_row);if(err)goto done;
+    if(use_batch)
+    {
+        err=lis_matrix_set_user_rows_batch(A,get_batch);if(err)goto done;
+    }
+    err=lis_matrix_set_user_row_thread_safe(A,LIS_TRUE);if(err)goto done;
+    err=lis_matrix_materialize_csr_owned(A,&B);if(err)goto done;
+    if(B==NULL || B->matrix_type!=LIS_MATRIX_CSR ||
+       B->ptr==NULL || B->index==NULL || B->value==NULL ||
+       B->ptr[N]!=3*N-2)goto done;
+    for(i=0;i<N;i++)
+    {
+        expected=count_row(&ctx,i);
+        if(B->ptr[i+1]-B->ptr[i]!=expected)goto done;
+        k=0;
+        if(i>0){cols[k]=i-1;vals[k++]=-1.0;}
+        cols[k]=i; vals[k++]=4.0;
+        if(i+1<N){cols[k]=i+1;vals[k++]=-1.0;}
+        for(k=0;k<expected;k++)
+            if(B->index[B->ptr[i]+k]!=cols[k] ||
+               fabs((double)B->value[B->ptr[i]+k]-
+                    (double)vals[k])>1e-12)goto done;
+    }
+    if(use_batch && (ctx.scalar_queries!=0 || ctx.batch_queries==0))
+        goto done;
+    if(!use_batch && ctx.scalar_queries==0)goto done;
+    failed=0;
+done:
+    if(failed)fprintf(stderr,
+        "USER_BATCH materialization FAIL mode=%d err=%d\\n",
+        use_batch,(int)err);
+    if(B)lis_matrix_destroy(B);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     int failed;
     if(lis_initialize(&argc,&argv)!=LIS_SUCCESS)return 2;
     failed=run_mode(0)|run_mode(1);
+    failed|=check_materialization(0);
+    failed|=check_materialization(1);
     failed|=check_registration_lifecycle();
 #ifdef _OPENMP
     failed|=check_parallel_registrations();
