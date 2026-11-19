@@ -267,7 +267,18 @@ static int check_batch_cache_oom(void)
     err=lis_matrix_set_size(A,0,ctx.n);if(err)goto done;
     err=lis_matrix_set_user(A,&ctx,NULL,NULL);if(err)goto done;
     err=lis_matrix_set_user_row(A,get_row);if(err)goto done;
+    lis_test_oom_begin(1);
+    err=lis_matrix_set_user_rows_batch(A,get_batch);
+    lis_test_oom_end();
+    if(err!=LIS_OUT_OF_MEMORY || lis_matrix_user_batch_lookup(A)!=NULL)
+        goto done;
     err=lis_matrix_set_user_rows_batch(A,get_batch);if(err)goto done;
+    /* Registration is transactional: a failed replacement keeps old data. */
+    lis_test_oom_begin(1);
+    err=lis_matrix_set_user_rows_batch(A,get_batch);
+    lis_test_oom_end();
+    if(err!=LIS_OUT_OF_MEMORY ||
+       lis_matrix_user_batch_lookup(A)!=get_batch)goto done;
     err=lis_precon_row_source_init(A,&src);if(err)goto done;
     initialized=1;
     lis_test_oom_begin(1);
