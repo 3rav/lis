@@ -535,9 +535,10 @@ LIS_INT lis_matrix_destroy(LIS_MATRIX Amat)
 {
 	LIS_DEBUG_FUNC_IN;
 
+	/* Drop the ABI-neutral binding even for application-owned descriptors. */
+    if(Amat!=NULL) lis_matrix_user_batch_forget(Amat);
 	if( lis_is_malloc(Amat) )
 	{
-        lis_matrix_user_batch_forget(Amat);
 		if( Amat->operator_work )
 		{
 			lis_vector_destroy(Amat->operator_work);
