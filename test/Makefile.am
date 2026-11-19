@@ -336,7 +336,7 @@ TESTS += testilucbsrsmoke$(EXEEXT)
 
 # Opt-in native OOM regressions; build and run against the actual LIS library.
 if ENABLE_OOM_TESTS
-check_PROGRAMS = testoomalloc testoomilu testoomdiag testoomiluc testoomsnapshot testoomrco
+check_PROGRAMS = testoomalloc testoomilu testoomdiag testoomiluc testoomsnapshot testoomrco testcsrtransposeoom
 TESTS += testoomalloc$(EXEEXT) testoomilu$(EXEEXT) testoomdiag$(EXEEXT) testoomiluc$(EXEEXT) testoomsnapshot$(EXEEXT) testoomrco$(EXEEXT)
 testoomalloc_SOURCES = testoomalloc.c
 testoomilu_SOURCES = testoomilu.c
@@ -344,6 +344,7 @@ testoomdiag_SOURCES = testoomdiag.c
 testoomiluc_SOURCES = testoomiluc.c
 testoomsnapshot_SOURCES = testoomsnapshot.c
 testoomrco_SOURCES = testoomrco.c
+testcsrtransposeoom_SOURCES = testcsrtransposeoom.c
 if ENABLE_MPI
 check_PROGRAMS += testoommpiscale
 TESTS += testoommpiscale$(EXEEXT)
