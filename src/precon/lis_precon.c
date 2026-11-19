@@ -361,6 +361,55 @@ LIS_INT lis_precon_row_source_get(
 		return LIS_ERR_ILL_ARG;
 	}
 
+    /* The one-row USER callback is mandatory. Avoid repeatedly
+     * fetching 16-row windows if accesses keep jumping between distant
+     * rows. This only changes the fetch strategy, not matrix values.
+     *
+     * Two nonlocal cache misses switch to scalar. Eight sequential row
+     * requests restore batch mode, so a transient random probe does not
+     * permanently penalize a subsequent matrix traversal.
+     */
+    if(A->matrix_type==LIS_MATRIX_USER &&
+       source->batch_callback!=NULL && !source->batch_disabled)
+    {
+        LIS_INT sequential=LIS_FALSE;
+        if(source->batch_seen)
+        {
+            sequential=(source->batch_previous_row<A->n-1 &&
+                        local_row==source->batch_previous_row+1);
+            if(sequential)
+            {
+                if(source->batch_linear_streak<8)
+                    source->batch_linear_streak++;
+                source->batch_remote_misses=0;
+            }
+            else
+            {
+                source->batch_linear_streak=0;
+                if(!source->batch_prefer_scalar &&
+                   (local_row<source->batch_first ||
+                    local_row>=source->batch_last))
+                {
+                    source->batch_remote_misses++;
+                    if(source->batch_remote_misses>=2)
+                    {
+                        source->batch_prefer_scalar=LIS_TRUE;
+                        source->batch_remote_misses=0;
+                    }
+                }
+            }
+        }
+        if(source->batch_prefer_scalar &&
+           source->batch_linear_streak>=8)
+        {
+            source->batch_prefer_scalar=LIS_FALSE;
+            source->batch_remote_misses=0;
+            source->batch_first=source->batch_last=0;
+        }
+        source->batch_previous_row=local_row;
+        source->batch_seen=LIS_TRUE;
+    }
+
 	source->index = NULL;
 	source->value = NULL;
 	source->nnz = 0;
@@ -431,7 +480,8 @@ LIS_INT lis_precon_row_source_get(
 	{
 		return LIS_ERR_NOT_IMPLEMENTED;
 	}
-    if(source->batch_callback!=NULL && !source->batch_disabled)
+    if(source->batch_callback!=NULL && !source->batch_disabled &&
+       !source->batch_prefer_scalar)
     {
         err=lis_precon_user_batch_get(source,local_row);
         if(err!=LIS_OUT_OF_MEMORY || !source->batch_scratch_oom)
