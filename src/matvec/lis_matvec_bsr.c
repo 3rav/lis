@@ -944,7 +944,7 @@ void lis_matvech_bsr(LIS_MATRIX A, LIS_SCALAR x[], LIS_SCALAR y[])
                     "lis_matvech_bsr::w");
             if(w!=NULL)
             {
-            #pragma omp parallel private(bi,bc,bj,i,j,k,my_rank)
+            #pragma omp parallel private(bi,bc,bj,i,j,k,my_rank,t)
 			{
 				my_rank = omp_get_thread_num();
 
