@@ -11,7 +11,7 @@
 typedef struct {
     LIS_INT n,scalar_queries,batch_queries,fail_mismatch;
     LIS_INT fail_fill_once,negative_col_once,reverse_order;
-    LIS_INT callback_oom_once;
+    LIS_INT callback_oom_once,callback_repeated_error;
 } CONTEXT;
 
 static LIS_INT count_row(CONTEXT *ctx,LIS_INT row)
@@ -72,6 +72,11 @@ static LIS_INT get_batch(void *opaque,LIS_INT first,LIS_INT last,
     {
         ctx->callback_oom_once=0;
         return LIS_OUT_OF_MEMORY;
+    }
+    if(ctx->callback_repeated_error>0)
+    {
+        ctx->callback_repeated_error--;
+        return LIS_ERR_ILL_ARG;
     }
     if(ctx->negative_col_once)
     {
@@ -222,6 +227,20 @@ static int run_mode(int use_batch)
         err=lis_precon_row_source_get(&src,120);
         if(err!=LIS_OUT_OF_MEMORY || src.batch_disabled)goto done;
         err=lis_precon_row_source_get(&src,120);
+        if(err || src.nnz!=3 || ctx.scalar_queries!=0)goto done;
+
+        /* Four failures of the same callback/row must all propagate.
+         * Locality adaptation is not allowed to hide a persistent error
+         * by switching to the scalar callback on a later retry. */
+        err=reset_batch_source(A,&src);if(err)goto done;
+        ctx.callback_repeated_error=4;
+        for(k=0;k<4;k++)
+        {
+            err=lis_precon_row_source_get(&src,160);
+            if(err!=LIS_ERR_ILL_ARG || src.batch_prefer_scalar ||
+               ctx.scalar_queries!=0)goto done;
+        }
+        err=lis_precon_row_source_get(&src,160);
         if(err || src.nnz!=3 || ctx.scalar_queries!=0)goto done;
     }
     failed=0;
