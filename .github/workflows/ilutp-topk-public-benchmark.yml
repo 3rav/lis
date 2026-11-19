@@ -14,6 +14,19 @@ jobs:
   benchmark:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: sparse-control
+            n: 1200
+            far: 1
+          - case: medium-selection
+            n: 1200
+            far: 8
+          - case: large-selection
+            n: 4000
+            far: 8
     env:
       OMP_NUM_THREADS: '1'
       OMP_DYNAMIC: 'FALSE'
@@ -52,13 +65,13 @@ jobs:
           python3 harness/tools/bench_ilutp_topk_public.py \
             --baseline-bin "$PWD/base/test/benchilutp" \
             --candidate-bin "$PWD/candidate/test/benchilutp" \
-            --n 1200 --far 8 --seed 20261119 \
-            --rates 1,2,4,8 --warmups 1 --repeats 3 \
-            --out "$PWD/public-ilutp-topk-results"
+            --n ${{ matrix.n }} --far ${{ matrix.far }} --seed 20261119 \
+            --rates 1,2,4,8 --warmups 1 --repeats 7 \
+            --out "$PWD/public-ilutp-topk-results/${{ matrix.case }}"
       - name: Preserve inputs, every sample and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: public-ilutp-topk-ab-${{ github.run_id }}
-          path: public-ilutp-topk-results/
+          name: public-ilutp-topk-${{ matrix.case }}-${{ github.run_id }}
+          path: public-ilutp-topk-results/${{ matrix.case }}/
           if-no-files-found: warn
