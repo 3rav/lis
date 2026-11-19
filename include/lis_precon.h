@@ -81,7 +81,8 @@ typedef struct LIS_PRECON_ROW_SOURCE_STRUCT
      * The inline offsets keep callback-query storage allocation-free.
      * All other cache arrays use the source's ordinary/raw allocator. */
     LIS_MATRIX_USER_GET_ROWS_BATCH batch_callback;
-    LIS_INT batch_disabled; /* OOM: use ordinary scalar rows thereafter. */
+    LIS_INT batch_disabled; /* Internal scratch OOM: use scalar rows. */
+    LIS_INT batch_scratch_oom; /* Distinguish LIS OOM from callback error. */
     LIS_INT batch_first,batch_last,batch_capacity;
     LIS_INT batch_offset[17];
     LIS_INT *batch_index;
