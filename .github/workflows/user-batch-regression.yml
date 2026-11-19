@@ -33,6 +33,8 @@ jobs:
           make -j2
           cc -Iinclude -I. -fopenmp -Wall -Wextra -Werror test/testuserbatch.c \
             -Lsrc/.libs -llis -lm ${CFLAGS} ${LDFLAGS:-} -o test/testuserbatch
+          cc -Iinclude -I. -fopenmp -Wall -Wextra -Werror test/testuserbatchbench.c \
+            -Lsrc/.libs -llis -lm ${CFLAGS} ${LDFLAGS:-} -o test/testuserbatchbench
       - name: Compare scalar and batched USER callbacks
         shell: bash
         run: |
@@ -40,6 +42,7 @@ jobs:
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
           OMP_NUM_THREADS=1 ./test/testuserbatch
           OMP_NUM_THREADS=8 ./test/testuserbatch
+          OMP_NUM_THREADS=1 ./test/testuserbatchbench | tee user-batch-benchmark.log
       - name: Upload diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
