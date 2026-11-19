@@ -5550,7 +5550,15 @@ lis_fgcrodr_flexible_core(
 
     double time;
     double ptime;
-
+#ifdef LIS_RECYCLE_THROTTLE_EXPERIMENT
+    LIS_INT recycle_opportunities=0,recycle_stride=1;
+    const char *recycle_env=getenv("LIS_EXPERIMENT_RITZ_STRIDE");
+    if(recycle_env!=NULL)
+    {
+        if(strcmp(recycle_env,"once")==0) recycle_stride=0;
+        else if(strcmp(recycle_env,"4")==0) recycle_stride=4;
+    }
+#endif
 
     comm = LIS_COMM_WORLD;
 
@@ -6599,6 +6607,16 @@ lis_fgcrodr_flexible_core(
          * Subsequent cycles with active recycling perform an augmented
          * harmonic UPDATE using [Z_old,Z_krylov].
          */
+#ifdef LIS_RECYCLE_THROTTLE_EXPERIMENT
+        /* Reuse exact A Z = C when a harmonic Ritz refresh is deferred.
+         * Enable only in this diagnostic build for numeric comparison. */
+        LIS_INT do_update=(recycle_stride==1 ||
+                          (recycle_stride==0 && recycle_opportunities==0) ||
+                          (recycle_stride==4 && recycle_opportunities%4==0));
+        recycle_opportunities++;
+        if(do_update)
+#endif
+        {
 #ifdef LIS_RECYCLE_PROFILE
         clock_t recycle_t0=clock();
 #endif
@@ -6616,6 +6634,11 @@ lis_fgcrodr_flexible_core(
         fprintf(stderr,"RECYCLE_UPDATE,fgcrodr,%d,%d,%d,%.9f\n",
                 (int)m,(int)state->target_dim,(int)(ii+1),
                 (double)(clock()-recycle_t0)/(double)CLOCKS_PER_SEC);
+#endif
+        }
+#ifdef LIS_RECYCLE_THROTTLE_EXPERIMENT
+        else
+            err=LIS_SUCCESS;
 #endif
 
         if( err )
