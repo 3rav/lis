@@ -46,3 +46,14 @@ Pairs alternate baseline/candidate order, use separate processes and one thread;
 ## Limits
 
 The ordinary synthetic matrices are deliberately diagonally dominant; the pivot-stress variant is a source-column permutation of such a matrix and forces column swaps, but still does not represent pivot-sensitive nonlinear FEA contact problems. The legacy ILUT control is **not a substitute for ILUTP** on this deliberately column-permuted case, so its lack of convergence cannot invalidate an otherwise matching and converged ILUTP A/B comparison. This test cannot establish Newton convergence, peak memory, production speedups, or generality. It does not replace independent code review.
+
+## Byte-for-byte factor identity check
+
+The additional CI job `factor-identity` tests a stronger property than the main solver A/B gate. It checks the **complete serialized factor data** in two clean, pinned LIS revisions:
+
+- Identical native `test/benchilutp.c` source is checked by SHA-256 and instrumented with exactly the same temporary diagnostic code in each checkout. Neither preconditioner implementation is patched.
+- After factor setup has already been timed, it serializes every L and U row length, column index and raw `LIS_SCALAR` value, all entries of the diagonal inverse D, the column permutation and swap counter. The generated files are compared **byte for byte**, not just via hash equality.
+- Cases are n=1200 banded, long-range selection and column-pivoted selection, at fill rates 1, 2, 4 and 8. This checks 3 variants × 3 cases × 4 rates = 36 matched baseline/candidate snapshots, all with the same ABI on one runner. ILUTP also must converge and, in the permuted case, actually pivot. Legacy unpivoted ILUT may fail to converge on the permuted case but must match the other build exactly.
+- Full raw factor files, a CSV of comparisons and SHA-256 hashes, and the source/solver manifest are preserved for forensic inspection.
+
+This is a bitwise identity check of **built factors**, not a bitwise guarantee about every Krylov intermediate or about binaries built using different platforms/compiler flags. It is also not a benchmark of production CalculiX matrices; timing remains secondary.
