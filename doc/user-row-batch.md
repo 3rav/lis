@@ -40,6 +40,19 @@ The matrix must remain unchanged between the two calls. LIS checks for
 inconsistent offsets and out-of-range column indices. The application must
 not retain any of the scratch pointers beyond the call.
 
+**Mathematical equivalence is mandatory:** both installed callbacks must
+describe the same rows, column/value pairs, duplicate-entry semantics and
+matrix dimensions (the order of entries inside a row may differ). Depending
+on locality and available memory, LIS can use scalar and batch callbacks
+within the *same* matrix-vector operation. Different numerical meanings
+would produce an invalid, state-dependent linear operator. A callback
+replacement is a change of retrieval strategy, not a method for silently
+updating matrix coefficients. If the physical operator changes between
+operations, mark the matrix's value or structure generation via
+`lis_matrix_mark_values_changed(A)` or
+`lis_matrix_mark_structure_changed(A)` as appropriate, and recreate
+long-lived row sources / materialization state before resuming.
+
 ## Performance and safety
 
 - Each row-source instance caches up to **16 adjacent rows**. Sixteen
