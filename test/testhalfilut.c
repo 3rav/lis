@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "lislib.h"
+#include "lis_omp_capacity.h"
 
 
 static LIS_INT
@@ -1062,7 +1063,11 @@ static int check_ilut_ras_local_ilutp(void)
     char opts[350];
 
 #ifdef _OPENMP
-    /* Test serial and genuinely parallel independent ILUTP subdomains. */
+    /* The test grows its team to eight threads below.  A process started
+     * with OMP_NUM_THREADS=1 has only one LIS reduction scratch slot unless
+     * it uses the supported elastic-capacity API before changing teams. */
+    err=lis_omp_ensure_thread_capacity(8);
+    if(err) goto cleanup;
     omp_set_dynamic(0);
     omp_set_num_threads(1);
 #endif
