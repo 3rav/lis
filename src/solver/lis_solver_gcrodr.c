@@ -57,6 +57,7 @@
 #endif
 
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -1725,8 +1726,16 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
         /* Build/update recycle space before v[0] is overwritten by true r. */
         if( kmax>0 && !lucky )
         {
+#ifdef LIS_RECYCLE_PROFILE
+            clock_t recycle_t0=clock();
+#endif
             err = lis_gcrodr_update_recycle(solver,v,jdim,hraw,hld,
                                             bcoef,_max(1,kmax));
+#ifdef LIS_RECYCLE_PROFILE
+            fprintf(stderr,"RECYCLE_UPDATE,gcrodr,%d,%d,%d,%.9f\n",
+                    (int)m,(int)kmax,(int)jdim,
+                    (double)(clock()-recycle_t0)/(double)CLOCKS_PER_SEC);
+#endif
             if( err ) goto fail;
         }
 
