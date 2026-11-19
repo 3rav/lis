@@ -1333,6 +1333,16 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
     LIS_INT i,j,k,m,kmax,kcur,cycle_steps,jdim,ii,i1,jj,hld,cs,sn,pass;
     LIS_INT lucky,candidate;
     double time,ptime;
+#ifdef LIS_RECYCLE_THROTTLE_EXPERIMENT
+    /* Experimental per-solve Ritz cadence; never built in production. */
+    LIS_INT recycle_opportunities=0,recycle_stride=1;
+    const char *recycle_env=getenv("LIS_EXPERIMENT_RITZ_STRIDE");
+    if(recycle_env!=NULL)
+    {
+        if(strcmp(recycle_env,"once")==0) recycle_stride=0;
+        else if(strcmp(recycle_env,"4")==0) recycle_stride=4;
+    }
+#endif
 
     LIS_DEBUG_FUNC_IN;
     comm = LIS_COMM_WORLD;
@@ -1726,6 +1736,16 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
         /* Build/update recycle space before v[0] is overwritten by true r. */
         if( kmax>0 && !lucky )
         {
+#ifdef LIS_RECYCLE_THROTTLE_EXPERIMENT
+            /* Keep the current U/ZU/C relation when an update is deferred.
+             * Every fourth opportunity includes the initial update. */
+            LIS_INT do_update=(recycle_stride==1 ||
+                              (recycle_stride==0 && recycle_opportunities==0) ||
+                              (recycle_stride==4 && recycle_opportunities%4==0));
+            recycle_opportunities++;
+            if(do_update)
+#endif
+            {
 #ifdef LIS_RECYCLE_PROFILE
             clock_t recycle_t0=clock();
 #endif
@@ -1737,6 +1757,7 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
                     (double)(clock()-recycle_t0)/(double)CLOCKS_PER_SEC);
 #endif
             if( err ) goto fail;
+            }
         }
 
         /* True residual replacement at every restart boundary. */
