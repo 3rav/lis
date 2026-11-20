@@ -131,6 +131,11 @@ static int check_ritz_stride_options(void)
        lis_solver_set_option("-fgcrodr_ritz_stride 9999999999999999999999",a)!=LIS_ERR_ILL_ARG ||
        lis_solver_set_option("-fgcrodr_ritz_stride 1",b)!=LIS_SUCCESS)
         goto fail;
+    /* A stride change must appear in textual option-profile comparisons,
+     * and copying must transfer the new per-solver value. */
+    if(lis_fgcrodr_profile_equal(a,b)!=LIS_FALSE) goto fail;
+    lis_fgcrodr_profile_copy(b,a);
+    if(lis_fgcrodr_profile_equal(a,b)!=LIS_TRUE) goto fail;
     lis_solver_destroy(b);
     lis_solver_destroy(a);
     puts("FGCRODR_RITZ_STRIDE_OPTIONS_OK");
