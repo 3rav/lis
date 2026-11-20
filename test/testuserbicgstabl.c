@@ -33,7 +33,9 @@ static int exercise(LIS_INT fail_on,LIS_INT ell)
     err=lis_vector_duplicate(A,&x);if(err)goto done;
     for(i=0;i<ctx.n;i++)
     {
-        x->value[i]=(LIS_SCALAR)0.15;
+        /* Keep injection on a nonzero guess; isolate the legacy initial-x
+         * accumulation defect from this callback-error PR's healthy case. */
+        x->value[i]=(LIS_SCALAR)(fail_on ? 0.15 : 0.0);
         b->value[i]=(LIS_SCALAR)(1.0+0.125*(double)i);
     }
     err=lis_solver_create(&solver);if(err)goto done;
