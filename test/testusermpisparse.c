@@ -78,7 +78,9 @@ int main(int argc,char **argv)
     MPI_Comm_size(LIS_COMM_WORLD,&nranks);
 #endif
     err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err){failed=1;goto done;}
-    err=lis_matrix_set_size(A,0,12);if(err){failed=1;goto done;}
+    /* Four ranks receive an uneven partition of 14 rows, ensuring
+     * global owner lookup handles nonuniform ranges. */
+    err=lis_matrix_set_size(A,0,14);if(err){failed=1;goto done;}
     rows.global_n=A->gn;rows.local_n=A->n;rows.is=A->is;
     rows.rank=rank;rows.fail_rank=(nranks>1?1:0);rows.fail=0;
     err=lis_matrix_set_user(A,&rows,NULL,NULL);if(err){failed=1;goto done;}
