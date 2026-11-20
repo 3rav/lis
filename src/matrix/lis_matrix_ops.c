@@ -39,6 +39,7 @@
 #endif
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
 #ifdef _OPENMP
 	#include <omp.h>
 #endif
@@ -1245,6 +1246,83 @@ lis_matrix_get_diagonal_user_rows(
 	}
 }
 
+#ifdef USE_MPI
+/* Distributed USER rows carry zero-based GLOBAL column indices.  Only the
+ * local diagonal is fetched, but the error status is collective so a single
+ * bad rank cannot leave peers in the next Krylov communication. */
+static LIS_INT
+lis_matrix_get_diagonal_user_rows_mpi(LIS_MATRIX A,LIS_SCALAR *diagonal)
+{
+    LIS_INT i,k,required,filled,capacity=0;
+    LIS_INT local_err=LIS_SUCCESS,global_err=LIS_SUCCESS;
+    LIS_INT *cols=NULL,*new_cols;
+    LIS_SCALAR *vals=NULL,*new_vals;
+    int mpierr;
+
+    if(A==NULL || diagonal==NULL || A->user_get_row==NULL ||
+       A->gn<=0 || A->n<0 || A->is<0 ||
+       A->ie<A->is || A->ie>A->gn || A->n!=A->ie-A->is)
+        local_err=LIS_ERR_ILL_ARG;
+    if(!local_err)
+        for(i=0;i<A->n;i++)
+        {
+            LIS_SCALAR sum=(LIS_SCALAR)0.0;
+            required=0;
+            local_err=A->user_get_row(A->user_data,i,&required,NULL,NULL);
+            if(local_err)break;
+            if(required<0 ||
+               (uintmax_t)required>(uintmax_t)SIZE_MAX/sizeof(LIS_INT) ||
+               (uintmax_t)required>(uintmax_t)SIZE_MAX/sizeof(LIS_SCALAR))
+            {
+                local_err=LIS_ERR_ILL_ARG;
+                break;
+            }
+            if(required>capacity)
+            {
+                new_cols=(LIS_INT *)malloc((size_t)required*sizeof(LIS_INT));
+                new_vals=(LIS_SCALAR *)malloc((size_t)required*sizeof(LIS_SCALAR));
+                if(new_cols==NULL || new_vals==NULL)
+                {
+                    free(new_cols);
+                    free(new_vals);
+                    local_err=LIS_ERR_OUT_OF_MEMORY;
+                    break;
+                }
+                free(cols);free(vals);
+                cols=new_cols;vals=new_vals;capacity=required;
+            }
+            if(required>0)
+            {
+                filled=capacity;
+                local_err=A->user_get_row(
+                    A->user_data,i,&filled,cols,vals);
+                if(local_err)break;
+                if(filled!=required)
+                {
+                    local_err=LIS_ERR_ILL_ARG;
+                    break;
+                }
+                for(k=0;k<filled;k++)
+                {
+                    if(cols[k]<0 || cols[k]>=A->gn)
+                    {
+                        local_err=LIS_ERR_ILL_ARG;
+                        break;
+                    }
+                    if(cols[k]==A->is+i)sum+=vals[k];
+                }
+                if(local_err)break;
+            }
+            diagonal[i]=sum;
+        }
+    free(cols);free(vals);
+    mpierr=MPI_Allreduce(&local_err,&global_err,1,
+                         LIS_MPI_INT,MPI_MAX,A->comm);
+    if(mpierr!=MPI_SUCCESS)return LIS_ERR_ILL_ARG;
+    return global_err;
+}
+#endif /* USE_MPI */
+
 #undef __FUNC__
 #define __FUNC__ "lis_matrix_get_diagonal"
 LIS_INT lis_matrix_get_diagonal(LIS_MATRIX A, LIS_VECTOR D)
@@ -1297,7 +1375,12 @@ LIS_INT lis_matrix_get_diagonal(LIS_MATRIX A, LIS_VECTOR D)
 	        }
 	        else if( A->user_get_row!=NULL )
 	        {
-	                err = lis_matrix_get_diagonal_user_rows(A,d);
+#ifdef USE_MPI
+	                if(A->nprocs>1)
+	                        err=lis_matrix_get_diagonal_user_rows_mpi(A,d);
+	                else
+#endif
+	                        err=lis_matrix_get_diagonal_user_rows(A,d);
 	        }
 	        else
 	        {
