@@ -14,7 +14,7 @@ static LIS_INT diagonal(void *raw,const LIS_SCALAR *x,LIS_SCALAR *y)
     if(ctx->fail_on>0 && ctx->calls==ctx->fail_on)
         return LIS_ERR_ILL_ARG;
     for(i=0;i<ctx->n;i++)
-        y[i]=(LIS_SCALAR)(4.0+0.125*(double)i)*x[i];
+        y[i]=(LIS_SCALAR)(ctx->fail_on ? 4.0+0.125*(double)i : 4.0)*x[i];
     return LIS_SUCCESS;
 }
 static int exercise(LIS_INT fail_on,LIS_INT ell)
@@ -57,10 +57,15 @@ static int exercise(LIS_INT fail_on,LIS_INT ell)
     }
     else
     {
-        if(err!=LIS_SUCCESS || status!=LIS_SUCCESS)goto done;
+        if(err!=LIS_SUCCESS || status!=LIS_SUCCESS)
+        {
+            fprintf(stderr,"BiCGSTAB(l=%d) control: api=%d status=%d calls=%d\\n",
+                    (int)ell,(int)err,(int)status,(int)ctx.calls);
+            goto done;
+        }
         for(i=0;i<ctx.n;i++)
         {
-            const double exact=(1.0+0.125*(double)i)/(4.0+0.125*(double)i);
+            const double exact=(1.0+0.125*(double)i)/4.0;
             if(fabs((double)x->value[i]-exact)>1e-7)goto done;
         }
     }
