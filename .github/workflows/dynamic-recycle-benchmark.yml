@@ -1,0 +1,80 @@
+name: Dynamic-operator Krylov recycling diagnostic
+
+on:
+  push:
+    branches: ['bench/dynamic-operator-recycle-20261120']
+  workflow_dispatch:
+
+concurrency:
+  group: dynamic-recycle-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dynamic-recycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [release, asan-ubsan]
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build diagnostic LIS with both opt-in Ritz controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          if [[ '${{ matrix.mode }}' == 'asan-ubsan' ]]; then
+            export CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined'
+            export LDFLAGS='-fsanitize=address,undefined'
+            export ASAN_OPTIONS='detect_leaks=0'
+          else
+            export CFLAGS='-O2 -g'
+          fi
+          ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg
+          make -j2
+          make -C test bench_dynamic_recycle
+      - name: Run changed-operator sequences and audit true residuals
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dynamic-recycle-results
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          if [[ '${{ matrix.mode }}' == 'asan-ubsan' ]]; then
+            export ASAN_OPTIONS='detect_leaks=1:halt_on_error=1'
+            ./test/bench_dynamic_recycle 16 2 jacobi 12 \
+              > dynamic-recycle-results/asan-smoke.csv \
+              2> dynamic-recycle-results/asan-smoke.stderr
+            echo 'ASan+UBSan changed-operator smoke: PASS'
+          else
+            for precon in jacobi ilutp; do
+              for side in 28 40; do
+                for restart in 12 24; do
+                  ./test/bench_dynamic_recycle "$side" 4 "$precon" "$restart" \
+                    > "dynamic-recycle-results/${precon}-n${side}-r${restart}.csv" \
+                    2> "dynamic-recycle-results/${precon}-n${side}-r${restart}.stderr"
+                  echo "PASS: $precon side=$side restart=$restart"
+                done
+              done
+            done
+            python3 tools/audit_dynamic_recycle.py dynamic-recycle-results 4 \
+              | tee dynamic-recycle-results/summary.txt
+          fi
+      - name: Preserve diagnostic results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dynamic-recycle-${{ matrix.mode }}-${{ github.run_id }}
+          path: |
+            dynamic-recycle-results/
+            config.log
+          if-no-files-found: warn
