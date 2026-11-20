@@ -41,5 +41,5 @@ jobs:
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
           mpiexec -n 1 ./test/testusermpisparse
           mpiexec -n 2 ./test/testusermpisparse
-          mpiexec -n 3 ./test/testusermpisparse
-          mpiexec -n 4 ./test/testusermpisparse
+          mpiexec --oversubscribe -n 3 ./test/testusermpisparse
+          mpiexec --oversubscribe -n 4 ./test/testusermpisparse
