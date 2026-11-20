@@ -1225,6 +1225,12 @@ LIS_INT lis_gcrodr_check_params(LIS_SOLVER solver)
                     restart);
         return LIS_ERR_ILL_ARG;
     }
+    if( lis_gcrodr_get_ritz_stride(solver)<1 )
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+                   "GCRO-DR Ritz cadence must be positive\n");
+        return LIS_ERR_ILL_ARG;
+    }
     if( solver->recycle_target_dim<0 )
     {
         LIS_SETERR1(LIS_ERR_ILL_ARG,
@@ -1331,11 +1337,39 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
     LIS_INT err,iter,maxiter,output,maxiter_noimp,noimp_count;
     LIS_INT i,j,k,m,kmax,kcur,cycle_steps,jdim,ii,i1,jj,hld,cs,sn,pass;
     LIS_INT lucky,candidate;
+    LIS_INT ritz_stride,ritz_cycle=0;
     double time,ptime;
 
     LIS_DEBUG_FUNC_IN;
     comm = LIS_COMM_WORLD;
     A = solver->A;
+    /* Each solve begins with the first harmonic Ritz update enabled. */
+    ritz_stride=lis_gcrodr_get_ritz_stride(solver);
+#ifdef USE_MPI
+    /* Collective Krylov flow must agree across all ranks. */
+    {
+        LIS_INT local[4],minimum[4],maximum[4],idx;
+        local[0]=ritz_stride;
+        local[1]=solver->recycle_target_dim;
+        local[2]=solver->options[LIS_OPTIONS_RESTART];
+        local[3]=solver->options[LIS_OPTIONS_MAXITER];
+        if(MPI_Allreduce(local,minimum,4,LIS_MPI_INT,MPI_MIN,A->comm)!=MPI_SUCCESS ||
+           MPI_Allreduce(local,maximum,4,LIS_MPI_INT,MPI_MAX,A->comm)!=MPI_SUCCESS)
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,"GCRO-DR MPI option synchronization failed\n");
+            return LIS_ERR_ILL_ARG;
+        }
+        for(idx=0;idx<4;idx++)
+        {
+            if(minimum[idx]!=maximum[idx])
+            {
+                LIS_SETERR(LIS_ERR_ILL_ARG,
+                           "GCRO-DR options differ across MPI ranks\n");
+                return LIS_ERR_ILL_ARG;
+            }
+        }
+    }
+#endif
     b = solver->b;
     x = solver->x;
     maxiter = solver->options[LIS_OPTIONS_MAXITER];
@@ -1725,9 +1759,15 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
         /* Build/update recycle space before v[0] is overwritten by true r. */
         if( kmax>0 && !lucky )
         {
-            err = lis_gcrodr_update_recycle(solver,v,jdim,hraw,hld,
-                                            bcoef,_max(1,kmax));
-            if( err ) goto fail;
+            /* Preserve the cached U/ZU/C relation on deferred cycles.
+             * Stride=1 executes the historical update every time. */
+            if( ritz_cycle==0 )
+            {
+                err = lis_gcrodr_update_recycle(solver,v,jdim,hraw,hld,
+                                                 bcoef,_max(1,kmax));
+                if( err ) goto fail;
+            }
+            if( ++ritz_cycle>=ritz_stride ) ritz_cycle=0;
         }
 
         /* True residual replacement at every restart boundary. */
