@@ -186,7 +186,12 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 	lis_solver_set_shadowresidual(solver,r[0],rtld);
 
 	lis_vector_copy(r[0],bp);
+	/* Keep the caller's initial iterate separate from the preconditioned
+	 * correction: all later exit paths apply M^-1 to x and add xp. */
 	lis_vector_copy(x,xp);
+	if(solver->options[LIS_OPTIONS_INITGUESS_ZEROS])
+		lis_vector_set_all(0.0,xp);
+	lis_vector_set_all(0.0,x);
 	lis_vector_set_all(0.0,u[0]);
 	lis_vector_nrm2(r[0],&rnorm0);
 	rnorm  = rnorm0;
