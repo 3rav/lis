@@ -39,6 +39,8 @@
 #endif
 #include <string.h>
 #include <stdarg.h>
+#include <limits.h>
+#include <stdint.h>
 #ifdef _OPENMP
 	#include <omp.h>
 #endif
@@ -180,6 +182,119 @@ lis_matvech_user_rows(
 	return LIS_SUCCESS;
 }
 
+
+#ifdef USE_MPI
+/* Correctness-first distributed USER row fallback.  Full global vectors
+ * replace a sparse halo here; memory and communication are O(global_n)
+ * per rank.  All ranks must enter a USER operation collectively. */
+static LIS_INT lis_matvec_user_rows_mpi(
+    LIS_MATRIX A,LIS_VECTOR X,LIS_VECTOR Y,LIS_INT adjoint)
+{
+    LIS_INT err=LIS_SUCCESS,all_err=LIS_SUCCESS;
+    LIS_INT i,j,need,got,capacity=0;
+    LIS_INT *columns=NULL,*new_columns;
+    LIS_SCALAR *values=NULL,*new_values,*full=NULL,sum;
+    int *counts=NULL,*offsets=NULL;
+    int r,mpierr,np=(int)A->nprocs;
+
+    if(A->user_get_row==NULL || A->ranges==NULL || np<=0 ||
+       A->my_rank<0 || A->my_rank>=np ||
+       A->gn<=0 || A->gn>INT_MAX || A->n<0 ||
+       A->is<0 || A->ie<A->is || A->ie>A->gn ||
+       A->ie-A->is!=A->n ||
+       X->n<A->n || Y->n<A->n || X->value==NULL || Y->value==NULL ||
+       (uintmax_t)A->gn>(uintmax_t)SIZE_MAX/sizeof(LIS_SCALAR) ||
+       (uintmax_t)np>(uintmax_t)SIZE_MAX/sizeof(int))
+        err=LIS_ERR_ILL_ARG;
+    if(!err)
+    {
+        counts=(int *)malloc((size_t)np*sizeof(int));
+        offsets=(int *)malloc((size_t)np*sizeof(int));
+        full=(LIS_SCALAR *)malloc((size_t)A->gn*sizeof(LIS_SCALAR));
+        if(!counts || !offsets || !full)err=LIS_ERR_OUT_OF_MEMORY;
+    }
+    if(!err)
+    {
+        if(A->ranges[0]!=0 || A->ranges[np]!=A->gn)
+            err=LIS_ERR_ILL_ARG;
+        for(r=0;r<np && !err;r++)
+        {
+            LIS_INT lo=A->ranges[r],hi=A->ranges[r+1];
+            if(lo<0 || hi<lo || hi>A->gn ||
+               hi-lo>INT_MAX || lo>INT_MAX)err=LIS_ERR_ILL_ARG;
+            else { counts[r]=(int)(hi-lo); offsets[r]=(int)lo; }
+        }
+        if(!err && counts[A->my_rank]!=(int)A->n)
+            err=LIS_ERR_ILL_ARG;
+    }
+    mpierr=MPI_Allreduce(&err,&all_err,1,LIS_MPI_INT,MPI_MAX,A->comm);
+    if(mpierr!=MPI_SUCCESS){all_err=LIS_ERR_ILL_ARG;goto cleanup;}
+    if(all_err)goto cleanup;
+
+    if(!adjoint)
+    {
+        mpierr=MPI_Allgatherv(X->value,(int)A->n,LIS_MPI_SCALAR,
+            full,counts,offsets,LIS_MPI_SCALAR,A->comm);
+        if(mpierr!=MPI_SUCCESS){all_err=LIS_ERR_ILL_ARG;goto cleanup;}
+    }
+    else for(i=0;i<A->gn;i++)full[i]=(LIS_SCALAR)0.0;
+
+    for(i=0;i<A->n;i++)
+    {
+        need=0;
+        err=A->user_get_row(A->user_data,i,&need,NULL,NULL);
+        if(err)break;
+        if(need<0 ||
+           (uintmax_t)need>(uintmax_t)SIZE_MAX/sizeof(LIS_INT) ||
+           (uintmax_t)need>(uintmax_t)SIZE_MAX/sizeof(LIS_SCALAR))
+        {err=LIS_ERR_ILL_ARG;break;}
+        if(need>capacity)
+        {
+            new_columns=(LIS_INT *)malloc((size_t)need*sizeof(LIS_INT));
+            new_values=(LIS_SCALAR *)malloc((size_t)need*sizeof(LIS_SCALAR));
+            if(new_columns==NULL || new_values==NULL)
+            {
+                free(new_columns);free(new_values);
+                err=LIS_ERR_OUT_OF_MEMORY;break;
+            }
+            free(columns);free(values);
+            columns=new_columns;values=new_values;capacity=need;
+        }
+        sum=(LIS_SCALAR)0.0;
+        if(need)
+        {
+            got=capacity;
+            err=A->user_get_row(A->user_data,i,&got,columns,values);
+            if(err)break;
+            if(got!=need){err=LIS_ERR_ILL_ARG;break;}
+            for(j=0;j<got;j++)
+            {
+                LIS_INT col=columns[j];
+                if(col<0 || col>=A->gn){err=LIS_ERR_ILL_ARG;break;}
+                if(adjoint)full[col]+=conj(values[j])*X->value[i];
+                else sum+=values[j]*full[col];
+            }
+            if(err)break;
+        }
+        if(!adjoint)Y->value[i]=sum;
+    }
+    /* Collective callback/error consensus prevents a single rank returning
+     * before its peers enter the next communication operation. */
+    mpierr=MPI_Allreduce(&err,&all_err,1,LIS_MPI_INT,MPI_MAX,A->comm);
+    if(mpierr!=MPI_SUCCESS){all_err=LIS_ERR_ILL_ARG;goto cleanup;}
+    if(all_err)goto cleanup;
+    if(adjoint)
+    {
+        mpierr=MPI_Allreduce(MPI_IN_PLACE,full,(int)A->gn,
+                             LIS_MPI_SCALAR,MPI_SUM,A->comm);
+        if(mpierr!=MPI_SUCCESS){all_err=LIS_ERR_ILL_ARG;goto cleanup;}
+        for(i=0;i<A->n;i++)Y->value[i]=full[A->is+i];
+    }
+cleanup:
+    free(columns);free(values);free(full);free(counts);free(offsets);
+    return all_err;
+}
+#endif
 
 #undef __FUNC__
 #define __FUNC__ "lis_matvec"
@@ -349,7 +464,12 @@ LIS_INT lis_matvec(LIS_MATRIX A, LIS_VECTOR X, LIS_VECTOR Y)
 			}
 			else if( A->user_get_row!=NULL )
 			{
-				err = lis_matvec_user_rows(A,x,y);
+#ifdef USE_MPI
+				if(A->nprocs>1)
+					err=lis_matvec_user_rows_mpi(A,X,Y,LIS_FALSE);
+				else
+#endif
+					err=lis_matvec_user_rows(A,x,y);
 			}
 			else
 			{
@@ -603,7 +723,12 @@ LIS_INT lis_matvech(LIS_MATRIX A, LIS_VECTOR X, LIS_VECTOR Y)
 			}
 			else if( A->user_get_row!=NULL )
 			{
-				err = lis_matvech_user_rows(A,x,y);
+#ifdef USE_MPI
+				if(A->nprocs>1)
+					err=lis_matvec_user_rows_mpi(A,X,Y,LIS_TRUE);
+				else
+#endif
+					err=lis_matvech_user_rows(A,x,y);
 			}
 			else
 			{

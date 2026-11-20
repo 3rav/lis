@@ -809,6 +809,18 @@ LIS_INT lis_matrix_get_capabilities(
                                         |
                                         LIS_MATRIX_CAP_DIAGONAL;
                         }
+#ifdef USE_MPI
+                        else if( A->nprocs>1 )
+                        {
+                                /* MPI row fallback supports Ax and A^H x.
+                                 * Diagonal extraction/preconditioners
+                                 * remain serial without a direct callback. */
+                                *capabilities |=
+                                        LIS_MATRIX_CAP_MATVEC
+                                        |
+                                        LIS_MATRIX_CAP_MATVECH;
+                        }
+#endif
                 }
 
                 break;
