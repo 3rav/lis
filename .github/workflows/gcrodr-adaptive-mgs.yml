@@ -51,9 +51,9 @@ jobs:
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
           if [[ '${{ matrix.mode }}' == 'asan-ubsan' ]]; then
             export ASAN_OPTIONS='detect_leaks=1:halt_on_error=1'
-            for mode in full dgks; do
-              if [[ "$mode" = dgks ]]; then
-                export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS=dgks
+            for mode in full dgks one_c; do
+              if [[ "$mode" = dgks || "$mode" = one_c ]]; then
+                export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS="$mode"
               else
                 export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS=full
               fi
@@ -63,10 +63,10 @@ jobs:
               echo "ASan+UBSan mode=$mode passed"
             done
           else
-            for mode in full dgks full_repeat; do
+            for mode in full dgks one_c full_repeat; do
               mkdir -p "adaptive-mgs-results/$mode"
-              if [[ "$mode" = dgks ]]; then
-                export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS=dgks
+              if [[ "$mode" = dgks || "$mode" = one_c ]]; then
+                export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS="$mode"
               else
                 export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS=full
               fi
