@@ -395,3 +395,8 @@ testcondense_lis_LDADD = $(LDADD) -lm
 TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
 TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
 EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+
+# Opt-in diagnostic: time changed-value operator sequences; not part of make check.
+test_PROGRAMS += bench_dynamic_recycle
+bench_dynamic_recycle_SOURCES = bench_dynamic_recycle.c
+bench_dynamic_recycle_LDADD = $(LDADD) -lm
