@@ -607,6 +607,8 @@ lis_solver_get_fgcrodr_recycle_update(
  * without adding any fields to the public LIS_SOLVER_STRUCT, changing
  * LIS_OPTIONS_LEN, or using global/process environment state.
  */
+#undef __FUNC__
+#define __FUNC__ "lis_gcrodr_get_ritz_stride"
 LIS_INT lis_gcrodr_get_ritz_stride(LIS_SOLVER solver)
 {
     if(solver==NULL || solver->fgcrodr_state==NULL)
@@ -614,6 +616,8 @@ LIS_INT lis_gcrodr_get_ritz_stride(LIS_SOLVER solver)
     return solver->fgcrodr_state->gcrodr_ritz_stride;
 }
 
+#undef __FUNC__
+#define __FUNC__ "lis_gcrodr_set_ritz_stride"
 LIS_INT lis_gcrodr_set_ritz_stride(LIS_SOLVER solver,const char *value)
 {
     char *end=NULL;
