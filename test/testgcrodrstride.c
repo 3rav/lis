@@ -9,6 +9,7 @@
 #endif
 #include "lis.h"
 #include "lis_solver.h"
+#include "lis_solver_options.h"
 #include "lislib.h"
 #include <stdio.h>
 #include <stdlib.h>
