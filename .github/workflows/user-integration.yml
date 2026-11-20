@@ -89,7 +89,7 @@ jobs:
             "${exe}"
           done
           if [ "${{ matrix.mpi }}" = yes ]; then
-            for src in test/testusermpicallback.c test/testusermpirows.c test/testusermpijacobi.c; do
+            for src in test/testusermpicallback.c test/testusermpirows.c test/testusermpijacobi.c test/testusermpiduplicate.c; do
               name="$(basename "${src}" .c)"
               mpicc -DHAVE_CONFIG_H -DUSE_MPI ${abi_flags} -I. -Iinclude ${CFLAGS} "${src}" -Lsrc/.libs -llis -lm ${LDFLAGS} -o "integration-bin/${name}"
               mpiexec -n 1 "integration-bin/${name}"
