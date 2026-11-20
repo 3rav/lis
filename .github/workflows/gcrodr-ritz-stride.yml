@@ -1,8 +1,6 @@
 name: GCRO-DR opt-in harmonic Ritz stride regression
 
 on:
-  push:
-    branches: ['perf/gcrodr-ritz-stride-20261120']
   pull_request:
   workflow_dispatch:
 
