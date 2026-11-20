@@ -21,9 +21,10 @@ USER-to-CSR materialization route. Explicit USER diagonal callbacks
 retain precedence. Serial AUTO/Jacobi fallback behavior is unchanged.
 
 The current distributed row-backed Ax/A^H x implementation exchanges
-only requested off-rank values with MPI_Alltoallv (PR #130), rather than
+only unique requested off-rank column values with MPI_Alltoallv
+(PR #130 plus the stacked deduplication change), rather than
 replicating global vectors. It rebuilds the request plan on each call,
-and does not deduplicate repeated remote columns. This does not enable
+deduplicating remote columns without a persistent cache. This does not enable
 distributed row-source ILU/ILUT, distributed USER-to-CSR conversion or
 any callback ABI change.
 

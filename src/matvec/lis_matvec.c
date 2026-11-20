@@ -197,10 +197,26 @@ lis_matvech_user_rows(
  * Phase 3: forward Ax fetches only requested x entries; transpose A^H x
  *          returns contributions along those same reversed request edges.
  *
- * Repeated off-rank columns are not yet deduplicated, so communication is
- * bounded by off-rank NNZ rather than the number of unique remote columns.
- * Count metadata still costs O(nprocs) per call.
+ * Each distinct off-rank column is requested only once per calling rank.
+ * Row nonzeros retain their own coefficients, while remote input values
+ * and adjoint contributions share their per-column communication slot.
+ * The per-call sort costs O(off-rank NNZ log(off-rank NNZ)); rank metadata
+ * still costs O(nprocs).
  */
+typedef struct
+{
+    LIS_INT column;
+    LIS_INT occurrence;
+} LIS_USER_SPARSE_REF;
+
+static int
+lis_user_sparse_ref_compare(const void *left,const void *right)
+{
+    LIS_INT a=((const LIS_USER_SPARSE_REF *)left)->column;
+    LIS_INT b=((const LIS_USER_SPARSE_REF *)right)->column;
+    return (a>b)-(a<b);
+}
+
 static int
 lis_user_sparse_owner(const LIS_INT *ranges,int np,LIS_INT col)
 {
@@ -228,9 +244,10 @@ static LIS_INT lis_matvec_user_rows_mpi(
     LIS_INT err=LIS_SUCCESS,n=0,nnz=0,i,j,k,required,got;
     LIS_INT *rowptr=NULL,*cols=NULL,*request_ids=NULL,*incoming_ids=NULL;
     LIS_INT *remote_slot=NULL;
+    LIS_USER_SPARSE_REF *remote_refs=NULL;
     LIS_SCALAR *coeff=NULL,*local_x=NULL,*remote_vals=NULL,*incoming_vals=NULL;
-    int *send_count=NULL,*recv_count=NULL,*send_at=NULL,*recv_at=NULL,*next=NULL;
-    int np=0,rank=0,r,total_send=0,total_recv=0,rc;
+    int *send_count=NULL,*recv_count=NULL,*send_at=NULL,*recv_at=NULL;
+    int np=0,rank=0,r,remote_nnz=0,unique=0,total_send=0,total_recv=0,rc;
     const size_t int_size=sizeof(LIS_INT), scalar_size=sizeof(LIS_SCALAR);
 
     if(A==NULL || X==NULL || Y==NULL)
@@ -268,9 +285,8 @@ static LIS_INT lis_matvec_user_rows_mpi(
         recv_count=(int *)calloc((size_t)np,sizeof(int));
         send_at=(int *)calloc((size_t)np,sizeof(int));
         recv_at=(int *)calloc((size_t)np,sizeof(int));
-        next=(int *)calloc((size_t)np,sizeof(int));
         if(!rowptr || !local_x || !send_count || !recv_count ||
-           !send_at || !recv_at || !next)
+           !send_at || !recv_at)
             err=LIS_ERR_OUT_OF_MEMORY;
         else
         {
@@ -337,16 +353,58 @@ static LIS_INT lis_matvec_user_rows_mpi(
                 remote_slot[j]=-1;
             else
             {
-                if(send_count[owner]==INT_MAX)
+                if(remote_nnz==INT_MAX)
                 {
                     err=LIS_ERR_ILL_ARG;
                     break;
                 }
-                send_count[owner]++;
-                remote_slot[j]=0; /* Populated when requests are packed. */
+                remote_nnz++;
+                remote_slot[j]=0; /* Set to its unique slot after sorting. */
             }
         }
         if(err)break;
+    }
+    err=lis_user_sparse_sync_error(A,err);
+    if(err)goto cleanup;
+
+    /* Sort remote occurrences by global column. Since ownership ranges
+     * are monotone, equal columns and owner-specific requests are adjacent.
+     * Each matrix entry maps to the slot of its UNIQUE remote column. */
+    if((uintmax_t)remote_nnz>(uintmax_t)SIZE_MAX/sizeof(*remote_refs))
+        err=LIS_ERR_ILL_ARG;
+    if(!err && remote_nnz)
+    {
+        remote_refs=(LIS_USER_SPARSE_REF *)malloc(
+            (size_t)remote_nnz*sizeof(*remote_refs));
+        if(!remote_refs)err=LIS_ERR_OUT_OF_MEMORY;
+    }
+    err=lis_user_sparse_sync_error(A,err);
+    if(err)goto cleanup;
+
+    for(j=0,k=0;j<nnz;j++)
+        if(remote_slot[j]>=0)
+        {
+            remote_refs[k].column=cols[j];
+            remote_refs[k].occurrence=j;
+            k++;
+        }
+    if(remote_nnz>1)
+        qsort(remote_refs,(size_t)remote_nnz,sizeof(*remote_refs),
+              lis_user_sparse_ref_compare);
+    for(k=0;k<remote_nnz;k++)
+    {
+        if(k==0 || remote_refs[k].column!=remote_refs[k-1].column)
+        {
+            r=lis_user_sparse_owner(A->ranges,np,remote_refs[k].column);
+            if(r<0 || send_count[r]==INT_MAX)
+            {
+                err=LIS_ERR_ILL_ARG;
+                break;
+            }
+            send_count[r]++;
+            unique++;
+        }
+        remote_slot[remote_refs[k].occurrence]=unique-1;
     }
     err=lis_user_sparse_sync_error(A,err);
     if(err)goto cleanup;
@@ -390,15 +448,13 @@ static LIS_INT lis_matvec_user_rows_mpi(
     err=lis_user_sparse_sync_error(A,err);
     if(err)goto cleanup;
 
-    memcpy(next,send_at,(size_t)np*sizeof(int));
-    for(j=0;j<nnz;j++)
-    {
-        if(remote_slot[j]==-1)continue;
-        r=lis_user_sparse_owner(A->ranges,np,cols[j]);
-        k=next[r]++;
-        remote_slot[j]=k;
-        request_ids[k]=cols[j];
-    }
+    /* The slot indices are in sorted column order, matching the rank
+     * displacements computed from unique per-owner request counts. */
+    for(k=0;k<remote_nnz;k++)
+        if(k==0 || remote_refs[k].column!=remote_refs[k-1].column)
+            request_ids[remote_slot[remote_refs[k].occurrence]]=
+                remote_refs[k].column;
+    free(remote_refs);remote_refs=NULL;
     rc=MPI_Alltoallv(request_ids,send_count,send_at,LIS_MPI_INT,
                      incoming_ids,recv_count,recv_at,LIS_MPI_INT,A->comm);
     if(rc!=MPI_SUCCESS){err=LIS_ERR_ILL_ARG;goto cleanup;}
@@ -413,6 +469,9 @@ static LIS_INT lis_matvec_user_rows_mpi(
 
     if(adjoint)
     {
+        /* Several row entries may contribute to one remote column. Sum
+         * BEFORE exchanging unique slots with their owning ranks. */
+        for(k=0;k<total_send;k++)remote_vals[k]=(LIS_SCALAR)0.0;
         if(n)memset(Y->value,0,(size_t)n*scalar_size);
         for(i=0;i<n;i++)
             for(j=rowptr[i];j<rowptr[i+1];j++)
@@ -421,7 +480,7 @@ static LIS_INT lis_matvec_user_rows_mpi(
                 if(remote_slot[j]<0)
                     Y->value[cols[j]-A->is]+=v;
                 else
-                    remote_vals[remote_slot[j]]=v;
+                    remote_vals[remote_slot[j]]+=v;
             }
         rc=MPI_Alltoallv(remote_vals,send_count,send_at,LIS_MPI_SCALAR,
                          incoming_vals,recv_count,recv_at,LIS_MPI_SCALAR,
@@ -452,9 +511,9 @@ static LIS_INT lis_matvec_user_rows_mpi(
         }
     }
 cleanup:
-    free(rowptr);free(cols);free(coeff);free(remote_slot);free(local_x);
-    free(send_count);free(recv_count);free(send_at);free(recv_at);
-    free(next);free(request_ids);free(incoming_ids);
+    free(rowptr);free(cols);free(coeff);free(remote_slot);free(remote_refs);
+    free(local_x);free(send_count);free(recv_count);free(send_at);
+    free(recv_at);free(request_ids);free(incoming_ids);
     free(remote_vals);free(incoming_vals);
     return err;
 }

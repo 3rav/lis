@@ -31,6 +31,19 @@ static LIS_INT get_row(void *data,LIS_INT row,LIS_INT *nnz,
     cols[0]=g;
     vals[0]=(LIS_SCALAR)4.0;
     if(s->fail==4){*nnz=1;return LIS_SUCCESS;}
+    /* Every row on a rank uses the same next-rank column four times.
+     * This exercises deduplication both within and across rows. */
+    if(s->fail==6)
+    {
+        LIS_INT target=(s->is+s->local_n)%s->global_n;
+        cols[1]=cols[2]=cols[3]=cols[4]=target;
+        vals[1]=(LIS_SCALAR)0.5;
+        vals[2]=(LIS_SCALAR)0.25;
+        vals[3]=(LIS_SCALAR)0.2;
+        vals[4]=(LIS_SCALAR)0.125;
+        *nnz=5;
+        return LIS_SUCCESS;
+    }
     cols[1]=(g+1)%s->global_n;
     vals[1]=(LIS_SCALAR)0.5;
     if(s->fail==2 && s->rank==s->fail_rank && row==0)
@@ -151,6 +164,35 @@ int main(int argc,char **argv)
         for(i=0;i<A->n;i++)
             if(fabs((double)(y->value[i]-ah_expected(A->is+i,A->gn)))>1e-11)
             {failed=1;goto done;}
+    }
+    if(nranks>1)
+    {
+        int source_rank;
+        LIS_INT source_row;
+        LIS_INT target=A->ranges[(rank+1)%nranks];
+        rows.fail=6;
+        err=lis_matvec(A,x,y);if(err){failed=1;goto done;}
+        for(i=0;i<A->n;i++)
+        {
+            LIS_SCALAR ref=(LIS_SCALAR)4.0*true_x(A->is+i)
+                          +(LIS_SCALAR)1.075*true_x(target);
+            if(fabs((double)(y->value[i]-ref))>1e-11)
+            {failed=1;goto done;}
+        }
+        err=lis_matvech(A,x,y);if(err){failed=1;goto done;}
+        for(i=0;i<A->n;i++)
+        {
+            LIS_INT g=A->is+i;
+            LIS_SCALAR ref=(LIS_SCALAR)4.0*true_x(g);
+            for(source_rank=0;source_rank<nranks;source_rank++)
+                if(g==A->ranges[(source_rank+1)%nranks])
+                    for(source_row=A->ranges[source_rank];
+                        source_row<A->ranges[source_rank+1];source_row++)
+                        ref+=(LIS_SCALAR)1.075*true_x(source_row);
+            if(fabs((double)(y->value[i]-ref))>1e-11)
+            {failed=1;goto done;}
+        }
+        rows.fail=0;
     }
     /* An error on just one rank must be visible to *all* ranks. */
     rows.fail=1;

@@ -1,7 +1,7 @@
 name: USER combined integration
 on:
   push:
-    branches: [integration/user-combined-20261120]
+    branches: [integration/user-combined-20261120, integration/user-combined-halo-dedup-20261120]
   workflow_dispatch:
 
 jobs:
