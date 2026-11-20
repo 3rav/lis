@@ -57,16 +57,25 @@ static int exercise(LIS_INT fail_on,LIS_INT ell)
     }
     else
     {
-        if(err!=LIS_SUCCESS || status!=LIS_SUCCESS)
+        /* The legacy BiCGSTAB(l) may report an exact-solution Lanczos
+         * breakdown for a scalar diagonal operator. Do not treat this
+         * as convergence: certify the returned x independently below. */
+        if(err!=LIS_SUCCESS ||
+           (status!=LIS_SUCCESS && status!=LIS_BREAKDOWN))
         {
-            fprintf(stderr,"BiCGSTAB(l=%d) control: api=%d status=%d calls=%d\\n",
+            fprintf(stderr,"BiCGSTAB(l=%d) control: api=%d status=%d calls=%d\n",
                     (int)ell,(int)err,(int)status,(int)ctx.calls);
             goto done;
         }
         for(i=0;i<ctx.n;i++)
         {
             const double exact=(1.0+0.125*(double)i)/4.0;
-            if(fabs((double)x->value[i]-exact)>1e-7)goto done;
+            if(fabs((double)x->value[i]-exact)>1e-7)
+            {
+                fprintf(stderr,"BiCGSTAB(l=%d) output mismatch row=%d actual=%.17g exact=%.17g status=%d\n",
+                        (int)ell,(int)i,(double)x->value[i],exact,(int)status);
+                goto done;
+            }
         }
     }
     failed=0;
