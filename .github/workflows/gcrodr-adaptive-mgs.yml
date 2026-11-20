@@ -43,6 +43,25 @@ jobs:
           CFLAGS="$CFLAGS -DLIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS" ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg
           make -j2
           make -C test bench_dynamic_recycle
+      - name: Check solver lifecycle, recycle orthogonality and A ZU=C
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p adaptive-mgs-regressions
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          if [[ '${{ matrix.mode }}' == 'asan-ubsan' ]]; then
+            export ASAN_OPTIONS='detect_leaks=1:halt_on_error=1'
+          fi
+          for mode in full dgks one_c; do
+            export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS="$mode"
+            for prog in testgcrodrstride testgcrodrsequence testgcrodrconfig testgcrodroptions; do
+              ./test/$prog > "adaptive-mgs-regressions/${prog}-${mode}.log" 2>&1 || {
+                tail -n 90 "adaptive-mgs-regressions/${prog}-${mode}.log"
+                exit 1
+              }
+            done
+            echo "PASS: solver lifecycle and recycle basis mode=$mode"
+          done
       - name: Compare full double-MGS, DGKS and repeated full baseline
         shell: bash
         run: |
@@ -93,5 +112,6 @@ jobs:
           name: gcrodr-adaptive-mgs-${{ matrix.mode }}-${{ github.run_id }}
           path: |
             adaptive-mgs-results/
+            adaptive-mgs-regressions/
             config.log
           if-no-files-found: warn
