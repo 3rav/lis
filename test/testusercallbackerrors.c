@@ -106,10 +106,13 @@ int main(int argc,char **argv)
     failed |= exercise("gmres",1);
     failed |= exercise("gmres",2);
     failed |= exercise("gmres",3);
+    failed |= exercise("fgmres",1);
+    failed |= exercise("fgmres",2);
     failed |= exercise("fgcrodr",1);
     failed |= exercise("fgcrodr",2);
     failed |= exercise("cg",0);
     failed |= exercise("gmres",0);
+    failed |= exercise("fgmres",0);
     failed |= exercise("fgcrodr",0);
     lis_finalize();
     printf("USER_CALLBACK_ERROR %s\n",failed ? "FAILED" : "PASSED");
