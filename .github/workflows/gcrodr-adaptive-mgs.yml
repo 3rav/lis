@@ -1,0 +1,97 @@
+name: GCRO-DR adaptive MGS experiment
+
+on:
+  push:
+    branches: ['experiment/gcrodr-adaptive-mgs-20261120']
+  workflow_dispatch:
+
+concurrency:
+  group: gcrodr-adaptive-mgs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dynamic-recycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [release, asan-ubsan]
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build diagnostic LIS with both opt-in Ritz controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          if [[ '${{ matrix.mode }}' == 'asan-ubsan' ]]; then
+            export CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined'
+            export LDFLAGS='-fsanitize=address,undefined'
+            export ASAN_OPTIONS='detect_leaks=0'
+          else
+            export CFLAGS='-O2 -g'
+          fi
+          CFLAGS="$CFLAGS -DLIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS" ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg
+          make -j2
+          make -C test bench_dynamic_recycle
+      - name: Compare full double-MGS, DGKS and repeated full baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p adaptive-mgs-results
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          if [[ '${{ matrix.mode }}' == 'asan-ubsan' ]]; then
+            export ASAN_OPTIONS='detect_leaks=1:halt_on_error=1'
+            for mode in full dgks; do
+              if [[ "$mode" = dgks ]]; then
+                export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS=dgks
+              else
+                export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS=full
+              fi
+              ./test/bench_dynamic_recycle 16 2 jacobi 12 \
+                > "adaptive-mgs-results/asan-${mode}.csv" \
+                2> "adaptive-mgs-results/asan-${mode}.stderr"
+              echo "ASan+UBSan mode=$mode passed"
+            done
+          else
+            for mode in full dgks full_repeat; do
+              mkdir -p "adaptive-mgs-results/$mode"
+              if [[ "$mode" = dgks ]]; then
+                export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS=dgks
+              else
+                export LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS=full
+              fi
+              for precon in jacobi ilutp; do
+                for side in 28 40; do
+                  for restart in 12 24; do
+                    ./test/bench_dynamic_recycle "$side" 4 "$precon" "$restart" \
+                      > "adaptive-mgs-results/$mode/${precon}-n${side}-r${restart}.csv" \
+                      2> "adaptive-mgs-results/$mode/${precon}-n${side}-r${restart}.stderr"
+                  done
+                done
+              done
+              python3 tools/audit_dynamic_recycle.py "adaptive-mgs-results/$mode" 4 \
+                > "adaptive-mgs-results/$mode/summary.txt"
+              echo "PASS mode=$mode: all 2112 changed-operator solves converged"
+            done
+            python3 tools/audit_gcrodr_adaptive_mgs.py adaptive-mgs-results \
+              | tee adaptive-mgs-results/paired-summary.txt
+          fi
+      - name: Preserve diagnostic results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcrodr-adaptive-mgs-${{ matrix.mode }}-${{ github.run_id }}
+          path: |
+            adaptive-mgs-results/
+            config.log
+          if-no-files-found: warn
