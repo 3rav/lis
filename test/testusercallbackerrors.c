@@ -4,6 +4,7 @@
 #include "lis.h"
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 typedef struct {
     LIS_INT n;
@@ -54,8 +55,9 @@ static int exercise(const char *solver_name,LIS_INT fail_on)
     err=lis_solver_create(&solver);
     if(err) goto done;
     snprintf(options,sizeof(options),
-             "-i %s -p none -scale none -restart 8 -maxiter 100 -tol 1e-10 -print none",
-             solver_name);
+             "-i %s -p none -scale none -restart 8 -maxiter 100 -tol 1e-10 -print none%s",
+             solver_name,
+             strcmp(solver_name,"fgcrodr")==0 ? " -fgcrodr_k 2" : "");
     err=lis_solver_set_option(options,solver);
     if(err) goto done;
     /* Nonzero initial guess exercises the common initial-residual helper. */
@@ -104,8 +106,11 @@ int main(int argc,char **argv)
     failed |= exercise("gmres",1);
     failed |= exercise("gmres",2);
     failed |= exercise("gmres",3);
+    failed |= exercise("fgcrodr",1);
+    failed |= exercise("fgcrodr",2);
     failed |= exercise("cg",0);
     failed |= exercise("gmres",0);
+    failed |= exercise("fgcrodr",0);
     lis_finalize();
     printf("USER_CALLBACK_ERROR %s\n",failed ? "FAILED" : "PASSED");
     return failed ? 1 : 0;
