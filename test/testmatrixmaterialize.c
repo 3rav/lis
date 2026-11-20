@@ -361,10 +361,12 @@ test_auto_policy_capabilities(LIS_MATRIX A)
     if(test_policy_selection(A,"-i gmres -p jacobi",LIS_TRUE))
         goto done;
 
-    /* No matvec: even a diagonal callback must not enable direct access. */
+    /* Row-only USER has generic serial Ax: direct for no preconditioner.
+     * Jacobi without a dedicated diagonal callback deliberately keeps
+     * cached CSR so its numeric refresh policy remains applicable. */
     A->user_matvec=NULL;
     if(test_policy_selection(A,"-i gmres -p jacobi",LIS_FALSE) ||
-       test_policy_selection(A,"-i gmres -p none",LIS_FALSE))
+       test_policy_selection(A,"-i gmres -p none",LIS_TRUE))
         goto done;
     A->user_matvec=saved_matvec;
     failed=0;
