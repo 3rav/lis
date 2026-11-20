@@ -19,6 +19,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <limits.h>
 #ifdef USE_MPI
 #include <mpi.h>
 #endif
@@ -76,6 +78,9 @@ struct LIS_FGCRODR_STATE_STRUCT
     LIS_REAL reject_threshold;
 
     LIS_INT update;
+    /* Shared solver-private configuration for GCRO-DR (not recycle vectors).
+     * Stored here to avoid growing the public LIS_SOLVER_STRUCT (ABI). */
+    LIS_INT gcrodr_ritz_stride;
 
     /* Per-solver controls instead of process-global getenv() switches. */
     LIS_INT intra_recycle;
@@ -123,6 +128,7 @@ lis_fgcrodr_state_defaults(
         FGCRODR_DEFAULT_REJECT_QUALITY;
 
     state->update = LIS_TRUE;
+    state->gcrodr_ritz_stride = 1;
 
     state->last_action =
         LIS_FGCRODR_RECYCLE_NONE;
@@ -316,6 +322,7 @@ lis_fgcrodr_profile_equal(LIS_SOLVER active,LIS_SOLVER fresh)
             a->keep_threshold==b->keep_threshold &&
             a->reject_threshold==b->reject_threshold &&
             a->update==b->update &&
+            a->gcrodr_ritz_stride==b->gcrodr_ritz_stride &&
             a->intra_recycle==b->intra_recycle &&
             a->intra_trace==b->intra_trace &&
             a->projected_relative==b->projected_relative)
@@ -364,6 +371,7 @@ lis_fgcrodr_profile_copy(LIS_SOLVER active,LIS_SOLVER fresh)
     a->keep_threshold=b->keep_threshold;
     a->reject_threshold=b->reject_threshold;
     a->update=b->update;
+    a->gcrodr_ritz_stride=b->gcrodr_ritz_stride;
     a->intra_recycle=b->intra_recycle;
     a->intra_trace=b->intra_trace;
     a->projected_relative=b->projected_relative;
@@ -592,6 +600,49 @@ lis_solver_get_fgcrodr_recycle_update(
     return LIS_SUCCESS;
 }
 
+
+/*
+ * GCRO-DR's cadence is a scalar solver configuration, not a recycle vector.
+ * The existing FGCRO-DR private state provides owned per-solver storage
+ * without adding any fields to the public LIS_SOLVER_STRUCT, changing
+ * LIS_OPTIONS_LEN, or using global/process environment state.
+ */
+#undef __FUNC__
+#define __FUNC__ "lis_gcrodr_get_ritz_stride"
+LIS_INT lis_gcrodr_get_ritz_stride(LIS_SOLVER solver)
+{
+    if(solver==NULL || solver->fgcrodr_state==NULL)
+        return 1;
+    return solver->fgcrodr_state->gcrodr_ritz_stride;
+}
+
+#undef __FUNC__
+#define __FUNC__ "lis_gcrodr_set_ritz_stride"
+LIS_INT lis_gcrodr_set_ritz_stride(LIS_SOLVER solver,const char *value)
+{
+    char *end=NULL;
+    long parsed;
+    LIS_INT err;
+    if(solver==NULL || value==NULL || value[0]=='\0')
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "Parameter -gcrodr_ritz_stride must be a positive integer\n");
+        return LIS_ERR_ILL_ARG;
+    }
+    errno=0;
+    parsed=strtol(value,&end,10);
+    if(errno==ERANGE || end==value || *end!='\0' ||
+       parsed<1 || parsed>INT_MAX)
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+            "Parameter -gcrodr_ritz_stride must be in 1..INT_MAX\n");
+        return LIS_ERR_ILL_ARG;
+    }
+    err=lis_fgcrodr_state_ensure(solver);
+    if(err)return err;
+    solver->fgcrodr_state->gcrodr_ritz_stride=(LIS_INT)parsed;
+    return LIS_SUCCESS;
+}
 
 #undef __FUNC__
 #define __FUNC__ "lis_fgcrodr_set_option"
