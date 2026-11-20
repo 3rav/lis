@@ -852,7 +852,7 @@ LIS_INT lis_crs(LIS_SOLVER solver)
 	LIS_VECTOR r,rtld, p, q, u, z, ap, map, uq, auq;
 	LIS_SCALAR alpha, beta, rho, rho_old, tmpdot1;
 	LIS_REAL bnrm2, nrm2, tol, min_nrm2;
-	LIS_INT iter,maxiter,output,conv,maxiter_noimp,noimp_count;
+	LIS_INT err,iter,maxiter,output,conv,maxiter_noimp,noimp_count;
 	double time,ptime;
 
 	LIS_DEBUG_FUNC_IN;
@@ -891,7 +891,14 @@ LIS_INT lis_crs(LIS_SOLVER solver)
 
 	lis_solver_set_shadowresidual(solver,r,p);
 
-	lis_matvech(A,p,rtld);
+	err=lis_matvech(A,p,rtld);
+	if(err)
+	{
+		solver->retcode=err;
+		solver->iter=0;
+		solver->ptime=ptime;
+		return err;
+	}
 	rho_old = 1.0;
 	lis_vector_set_all(0,q);
 	lis_vector_set_all(0,p);
@@ -902,7 +909,16 @@ LIS_INT lis_crs(LIS_SOLVER solver)
 		/* z   = M^-1 * r  */
 		/* rho = <rtld,z>  */
 		time = lis_wtime();
-		lis_psolve(solver, r, z);
+		err=lis_psolve(solver, r, z);
+		if(err)
+		{
+			/* Include a failed preconditioner attempt in ptime. */
+			ptime+=lis_wtime()-time;
+			solver->retcode=err;
+			solver->iter=iter;
+			solver->ptime=ptime;
+			return err;
+		}
 		ptime += lis_wtime()-time;
 		lis_vector_dot(rtld,z,&rho);
 
@@ -926,9 +942,25 @@ LIS_INT lis_crs(LIS_SOLVER solver)
 		lis_vector_axpyz(beta,q,z,u);
 		lis_vector_xpay(q,beta,p);
 		lis_vector_xpay(u,beta,p);
-		lis_matvec(A,p,ap);
+		err=lis_matvec(A,p,ap);
+		if(err)
+		{
+			solver->retcode=err;
+			solver->iter=iter;
+			solver->ptime=ptime;
+			return err;
+		}
 		time = lis_wtime();
-		lis_psolve(solver, ap, map);
+		err=lis_psolve(solver, ap, map);
+		if(err)
+		{
+			/* Include a failed preconditioner attempt in ptime. */
+			ptime+=lis_wtime()-time;
+			solver->retcode=err;
+			solver->iter=iter;
+			solver->ptime=ptime;
+			return err;
+		}
 		ptime += lis_wtime()-time;
 		lis_vector_dot(rtld,map,&tmpdot1);
 		/* test breakdown */
@@ -950,7 +982,14 @@ LIS_INT lis_crs(LIS_SOLVER solver)
 		alpha = rho / tmpdot1;
 		lis_vector_axpyz(-alpha,map,u,q);
 		lis_vector_axpyz(1,u,q,uq);
-		lis_matvec(A,uq,auq);
+		err=lis_matvec(A,uq,auq);
+		if(err)
+		{
+			solver->retcode=err;
+			solver->iter=iter;
+			solver->ptime=ptime;
+			return err;
+		}
 		lis_vector_axpy(alpha,uq,x);
 		lis_vector_axpy(-alpha,auq,r);
 
