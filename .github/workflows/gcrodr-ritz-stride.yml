@@ -1,0 +1,110 @@
+name: GCRO-DR opt-in harmonic Ritz stride regression
+
+on:
+  push:
+    branches: ['perf/gcrodr-ritz-stride-20261120']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: gcrodr-stride-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  serial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [release, asan-ubsan]
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install prerequisites
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build LIS and standalone regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          if [ "${{ matrix.mode }}" = asan-ubsan ]; then
+            export CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined'
+            export LDFLAGS='-fsanitize=address,undefined'
+            export ASAN_OPTIONS='detect_leaks=0'
+          else
+            export CFLAGS='-O2 -g'
+          fi
+          ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg
+          make -j2
+      - name: Validate GCRO-DR, option profiles and FGCRO-DR baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p gcrodr-diagnostics
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          if [ "${{ matrix.mode }}" = asan-ubsan ]; then
+            export ASAN_OPTIONS='detect_leaks=1:halt_on_error=1'
+          fi
+          for program in testgcrodrstride testgcrodrsequence testgcrodrconfig testgcrodroptions testfgcrodrintra testfgcrodrtransport; do
+            ./test/$program > gcrodr-diagnostics/$program.log 2>&1 || {
+              tail -n 80 gcrodr-diagnostics/$program.log
+              exit 1
+            }
+            echo "PASS: $program"
+          done
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcrodr-ritz-${{ matrix.mode }}
+          path: |
+            gcrodr-diagnostics/
+            config.log
+          if-no-files-found: ignore
+
+  mpi:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenMPI
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libtool-bin openmpi-bin libopenmpi-dev
+      - name: Build MPI LIS
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          ./configure --enable-test --enable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg CFLAGS='-O2 -g'
+          make -j2
+      - name: Validate cross-solve recycle and reject mismatched stride
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p gcrodr-diagnostics
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          for program in testgcrodrstride testgcrodrsequence; do
+            timeout 180s mpirun --oversubscribe --bind-to none -np 2 ./test/$program > gcrodr-diagnostics/$program-mpi.log 2>&1 || {
+              tail -n 80 gcrodr-diagnostics/$program-mpi.log
+              exit 1
+            }
+            echo "PASS 2 MPI ranks: $program"
+          done
+          grep -q GCRODR_MPI_STRIDE_MISMATCH_REJECTED_OK gcrodr-diagnostics/testgcrodrstride-mpi.log
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcrodr-ritz-mpi
+          path: |
+            gcrodr-diagnostics/
+            config.log
+          if-no-files-found: ignore
