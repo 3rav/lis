@@ -44,7 +44,7 @@ static int solve_method(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR x,
                         LIS_SOLVER solver,const char *options)
 {
     LIS_INT err,status,i;
-    err=lis_solver_set_option_replace((char *)options,solver);
+    err=lis_solver_set_option((char *)options,solver);
     if(err)return 1;
     lis_vector_set_all((LIS_SCALAR)0.0,x);
     err=lis_solve(A,b,x,solver);
