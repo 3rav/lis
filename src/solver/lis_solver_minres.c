@@ -132,7 +132,7 @@ LIS_INT lis_minres(LIS_SOLVER solver)
   LIS_SCALAR sigma1,sigma2,sigma3;
   LIS_SCALAR rho1,rho2,rho3;
   LIS_REAL r0_euc,r_euc; 
-  LIS_INT iter,maxiter,output,maxiter_noimp,noimp_count;
+  LIS_INT err,iter,maxiter,output,maxiter_noimp,noimp_count;
   double time,ptime;
 
   LIS_DEBUG_FUNC_IN;
@@ -149,6 +149,7 @@ LIS_INT lis_minres(LIS_SOLVER solver)
   noimp_count   = 0;
   min_nrm2      = LIS_SCALAR_MAX;
   ptime   = 0.0;
+  iter    = 0;
 
   v1       = solver->work[0];
   v2       = solver->work[1];
@@ -159,7 +160,8 @@ LIS_INT lis_minres(LIS_SOLVER solver)
   w2       = solver->work[6];
 
   /* Lanczos algorithm */
-  lis_matvec(A,x,v2); 
+  err=lis_matvec(A,x,v2);
+  if(err) goto callback_failure;
   lis_vector_xpay(b,-1.0,v2);
 
   /* Keep the shared convergence metadata consistent with the true residual. */
@@ -190,7 +192,9 @@ LIS_INT lis_minres(LIS_SOLVER solver)
   solver->bnrm = 1.0 / nrm2;
 
   time = lis_wtime();
-  lis_psolve(solver,v2,v3);
+  err=lis_psolve(solver,v2,v3);
+  if(err) ptime+=lis_wtime()-time;
+  if(err) goto callback_failure;
   ptime += lis_wtime()-time;
   lis_vector_copy(v3,v2);
 
@@ -232,10 +236,13 @@ LIS_INT lis_minres(LIS_SOLVER solver)
       }
       lis_vector_scale(1.0 / beta2,v2); 
 
-      lis_matvec(A,v2,v3); 
+      err=lis_matvec(A,v2,v3);
+      if(err) goto callback_failure;
       time = lis_wtime();
 
-      lis_psolve(solver,v3,v4);
+      err=lis_psolve(solver,v3,v4);
+      if(err) ptime+=lis_wtime()-time;
+      if(err) goto callback_failure;
       ptime += lis_wtime()-time;
 
       lis_vector_dot(v2,v4,&alpha);
@@ -328,4 +335,11 @@ LIS_INT lis_minres(LIS_SOLVER solver)
   solver->resid     = nrm2;
   LIS_DEBUG_FUNC_OUT;
   return LIS_MAXITER;
+
+callback_failure:
+  solver->retcode=err;
+  solver->iter=iter;
+  solver->ptime=ptime;
+  LIS_DEBUG_FUNC_OUT;
+  return err;
 }

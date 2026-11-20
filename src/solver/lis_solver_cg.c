@@ -694,7 +694,7 @@ LIS_INT lis_cocg(LIS_SOLVER solver)
 	LIS_SCALAR alpha, beta, rho, rho_old;
 	LIS_SCALAR dot_pq;
 	LIS_REAL bnrm2, nrm2, tol, min_nrm2;
-	LIS_INT iter,maxiter,output,conv,maxiter_noimp,noimp_count;
+	LIS_INT err,iter,maxiter,output,conv,maxiter_noimp,noimp_count;
 	double time,ptime;
 
 	LIS_DEBUG_FUNC_IN;
@@ -710,6 +710,7 @@ LIS_INT lis_cocg(LIS_SOLVER solver)
 	noimp_count   = 0;
 	min_nrm2      = LIS_SCALAR_MAX;
 	ptime   = 0.0;
+	iter    = 0;
 
 
 	z       = solver->work[0];
@@ -733,7 +734,9 @@ LIS_INT lis_cocg(LIS_SOLVER solver)
 	{
 		/* z = M^-1 * r */
 		time = lis_wtime();
-		lis_psolve(solver,r,z);
+		err=lis_psolve(solver,r,z);
+		if(err) ptime+=lis_wtime()-time;
+		if(err) goto callback_failure;
 		ptime += lis_wtime() - time;
 
 		/* rho = <r,z> */
@@ -746,7 +749,8 @@ LIS_INT lis_cocg(LIS_SOLVER solver)
 		lis_vector_xpay(z,beta,p);
 		
 		/* q = Ap */
-		lis_matvec(A,p,q);
+		err=lis_matvec(A,p,q);
+		if(err) goto callback_failure;
 		
 		/* dot_pq = <p,q> */
 		lis_vector_nhdot(p,q,&dot_pq);
@@ -813,6 +817,13 @@ LIS_INT lis_cocg(LIS_SOLVER solver)
 	solver->resid     = nrm2;
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_MAXITER;
+
+callback_failure:
+	solver->retcode=err;
+	solver->iter=iter;
+	solver->ptime=ptime;
+	LIS_DEBUG_FUNC_OUT;
+	return err;
 }
 
 /***************************************
@@ -904,7 +915,7 @@ LIS_INT lis_cr(LIS_SOLVER solver)
 	LIS_SCALAR alpha, beta, rho;
 	LIS_SCALAR dot_rq, dot_zq;
 	LIS_REAL bnrm2, nrm2, tol, min_nrm2;
-	LIS_INT iter,maxiter,output,conv,maxiter_noimp,noimp_count;
+	LIS_INT err,iter,maxiter,output,conv,maxiter_noimp,noimp_count;
 	double time,ptime;
 
 	LIS_DEBUG_FUNC_IN;
@@ -920,6 +931,7 @@ LIS_INT lis_cr(LIS_SOLVER solver)
 	noimp_count   = 0;
 	min_nrm2      = LIS_SCALAR_MAX;
 	ptime   = 0.0;
+	iter    = 0;
 
 
 	z       = solver->work[0];
@@ -938,16 +950,21 @@ LIS_INT lis_cr(LIS_SOLVER solver)
 	tol     = solver->tol;
 
 	time = lis_wtime();
-	lis_psolve(solver,r,p);
+	err=lis_psolve(solver,r,p);
+	if(err) ptime+=lis_wtime()-time;
+	if(err) goto callback_failure;
 	ptime += lis_wtime() - time;
-	lis_matvec(A,p,q);
+	err=lis_matvec(A,p,q);
+	if(err) goto callback_failure;
 	lis_vector_copy(p,z);
 
 	for( iter=1; iter<=maxiter; iter++ )
 	{
 		/* qtld = M^-1 * q */
 		time = lis_wtime();
-		lis_psolve(solver,q,qtld);
+		err=lis_psolve(solver,q,qtld);
+		if(err) ptime+=lis_wtime()-time;
+		if(err) goto callback_failure;
 		ptime += lis_wtime() - time;
 
 		/* rho = <qtld,q> */
@@ -1015,7 +1032,8 @@ LIS_INT lis_cr(LIS_SOLVER solver)
 		lis_vector_axpy(-alpha,qtld,z);
 
 		/* az = Az */
-		lis_matvec(A,z,az);
+		err=lis_matvec(A,z,az);
+		if(err) goto callback_failure;
 
 		/* dot_zq = <az,qtld> */
 		lis_vector_dot(az,qtld,&dot_zq);
@@ -1035,6 +1053,13 @@ LIS_INT lis_cr(LIS_SOLVER solver)
 	solver->resid     = nrm2;
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_MAXITER;
+
+callback_failure:
+	solver->retcode=err;
+	solver->iter=iter;
+	solver->ptime=ptime;
+	LIS_DEBUG_FUNC_OUT;
+	return err;
 }
 
 #ifdef USE_QUAD_PRECISION
@@ -1280,7 +1305,7 @@ LIS_INT lis_cocr(LIS_SOLVER solver)
 	LIS_SCALAR alpha, beta, rho;
 	LIS_SCALAR dot_rq, dot_zq;
 	LIS_REAL bnrm2, nrm2, tol, min_nrm2;
-	LIS_INT iter,maxiter,output,conv,maxiter_noimp,noimp_count;
+	LIS_INT err,iter,maxiter,output,conv,maxiter_noimp,noimp_count;
 	double time,ptime;
 
 	LIS_DEBUG_FUNC_IN;
@@ -1296,6 +1321,7 @@ LIS_INT lis_cocr(LIS_SOLVER solver)
 	noimp_count   = 0;
 	min_nrm2      = LIS_SCALAR_MAX;
 	ptime   = 0.0;
+	iter    = 0;
 
 
 	z       = solver->work[0];
@@ -1314,16 +1340,21 @@ LIS_INT lis_cocr(LIS_SOLVER solver)
 	tol     = solver->tol;
 
 	time = lis_wtime();
-	lis_psolve(solver,r,p);
+	err=lis_psolve(solver,r,p);
+	if(err) ptime+=lis_wtime()-time;
+	if(err) goto callback_failure;
 	ptime += lis_wtime() - time;
-	lis_matvec(A,p,q);
+	err=lis_matvec(A,p,q);
+	if(err) goto callback_failure;
 	lis_vector_copy(p,z);
 
 	for( iter=1; iter<=maxiter; iter++ )
 	{
 		/* qtld = M^-1 * q */
 		time = lis_wtime();
-		lis_psolve(solver,q,qtld);
+		err=lis_psolve(solver,q,qtld);
+		if(err) ptime+=lis_wtime()-time;
+		if(err) goto callback_failure;
 		ptime += lis_wtime() - time;
 
 		/* rho = <qtld,q> */
@@ -1391,7 +1422,8 @@ LIS_INT lis_cocr(LIS_SOLVER solver)
 		lis_vector_axpy(-alpha,qtld,z);
 
 		/* az = Az */
-		lis_matvec(A,z,az);
+		err=lis_matvec(A,z,az);
+		if(err) goto callback_failure;
 
 		/* dot_zq = <az,qtld> */
 		lis_vector_nhdot(az,qtld,&dot_zq);
@@ -1411,5 +1443,12 @@ LIS_INT lis_cocr(LIS_SOLVER solver)
 	solver->resid     = nrm2;
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_MAXITER;
+
+callback_failure:
+	solver->retcode=err;
+	solver->iter=iter;
+	solver->ptime=ptime;
+	LIS_DEBUG_FUNC_OUT;
+	return err;
 }
 
