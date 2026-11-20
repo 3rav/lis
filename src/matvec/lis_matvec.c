@@ -184,116 +184,281 @@ lis_matvech_user_rows(
 
 
 #ifdef USE_MPI
-/* Correctness-first distributed USER row fallback.  Full global vectors
- * replace a sparse halo here; memory and communication are O(global_n)
- * per rank.  All ranks must enter a USER operation collectively. */
+/* Sparse distributed USER row fallback. Only off-rank columns referenced
+ * by local rows are requested; all ranks enter each operation collectively.
+ * Counts, requests and responses are rebuilt on every call so dynamically
+ * changing USER row structures cannot silently reuse a stale halo map. */
+/*
+ * Sparse, per-call row-backed USER exchange. We deliberately do not retain
+ * a halo cache: rows can change without a structure-generation notification.
+ *
+ * Phase 1: collect/validate local rows and classify remote columns.
+ * Phase 2: all-to-all request counts and global column indices.
+ * Phase 3: forward Ax fetches only requested x entries; transpose A^H x
+ *          returns contributions along those same reversed request edges.
+ *
+ * Repeated off-rank columns are not yet deduplicated, so communication is
+ * bounded by off-rank NNZ rather than the number of unique remote columns.
+ * Count metadata still costs O(nprocs) per call.
+ */
+static int
+lis_user_sparse_owner(const LIS_INT *ranges,int np,LIS_INT col)
+{
+    int lo=0,hi=np;
+    while(lo<hi)
+    {
+        int mid=lo+(hi-lo)/2;
+        if(col>=ranges[mid+1])lo=mid+1;
+        else hi=mid;
+    }
+    return lo<np && col>=ranges[lo] ? lo : -1;
+}
+
+static LIS_INT
+lis_user_sparse_sync_error(LIS_MATRIX A,LIS_INT local)
+{
+    LIS_INT global=LIS_SUCCESS;
+    int rc=MPI_Allreduce(&local,&global,1,LIS_MPI_INT,MPI_MAX,A->comm);
+    return rc==MPI_SUCCESS ? global : LIS_ERR_ILL_ARG;
+}
+
 static LIS_INT lis_matvec_user_rows_mpi(
     LIS_MATRIX A,LIS_VECTOR X,LIS_VECTOR Y,LIS_INT adjoint)
 {
-    LIS_INT err=LIS_SUCCESS,all_err=LIS_SUCCESS;
-    LIS_INT i,j,need,got,capacity=0;
-    LIS_INT *columns=NULL,*new_columns;
-    LIS_SCALAR *values=NULL,*new_values,*full=NULL,sum;
-    int *counts=NULL,*offsets=NULL;
-    int r,mpierr,np=(int)A->nprocs;
+    LIS_INT err=LIS_SUCCESS,n=0,nnz=0,i,j,k,required,got;
+    LIS_INT *rowptr=NULL,*cols=NULL,*request_ids=NULL,*incoming_ids=NULL;
+    LIS_INT *remote_slot=NULL;
+    LIS_SCALAR *coeff=NULL,*local_x=NULL,*remote_vals=NULL,*incoming_vals=NULL;
+    int *send_count=NULL,*recv_count=NULL,*send_at=NULL,*recv_at=NULL,*next=NULL;
+    int np=0,rank=0,r,total_send=0,total_recv=0,rc;
+    const size_t int_size=sizeof(LIS_INT), scalar_size=sizeof(LIS_SCALAR);
 
-    if(A->user_get_row==NULL || A->ranges==NULL || np<=0 ||
-       A->my_rank<0 || A->my_rank>=np ||
-       A->gn<=0 || A->gn>INT_MAX || A->n<0 ||
+    if(A==NULL || X==NULL || Y==NULL)
+        return LIS_ERR_ILL_ARG;
+    if(A->nprocs<1 || A->nprocs>INT_MAX ||
+       A->my_rank<0 || A->my_rank>=A->nprocs ||
+       A->n<0 || A->n>INT_MAX || A->gn<0 || A->ranges==NULL ||
        A->is<0 || A->ie<A->is || A->ie>A->gn ||
-       A->ie-A->is!=A->n ||
-       X->n<A->n || Y->n<A->n || X->value==NULL || Y->value==NULL ||
-       (uintmax_t)A->gn>(uintmax_t)SIZE_MAX/sizeof(LIS_SCALAR) ||
-       (uintmax_t)np>(uintmax_t)SIZE_MAX/sizeof(int))
+       A->ie-A->is!=A->n || X->n<A->n || Y->n<A->n ||
+       (A->n>0 && (X->value==NULL || Y->value==NULL)) ||
+       A->user_get_row==NULL ||
+       (uintmax_t)A->n+1>(uintmax_t)SIZE_MAX/int_size ||
+       (uintmax_t)A->n>(uintmax_t)SIZE_MAX/scalar_size ||
+       (uintmax_t)A->nprocs>(uintmax_t)SIZE_MAX/sizeof(int))
+        err=LIS_ERR_ILL_ARG;
+
+    if(!err)
+    {
+        np=(int)A->nprocs;
+        rank=(int)A->my_rank;
+        if(A->ranges[0]!=0 || A->ranges[np]!=A->gn ||
+           A->ranges[rank]!=A->is || A->ranges[rank+1]!=A->ie)
+            err=LIS_ERR_ILL_ARG;
+        for(r=0;r<np && !err;r++)
+            if(A->ranges[r]<0 || A->ranges[r+1]<A->ranges[r] ||
+               A->ranges[r+1]>A->gn)
+                err=LIS_ERR_ILL_ARG;
+    }
+    if(!err)
+    {
+        n=A->n;
+        rowptr=(LIS_INT *)malloc(((size_t)n+1)*int_size);
+        local_x=(LIS_SCALAR *)malloc(n ? (size_t)n*scalar_size : scalar_size);
+        send_count=(int *)calloc((size_t)np,sizeof(int));
+        recv_count=(int *)calloc((size_t)np,sizeof(int));
+        send_at=(int *)calloc((size_t)np,sizeof(int));
+        recv_at=(int *)calloc((size_t)np,sizeof(int));
+        next=(int *)calloc((size_t)np,sizeof(int));
+        if(!rowptr || !local_x || !send_count || !recv_count ||
+           !send_at || !recv_at || !next)
+            err=LIS_ERR_OUT_OF_MEMORY;
+        else
+        {
+            if(n)memcpy(local_x,X->value,(size_t)n*scalar_size);
+            rowptr[0]=0;
+        }
+    }
+    /* All ranks stop together before entering application callbacks. */
+    err=lis_user_sparse_sync_error(A,err);
+    if(err)goto cleanup;
+
+    for(i=0;i<n;i++)
+    {
+        required=0;
+        err=A->user_get_row(A->user_data,i,&required,NULL,NULL);
+        if(err)break;
+        if(required<0 || required>INT_MAX-nnz)
+        {
+            err=LIS_ERR_ILL_ARG;
+            break;
+        }
+        nnz+=required;
+        rowptr[i+1]=nnz;
+    }
+    err=lis_user_sparse_sync_error(A,err);
+    if(err)goto cleanup;
+
+    if((uintmax_t)nnz>(uintmax_t)SIZE_MAX/int_size ||
+       (uintmax_t)nnz>(uintmax_t)SIZE_MAX/scalar_size)
         err=LIS_ERR_ILL_ARG;
     if(!err)
     {
-        counts=(int *)malloc((size_t)np*sizeof(int));
-        offsets=(int *)malloc((size_t)np*sizeof(int));
-        full=(LIS_SCALAR *)malloc((size_t)A->gn*sizeof(LIS_SCALAR));
-        if(!counts || !offsets || !full)err=LIS_ERR_OUT_OF_MEMORY;
+        cols=(LIS_INT *)malloc(nnz ? (size_t)nnz*int_size : int_size);
+        coeff=(LIS_SCALAR *)malloc(
+            nnz ? (size_t)nnz*scalar_size : scalar_size);
+        remote_slot=(LIS_INT *)malloc(
+            nnz ? (size_t)nnz*int_size : int_size);
+        if(!cols || !coeff || !remote_slot)
+            err=LIS_ERR_OUT_OF_MEMORY;
     }
+    err=lis_user_sparse_sync_error(A,err);
+    if(err)goto cleanup;
+
+    for(i=0;i<n;i++)
+    {
+        required=rowptr[i+1]-rowptr[i];
+        if(!required)continue;
+        got=required;
+        err=A->user_get_row(A->user_data,i,&got,
+                             cols+rowptr[i],coeff+rowptr[i]);
+        if(err)break;
+        if(got!=required){err=LIS_ERR_ILL_ARG;break;}
+        for(j=rowptr[i];j<rowptr[i+1];j++)
+        {
+            int owner;
+            if(cols[j]<0 || cols[j]>=A->gn)
+            {
+                err=LIS_ERR_ILL_ARG;
+                break;
+            }
+            owner=lis_user_sparse_owner(A->ranges,np,cols[j]);
+            if(owner<0){err=LIS_ERR_ILL_ARG;break;}
+            if(owner==rank)
+                remote_slot[j]=-1;
+            else
+            {
+                if(send_count[owner]==INT_MAX)
+                {
+                    err=LIS_ERR_ILL_ARG;
+                    break;
+                }
+                send_count[owner]++;
+                remote_slot[j]=0; /* Populated when requests are packed. */
+            }
+        }
+        if(err)break;
+    }
+    err=lis_user_sparse_sync_error(A,err);
+    if(err)goto cleanup;
+
+    rc=MPI_Alltoall(send_count,1,MPI_INT,
+                    recv_count,1,MPI_INT,A->comm);
+    if(rc!=MPI_SUCCESS){err=LIS_ERR_ILL_ARG;goto cleanup;}
+    for(r=0;r<np;r++)
+    {
+        if(send_count[r]<0 || recv_count[r]<0 ||
+           send_count[r]>INT_MAX-total_send ||
+           recv_count[r]>INT_MAX-total_recv)
+        {
+            err=LIS_ERR_ILL_ARG;
+            break;
+        }
+        send_at[r]=total_send;
+        recv_at[r]=total_recv;
+        total_send+=send_count[r];
+        total_recv+=recv_count[r];
+    }
+    if(!err &&
+       ((uintmax_t)total_send>(uintmax_t)SIZE_MAX/int_size ||
+        (uintmax_t)total_send>(uintmax_t)SIZE_MAX/scalar_size ||
+        (uintmax_t)total_recv>(uintmax_t)SIZE_MAX/int_size ||
+        (uintmax_t)total_recv>(uintmax_t)SIZE_MAX/scalar_size))
+        err=LIS_ERR_ILL_ARG;
     if(!err)
     {
-        if(A->ranges[0]!=0 || A->ranges[np]!=A->gn)
-            err=LIS_ERR_ILL_ARG;
-        for(r=0;r<np && !err;r++)
-        {
-            LIS_INT lo=A->ranges[r],hi=A->ranges[r+1];
-            if(lo<0 || hi<lo || hi>A->gn ||
-               hi-lo>INT_MAX || lo>INT_MAX)err=LIS_ERR_ILL_ARG;
-            else { counts[r]=(int)(hi-lo); offsets[r]=(int)lo; }
-        }
-        if(!err && counts[A->my_rank]!=(int)A->n)
-            err=LIS_ERR_ILL_ARG;
+        request_ids=(LIS_INT *)malloc(
+            total_send ? (size_t)total_send*int_size : int_size);
+        incoming_ids=(LIS_INT *)malloc(
+            total_recv ? (size_t)total_recv*int_size : int_size);
+        remote_vals=(LIS_SCALAR *)malloc(
+            total_send ? (size_t)total_send*scalar_size : scalar_size);
+        incoming_vals=(LIS_SCALAR *)malloc(
+            total_recv ? (size_t)total_recv*scalar_size : scalar_size);
+        if(!request_ids || !incoming_ids || !remote_vals || !incoming_vals)
+            err=LIS_ERR_OUT_OF_MEMORY;
     }
-    mpierr=MPI_Allreduce(&err,&all_err,1,LIS_MPI_INT,MPI_MAX,A->comm);
-    if(mpierr!=MPI_SUCCESS){all_err=LIS_ERR_ILL_ARG;goto cleanup;}
-    if(all_err)goto cleanup;
+    err=lis_user_sparse_sync_error(A,err);
+    if(err)goto cleanup;
 
-    if(!adjoint)
+    memcpy(next,send_at,(size_t)np*sizeof(int));
+    for(j=0;j<nnz;j++)
     {
-        mpierr=MPI_Allgatherv(X->value,(int)A->n,LIS_MPI_SCALAR,
-            full,counts,offsets,LIS_MPI_SCALAR,A->comm);
-        if(mpierr!=MPI_SUCCESS){all_err=LIS_ERR_ILL_ARG;goto cleanup;}
+        if(remote_slot[j]==-1)continue;
+        r=lis_user_sparse_owner(A->ranges,np,cols[j]);
+        k=next[r]++;
+        remote_slot[j]=k;
+        request_ids[k]=cols[j];
     }
-    else for(i=0;i<A->gn;i++)full[i]=(LIS_SCALAR)0.0;
+    rc=MPI_Alltoallv(request_ids,send_count,send_at,LIS_MPI_INT,
+                     incoming_ids,recv_count,recv_at,LIS_MPI_INT,A->comm);
+    if(rc!=MPI_SUCCESS){err=LIS_ERR_ILL_ARG;goto cleanup;}
+    for(k=0;k<total_recv;k++)
+        if(incoming_ids[k]<A->is || incoming_ids[k]>=A->ie)
+        {
+            err=LIS_ERR_ILL_ARG;
+            break;
+        }
+    err=lis_user_sparse_sync_error(A,err);
+    if(err)goto cleanup;
 
-    for(i=0;i<A->n;i++)
-    {
-        need=0;
-        err=A->user_get_row(A->user_data,i,&need,NULL,NULL);
-        if(err)break;
-        if(need<0 ||
-           (uintmax_t)need>(uintmax_t)SIZE_MAX/sizeof(LIS_INT) ||
-           (uintmax_t)need>(uintmax_t)SIZE_MAX/sizeof(LIS_SCALAR))
-        {err=LIS_ERR_ILL_ARG;break;}
-        if(need>capacity)
-        {
-            new_columns=(LIS_INT *)malloc((size_t)need*sizeof(LIS_INT));
-            new_values=(LIS_SCALAR *)malloc((size_t)need*sizeof(LIS_SCALAR));
-            if(new_columns==NULL || new_values==NULL)
-            {
-                free(new_columns);free(new_values);
-                err=LIS_ERR_OUT_OF_MEMORY;break;
-            }
-            free(columns);free(values);
-            columns=new_columns;values=new_values;capacity=need;
-        }
-        sum=(LIS_SCALAR)0.0;
-        if(need)
-        {
-            got=capacity;
-            err=A->user_get_row(A->user_data,i,&got,columns,values);
-            if(err)break;
-            if(got!=need){err=LIS_ERR_ILL_ARG;break;}
-            for(j=0;j<got;j++)
-            {
-                LIS_INT col=columns[j];
-                if(col<0 || col>=A->gn){err=LIS_ERR_ILL_ARG;break;}
-                if(adjoint)full[col]+=conj(values[j])*X->value[i];
-                else sum+=values[j]*full[col];
-            }
-            if(err)break;
-        }
-        if(!adjoint)Y->value[i]=sum;
-    }
-    /* Collective callback/error consensus prevents a single rank returning
-     * before its peers enter the next communication operation. */
-    mpierr=MPI_Allreduce(&err,&all_err,1,LIS_MPI_INT,MPI_MAX,A->comm);
-    if(mpierr!=MPI_SUCCESS){all_err=LIS_ERR_ILL_ARG;goto cleanup;}
-    if(all_err)goto cleanup;
     if(adjoint)
     {
-        mpierr=MPI_Allreduce(MPI_IN_PLACE,full,(int)A->gn,
-                             LIS_MPI_SCALAR,MPI_SUM,A->comm);
-        if(mpierr!=MPI_SUCCESS){all_err=LIS_ERR_ILL_ARG;goto cleanup;}
-        for(i=0;i<A->n;i++)Y->value[i]=full[A->is+i];
+        if(n)memset(Y->value,0,(size_t)n*scalar_size);
+        for(i=0;i<n;i++)
+            for(j=rowptr[i];j<rowptr[i+1];j++)
+            {
+                LIS_SCALAR v=conj(coeff[j])*local_x[i];
+                if(remote_slot[j]<0)
+                    Y->value[cols[j]-A->is]+=v;
+                else
+                    remote_vals[remote_slot[j]]=v;
+            }
+        rc=MPI_Alltoallv(remote_vals,send_count,send_at,LIS_MPI_SCALAR,
+                         incoming_vals,recv_count,recv_at,LIS_MPI_SCALAR,
+                         A->comm);
+        if(rc!=MPI_SUCCESS){err=LIS_ERR_ILL_ARG;goto cleanup;}
+        for(k=0;k<total_recv;k++)
+            Y->value[incoming_ids[k]-A->is]+=incoming_vals[k];
+    }
+    else
+    {
+        for(k=0;k<total_recv;k++)
+            incoming_vals[k]=local_x[incoming_ids[k]-A->is];
+        rc=MPI_Alltoallv(incoming_vals,recv_count,recv_at,LIS_MPI_SCALAR,
+                         remote_vals,send_count,send_at,LIS_MPI_SCALAR,
+                         A->comm);
+        if(rc!=MPI_SUCCESS){err=LIS_ERR_ILL_ARG;goto cleanup;}
+        for(i=0;i<n;i++)
+        {
+            LIS_SCALAR sum=(LIS_SCALAR)0.0;
+            for(j=rowptr[i];j<rowptr[i+1];j++)
+            {
+                LIS_SCALAR v=remote_slot[j]<0 ?
+                             local_x[cols[j]-A->is] :
+                             remote_vals[remote_slot[j]];
+                sum+=coeff[j]*v;
+            }
+            Y->value[i]=sum;
+        }
     }
 cleanup:
-    free(columns);free(values);free(full);free(counts);free(offsets);
-    return all_err;
+    free(rowptr);free(cols);free(coeff);free(remote_slot);free(local_x);
+    free(send_count);free(recv_count);free(send_at);free(recv_at);
+    free(next);free(request_ids);free(incoming_ids);
+    free(remote_vals);free(incoming_vals);
+    return err;
 }
+
 #endif
 
 #undef __FUNC__

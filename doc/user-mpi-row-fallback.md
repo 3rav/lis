@@ -5,27 +5,30 @@ With two or more MPI ranks, when explicit `user_matvec` or
 `user_matvech` is absent, LIS can compute `Ax` and `A^H x` directly
 from the application-owned local rows. This is a correctness-first fallback:
 
-- `Ax`: `MPI_Allgatherv` assembles the full global input vector on
-  each rank. Local USER rows multiply their entries against it.
-- `A^H x`: local rows accumulate into a global-length scratch vector,
-  then `MPI_Allreduce` sums those contributions, and each rank extracts
-  its local output segment.
+- `Ax`: each rank requests only referenced remote columns,
+  and owners return their input entries using `MPI_Alltoallv`.
+- `A^H x`: local row contributions are sent to the owning column ranks
+  along the reverse sparse request edges.
 - Both variants synchronize buffer/argument failures before communication,
   and query/fill callback errors afterward. A failure on one rank returns
   a nonzero LIS error on all ranks. All ranks must call the operation.
 - Row query and fill count consistency and global column ranges are
-  checked. Scratch storage is O(global_n + maximum_row_nnz + ranks).
+  checked. Scratch storage is proportional to local row data, incoming requests
+  and the number of MPI ranks.
 
-**This is not a sparse halo implementation.** Every rank replicates a
-full global vector and communicates O(global_n) data. This may be much
-slower and more memory-intensive than CSR for large sparse distributed
-systems. For scalable real-world MPI cases, applications should continue
-to supply explicit communication-aware USER matvec callbacks, or use CSR
-with LIS's normal sparse halo exchange.
+**Sparse exchange is rebuilt at every matvec call.** Unlike the original
+full-vector fallback of PR #127, the implementation in PR #130 transfers
+O(off-rank nonzeros) values and column requests rather than replicating
+the full global vector. Repeated remote columns are not yet deduplicated
+and request-count metadata remains O(ranks). For maximum performance on
+large systems, explicit communication-aware USER matvec callbacks or
+assembled CSR with its reusable sparse halo plan may still be preferable.
+See [sparse MPI exchange](user-mpi-sparse-halo.md).
 
 The distributed row fallback does not enable distributed direct-row
-preconditioners, automatic USER-to-CSR materialization, or diagonal
-extraction from row callbacks. It does not alter the public callback ABI.
+ILU-style preconditioners or automatic USER-to-CSR materialization.
+Jacobi diagonal extraction from row callbacks is supported in the
+stacked MPI Jacobi PR #128. It does not alter the public callback ABI.
 Serial and explicit-callback behavior are unchanged.
 
 `test/testusermpirows.c` exercises cyclic off-rank couplings (so a
