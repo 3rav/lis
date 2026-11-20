@@ -134,7 +134,7 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 	LIS_SCALAR nu;
 
 	LIS_REAL bnrm2, nrm2, tol, min_nrm2;
-	LIS_INT iter,maxiter,output,conv,maxiter_noimp,noimp_count;
+	LIS_INT err,iter,maxiter,output,conv,maxiter_noimp,noimp_count;
 	double time,ptime;
 
 	LIS_INT l,i,j;
@@ -217,7 +217,12 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 			if( rho1==0.0 )
 			{
 				time = lis_wtime();
-				lis_psolve(solver, x, t);
+				err=lis_psolve(solver, x, t);
+				if(err)
+				{
+					ptime+=lis_wtime()-time;
+					goto callback_failure;
+				}
 				lis_vector_copy(t, x);
 				ptime += lis_wtime()-time;
 				lis_vector_axpy(1.0,xp,x);
@@ -243,9 +248,15 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 			/* u[j+1] = A    * u[j]   */
 			/* u[j+1] = M^-1 * u[j+1] */
 			time = lis_wtime();
-			lis_psolve(solver, u[j], t);
+			err=lis_psolve(solver, u[j], t);
+			if(err)
+			{
+				ptime+=lis_wtime()-time;
+				goto callback_failure;
+			}
 			ptime += lis_wtime()-time;
-			lis_matvec(A,t,u[j+1]);
+			err=lis_matvec(A,t,u[j+1]);
+			if(err) goto callback_failure;
 
 			/* nu = <rtld, u[j+1]> */
 			lis_vector_dot(rtld,u[j+1],&nu);
@@ -254,7 +265,12 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 			if( nu==0.0 )
 			{
 				time = lis_wtime();
-				lis_psolve(solver, x, t);
+				err=lis_psolve(solver, x, t);
+				if(err)
+				{
+					ptime+=lis_wtime()-time;
+					goto callback_failure;
+				}
 				lis_vector_copy(t, x);
 				ptime += lis_wtime()-time;
 				lis_vector_axpy(1.0,xp,x);
@@ -297,7 +313,12 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 					if( output & LIS_PRINT_OUT ) lis_print_rhistory(comm,iter,nrm2);
 				}	
 				time = lis_wtime();
-				lis_psolve(solver, x, t);
+				err=lis_psolve(solver, x, t);
+				if(err)
+				{
+					ptime+=lis_wtime()-time;
+					goto callback_failure;
+				}
 				lis_vector_copy(t, x);
 				ptime += lis_wtime()-time;
 				lis_vector_axpy(1.0,xp,x);
@@ -313,9 +334,15 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 			/* r[j+1] = A    * r[j]   */
 			/* r[j+1] = M^-1 * r[j+1] */
 			time = lis_wtime();
-			lis_psolve(solver, r[j], t);
+			err=lis_psolve(solver, r[j], t);
+			if(err)
+			{
+				ptime+=lis_wtime()-time;
+				goto callback_failure;
+			}
 			ptime += lis_wtime()-time;
-			lis_matvec(A,t,r[j+1]);
+			err=lis_matvec(A,t,r[j+1]);
+			if(err) goto callback_failure;
 
 			lis_vector_nrm2(r[0],&rnorm);
 			normx = _max(normx,rnorm);
@@ -383,7 +410,12 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 		if( tol >= nrm2 )
 		{
 			time = lis_wtime();
-			lis_psolve(solver, x, t);
+			err=lis_psolve(solver, x, t);
+			if(err)
+			{
+				ptime+=lis_wtime()-time;
+				goto callback_failure;
+			}
 			lis_vector_copy(t, x);
 			ptime += lis_wtime()-time;
 			lis_vector_axpy(1.0,xp,x);
@@ -421,6 +453,15 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 	lis_free(tau);
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_MAXITER;
+
+callback_failure:
+	/* No solver work vector is owned here, only the tau allocation. */
+	solver->retcode=err;
+	solver->iter=iter;
+	solver->ptime=ptime;
+	lis_free(tau);
+	LIS_DEBUG_FUNC_OUT;
+	return err;
 }
 
 #ifdef USE_QUAD_PRECISION
