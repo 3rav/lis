@@ -29,7 +29,7 @@ static double now_seconds(void)
     gettimeofday(&t,NULL);
     return (double)t.tv_sec+1e-6*(double)t.tv_usec;
 }
-static LIS_INT build_matrix(int side,LIS_MATRIX *out)
+static LIS_INT build_matrix(int side,int extended,LIS_MATRIX *out)
 {
     LIS_MATRIX A=NULL;
     LIS_INT i,n=(LIS_INT)side*(LIS_INT)side,err;
@@ -40,7 +40,8 @@ static LIS_INT build_matrix(int side,LIS_MATRIX *out)
     for(i=0;i<n;i++)
     {
         int row=(int)(i/side),col=(int)(i%side);
-        LIS_REAL d=4.03+(LIS_REAL)0.007*(i%13);
+        LIS_REAL d=extended ? (LIS_REAL)(4.215+0.003*(i%13)) :
+                              (LIS_REAL)(4.03+0.007*(i%13));
         err=lis_matrix_set_value(LIS_INS_VALUE,i,i,(LIS_SCALAR)d,A);
         if(err)goto fail;
         if(row>0)
@@ -62,6 +63,22 @@ static LIS_INT build_matrix(int side,LIS_MATRIX *out)
         {
             err=lis_matrix_set_value(LIS_INS_VALUE,i,i+1,-0.82,A);
             if(err)goto fail;
+        }
+        if(extended)
+        {
+            /* Deterministic nonsymmetric long-range links.
+             * Strict diagonal dominance remains: min diag 4.215,
+             * sum off-diagonal magnitudes <= 4.17. */
+            if(i+side+3<n)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,i+side+3,-0.10,A);
+                if(err)goto fail;
+            }
+            if(i>=side+3)
+            {
+                err=lis_matrix_set_value(LIS_INS_VALUE,i,i-side-3,0.07,A);
+                if(err)goto fail;
+            }
         }
     }
     err=lis_matrix_set_type(A,LIS_MATRIX_CSR);
@@ -176,16 +193,18 @@ int main(int argc,char **argv)
     int side=(argc>1)?atoi(argv[1]):36;
     int repeats=(argc>2)?atoi(argv[2]):4;
     const char *precon=(argc>3)?argv[3]:"jacobi";
+    const char *profile=(argc>4)?argv[4]:"standard";
     size_t j,k;
     if(side<8 || side>80 || repeats<2 || repeats>10 ||
-       (strcmp(precon,"jacobi") && strcmp(precon,"ilutp")))
+       (strcmp(precon,"jacobi") && strcmp(precon,"ilutp")) ||
+       (strcmp(profile,"standard") && strcmp(profile,"extended")))
     {
-        fprintf(stderr,"Usage: %s [side 8..80] [repeats 2..10] [jacobi|ilutp]\n",argv[0]);
+        fprintf(stderr,"Usage: %s [side 8..80] [repeats 2..10] [jacobi|ilutp] [standard|extended]\n",argv[0]);
         return 2;
     }
     err=lis_initialize(&argc,&argv);
     if(err)return 3;
-    err=build_matrix(side,&A);
+    err=build_matrix(side,strcmp(profile,"extended")==0,&A);
     if(err){lis_finalize();return 4;}
     puts("method,k,intra,restart,solve_index,side,wall_seconds,cpu_seconds,iterations,api_error,solver_status,true_relres,precon_apply_wall");
     for(j=0;j<sizeof(restarts)/sizeof(restarts[0]);j++)
