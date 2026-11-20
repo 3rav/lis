@@ -81,6 +81,8 @@ struct LIS_FGCRODR_STATE_STRUCT
     /* Shared solver-private configuration for GCRO-DR (not recycle vectors).
      * Stored here to avoid growing the public LIS_SOLVER_STRUCT (ABI). */
     LIS_INT gcrodr_ritz_stride;
+    /* Diagnostic integration of FGCRO-DR stride from fork PR #107. */
+    LIS_INT ritz_stride;
 
     /* Per-solver controls instead of process-global getenv() switches. */
     LIS_INT intra_recycle;
@@ -129,6 +131,7 @@ lis_fgcrodr_state_defaults(
 
     state->update = LIS_TRUE;
     state->gcrodr_ritz_stride = 1;
+    state->ritz_stride = 1;
 
     state->last_action =
         LIS_FGCRODR_RECYCLE_NONE;
@@ -323,6 +326,7 @@ lis_fgcrodr_profile_equal(LIS_SOLVER active,LIS_SOLVER fresh)
             a->reject_threshold==b->reject_threshold &&
             a->update==b->update &&
             a->gcrodr_ritz_stride==b->gcrodr_ritz_stride &&
+            a->ritz_stride==b->ritz_stride &&
             a->intra_recycle==b->intra_recycle &&
             a->intra_trace==b->intra_trace &&
             a->projected_relative==b->projected_relative)
@@ -372,6 +376,7 @@ lis_fgcrodr_profile_copy(LIS_SOLVER active,LIS_SOLVER fresh)
     a->reject_threshold=b->reject_threshold;
     a->update=b->update;
     a->gcrodr_ritz_stride=b->gcrodr_ritz_stride;
+    a->ritz_stride=b->ritz_stride;
     a->intra_recycle=b->intra_recycle;
     a->intra_trace=b->intra_trace;
     a->projected_relative=b->projected_relative;
@@ -682,6 +687,23 @@ lis_fgcrodr_set_option(
     /* -------------------------------------------------------- */
     /* -fgcrodr_k                                               */
     /* -------------------------------------------------------- */
+
+    if(strcmp(name,"-fgcrodr_ritz_stride")==0)
+    {
+        long parsed;
+        char *end=NULL;
+        errno=0;
+        parsed=strtol(value,&end,10);
+        if(errno==ERANGE || end==value || *end!='\0' ||
+           parsed<1 || parsed>INT_MAX)
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                       "-fgcrodr_ritz_stride expects a positive integer\n");
+            return LIS_ERR_ILL_ARG;
+        }
+        state->ritz_stride=(LIS_INT)parsed;
+        return LIS_SUCCESS;
+    }
 
     if( strcmp(name,"-fgcrodr_k")==0 )
     {
@@ -5595,6 +5617,7 @@ lis_fgcrodr_flexible_core(
     LIS_INT intra_recycle;
     LIS_INT intra_trace;
     LIS_INT recycle_counted;
+    LIS_INT ritz_cycle=0;
     LIS_INT normalize_projected;
     LIS_REAL residual_before_projection;
 
@@ -6649,16 +6672,21 @@ lis_fgcrodr_flexible_core(
          * Subsequent cycles with active recycling perform an augmented
          * harmonic UPDATE using [Z_old,Z_krylov].
          */
-        err =
-            lis_fgcrodr_build_recycle(
-                solver,
-                v,
-                z,
-                ii+1,
-                hraw,
-                h_dim,
-                bcoef,
-                kcur);
+        /* Build initially, then update every N eligible cycles.
+         * Intra-solve recycling always updates on every restart. */
+        if(intra_recycle || ritz_cycle==0)
+        {
+            err =
+                lis_fgcrodr_build_recycle(
+                    solver,v,z,ii+1,hraw,h_dim,bcoef,kcur);
+        }
+        else
+            err=LIS_SUCCESS;
+        if(!intra_recycle)
+        {
+            ++ritz_cycle;
+            if(ritz_cycle>=state->ritz_stride) ritz_cycle=0;
+        }
 
         if( err )
         {
@@ -6959,7 +6987,7 @@ lis_fgcrodr(
      * not merely on whether positive-k recycling is enabled.
      * Use LIS_MPI_INT so this check also works for 64-bit LIS_INT. */
     {
-        LIS_INT local[6], min_config[6], max_config[6];
+        LIS_INT local[7], min_config[7], max_config[7];
         LIS_INT j;
         local[0] =
             (state->intra_recycle ? 1 : 0) |
@@ -6970,17 +6998,18 @@ lis_fgcrodr(
         local[3] = solver->options[LIS_OPTIONS_MAXITER];
         local[4] = solver->options[LIS_OPTIONS_MAXITER_NO_IMP];
         local[5] = state->update ? 1 : 0;
+        local[6] = state->ritz_stride;
 
-        if( MPI_Allreduce(local,min_config,6,LIS_MPI_INT,
+        if( MPI_Allreduce(local,min_config,7,LIS_MPI_INT,
                           MPI_MIN,solver->A->comm)!=MPI_SUCCESS ||
-            MPI_Allreduce(local,max_config,6,LIS_MPI_INT,
+            MPI_Allreduce(local,max_config,7,LIS_MPI_INT,
                           MPI_MAX,solver->A->comm)!=MPI_SUCCESS )
         {
             LIS_SETERR(LIS_ERR_ILL_ARG,
                        "FGCRO-DR MPI option consistency check failed\n");
             return LIS_ERR_ILL_ARG;
         }
-        for(j=0;j<6;j++)
+        for(j=0;j<7;j++)
         {
             if(min_config[j]!=max_config[j])
             {
