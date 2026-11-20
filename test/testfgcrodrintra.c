@@ -146,6 +146,76 @@ fail:
     return 1;
 }
 
+/* Exercise actual cross-solve harmonic UPDATE counts, not only option
+ * parsing: the first solve builds the space, the second reuses it. */
+static int check_ritz_stride_effect(LIS_MATRIX A,LIS_VECTOR b)
+{
+    const int stride[2]={1,4};
+    LIS_UNSIGNED_INT updates[2]={0,0},uses[2]={0,0};
+    LIS_VECTOR x=NULL,ax=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_REAL rnrm=0.0,bnrm=0.0,orth=0.0,relation=0.0;
+    char options[256];
+    LIS_INT err=0;
+    int mode,step;
+
+    for(mode=0;mode<2;mode++)
+    {
+        if((err=lis_vector_duplicate(A,&x))) goto fail;
+        if((err=lis_vector_duplicate(A,&ax))) goto fail;
+        if((err=lis_solver_create(&solver))) goto fail;
+        snprintf(options,sizeof(options),
+            "-i fgcrodr -p jacobi -scale none -restart 2 -maxiter 300 "
+            "-tol 1e-5 -fgcrodr_k 1 -fgcrodr_intra 0 "
+            "-fgcrodr_ritz_stride %d -print none",stride[mode]);
+        if((err=lis_solver_set_option(options,solver))) goto fail;
+        for(step=0;step<2;step++)
+        {
+            if((err=lis_vector_set_all(0.0,x))) goto fail;
+            err=lis_solve_sequence(A,b,x,solver);
+            if(err!=LIS_SUCCESS || solver->retcode!=LIS_SUCCESS)
+                goto fail;
+        }
+        if((err=lis_fgcrodr_get_stats(
+            solver,NULL,&updates[mode],&uses[mode],NULL))) goto fail;
+        if((err=lis_fgcrodr_validate_recycle(
+            solver,&orth,&relation))) goto fail;
+        if((err=lis_matvec(A,x,ax))) goto fail;
+        if((err=lis_vector_xpay(b,-1.0,ax))) goto fail;
+        if((err=lis_vector_nrm2(ax,&rnrm))) goto fail;
+        if((err=lis_vector_nrm2(b,&bnrm))) goto fail;
+        if(bnrm<=0.0 || !isfinite(rnrm) || rnrm/bnrm>1e-5 ||
+           !isfinite(orth) || !isfinite(relation) ||
+           orth>1e-8 || relation>1e-8)
+            goto fail;
+        lis_solver_destroy(solver); solver=NULL;
+        lis_vector_destroy(ax); ax=NULL;
+        lis_vector_destroy(x); x=NULL;
+    }
+    if(uses[0]==0 || uses[1]==0 || updates[0]<=updates[1])
+        goto fail;
+    printf("FGCRODR_RITZ_STRIDE_COUNTS_OK updates=%llu->%llu "
+           "cross_uses=%llu/%llu\n",
+           (unsigned long long)updates[0],
+           (unsigned long long)updates[1],
+           (unsigned long long)uses[0],
+           (unsigned long long)uses[1]);
+    return 0;
+fail:
+    fprintf(stderr,"FGCRODR_RITZ_STRIDE_COUNTS_FAIL err=%d "
+            "updates=%llu/%llu uses=%llu/%llu relative=%.8e\n",
+            (int)err,
+            (unsigned long long)updates[0],
+            (unsigned long long)updates[1],
+            (unsigned long long)uses[0],
+            (unsigned long long)uses[1],
+            (bnrm>0.0)?(double)(rnrm/bnrm):-1.0);
+    if(solver)lis_solver_destroy(solver);
+    if(ax)lis_vector_destroy(ax);
+    if(x)lis_vector_destroy(x);
+    return 1;
+}
+
 /* A synthetic changed-operator sequence.  Reusing the solver across
  * distinct matrix objects must not project the new residual against
  * a stale A1*Z=C relation for A2.
@@ -530,6 +600,7 @@ edge_done:
     }
 #endif
     if(check_ritz_stride_options() ||
+       check_ritz_stride_effect(A,b) ||
        solve_one(A,b,0,1,0,1) ||
        solve_one(A,b,0,1,0,4) ||
        solve_one(A,b,1,1,1,1) ||
