@@ -20,11 +20,12 @@ policy can now choose DIRECT, avoiding the unsupported MPI
 USER-to-CSR materialization route. Explicit USER diagonal callbacks
 retain precedence. Serial AUTO/Jacobi fallback behavior is unchanged.
 
-The underlying distributed row-backed Ax/A^H x still uses full
-global-vector collectives (O(global_n) scratch and communication per
-rank) and is not a sparse-halo implementation. This feature does not
-enable distributed row-source ILU/ILUT, distributed USER-to-CSR
-conversion or any callback ABI change.
+The current distributed row-backed Ax/A^H x implementation exchanges
+only requested off-rank values with MPI_Alltoallv (PR #130), rather than
+replicating global vectors. It rebuilds the request plan on each call,
+and does not deduplicate repeated remote columns. This does not enable
+distributed row-source ILU/ILUT, distributed USER-to-CSR conversion or
+any callback ABI change.
 
 Regressions run 1- and 2-rank MPI solves with Jacobi and AUTO,
 off-rank cyclic couplings, and one-rank callback failures, invalid
