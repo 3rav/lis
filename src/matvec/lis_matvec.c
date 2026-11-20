@@ -184,9 +184,10 @@ lis_matvech_user_rows(
 
 
 #ifdef USE_MPI
-/* Correctness-first distributed USER row fallback.  Full global vectors
- * replace a sparse halo here; memory and communication are O(global_n)
- * per rank.  All ranks must enter a USER operation collectively. */
+/* Sparse distributed USER row fallback. Only off-rank columns referenced
+ * by local rows are requested; all ranks enter each operation collectively.
+ * Counts, requests and responses are rebuilt on every call so dynamically
+ * changing USER row structures cannot silently reuse a stale halo map. */
 /*
  * Sparse, per-call row-backed USER exchange. We deliberately do not retain
  * a halo cache: rows can change without a structure-generation notification.
@@ -342,6 +343,7 @@ static LIS_INT lis_matvec_user_rows_mpi(
                     break;
                 }
                 send_count[owner]++;
+                remote_slot[j]=0; /* Populated when requests are packed. */
             }
         }
         if(err)break;
