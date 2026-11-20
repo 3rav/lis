@@ -1,0 +1,98 @@
+name: USER combined integration
+on:
+  push:
+    branches: [integration/user-combined-20261120]
+  workflow_dispatch:
+
+jobs:
+  combined:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: serial-int32-release
+            mpi: 'no'
+            index: int32
+            mode: release
+          - label: serial-int64-asan
+            mpi: 'no'
+            index: int64
+            mode: asan-ubsan
+          - label: mpi-int32-release
+            mpi: 'yes'
+            index: int32
+            mode: release
+          - label: mpi-int64-asan
+            mpi: 'yes'
+            index: int64
+            mode: asan-ubsan
+    name: ${{ matrix.label }}
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libtool-bin openmpi-bin libopenmpi-dev
+      - name: Verify integrated USER solver and matrix paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          if [ "${{ matrix.mode }}" = asan-ubsan ]; then
+            export CFLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined"
+            export LDFLAGS="-fsanitize=address,undefined"
+            export ASAN_OPTIONS="detect_leaks=0:halt_on_error=1"
+          else
+            export CFLAGS="-O2 -g"
+            export LDFLAGS=""
+          fi
+          index_flags=""
+          abi_flags=""
+          if [ "${{ matrix.index }}" = int64 ]; then
+            index_flags="--enable-longlong"
+            abi_flags="-D_LONG__LONG"
+          fi
+          compiler=cc
+          config_mpi="--disable-mpi --enable-omp"
+          use_mpi=""
+          if [ "${{ matrix.mpi }}" = yes ]; then
+            compiler=mpicc
+            config_mpi="--enable-mpi --disable-omp"
+            use_mpi="-DUSE_MPI"
+          fi
+          ./configure MPICC=mpicc MPIRUN=mpiexec --enable-test ${config_mpi} --disable-fortran --disable-f90 --disable-saamg ${index_flags}
+          make -j2
+          mkdir -p integration-bin
+          for src in \
+            test/testusercallbackerrors.c \
+            test/testusercsrbounds.c \
+            test/testuserautodirect.c \
+            test/testuserbicgerrors.c \
+            test/testuserbicgadjoint.c \
+            test/testuserbicgsafe.c \
+            test/testusergpbic.c \
+            test/testusercrserrors.c \
+            test/testuserbicgstabl.c \
+            test/testuseridrcallback.c \
+            test/testuserminresorth.c \
+            test/testusertfqmrcallback.c \
+            test/testusercrcomplex.c \
+            test/testbicgstablinit.c; do
+            name="$(basename "${src}" .c)"
+            "${compiler}" -DHAVE_CONFIG_H ${use_mpi} ${abi_flags} -I. -Iinclude -fopenmp ${CFLAGS} "${src}" -Lsrc/.libs -llis -lm ${LDFLAGS} -o "integration-bin/${name}"
+          done
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          for exe in integration-bin/*; do
+            echo ">>> ${exe}"
+            "${exe}"
+          done
+          if [ "${{ matrix.mpi }}" = yes ]; then
+            for src in test/testusermpicallback.c test/testusermpirows.c test/testusermpijacobi.c; do
+              name="$(basename "${src}" .c)"
+              mpicc -DHAVE_CONFIG_H -DUSE_MPI ${abi_flags} -I. -Iinclude ${CFLAGS} "${src}" -Lsrc/.libs -llis -lm ${LDFLAGS} -o "integration-bin/${name}"
+              mpiexec -n 1 "integration-bin/${name}"
+              mpiexec -n 2 "integration-bin/${name}"
+            done
+          fi
