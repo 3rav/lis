@@ -49,8 +49,9 @@ static int run(LIS_INT ell,int init_zeros)
     solver->options[LIS_OPTIONS_INITGUESS_ZEROS]=init_zeros?LIS_TRUE:LIS_FALSE;
     err=lis_solve(A,b,x,solver);
     if(lis_solver_get_status(solver,&status))goto done;
-    if(err!=LIS_SUCCESS ||
-       (status!=LIS_SUCCESS && status!=LIS_BREAKDOWN))
+    /* The solver's true-residual post-certification must agree with
+     * the numerical solution once x0 is added exactly once. */
+    if(err!=LIS_SUCCESS || status!=LIS_SUCCESS)
     {
         fprintf(stderr,"BiCGSTAB(l) api=%d status=%d ell=%d init_zeros=%d\n",
                 (int)err,(int)status,(int)ell,init_zeros);
