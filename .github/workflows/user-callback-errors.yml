@@ -33,7 +33,7 @@ jobs:
           fi
           ./configure --enable-omp --enable-test --disable-mpi --disable-fortran --disable-f90 --disable-saamg
           make -j2
-          cc -I. -Iinclude -fopenmp ${CFLAGS} test/testusercallbackerrors.c -Lsrc/.libs -llis -lm ${LDFLAGS} -o test/testusercallbackerrors
+          cc -DHAVE_CONFIG_H -I. -Iinclude -fopenmp ${CFLAGS} test/testusercallbackerrors.c -Lsrc/.libs -llis -lm ${LDFLAGS} -o test/testusercallbackerrors
       - name: Verify callback failures and normal convergence
         shell: bash
         run: |
