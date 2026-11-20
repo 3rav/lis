@@ -37,7 +37,7 @@ jobs:
           fi
           ./configure MPICC=mpicc MPIRUN=mpiexec --enable-test --enable-mpi --disable-omp --disable-fortran --disable-f90 --disable-saamg ${index_flags}
           make -j2
-          mpicc -DHAVE_CONFIG_H ${abi_flags} -I. -Iinclude ${CFLAGS} test/testusermpicallback.c -Lsrc/.libs -llis -lm ${LDFLAGS} -o test/testusermpicallback
+          mpicc -DUSE_MPI -DHAVE_CONFIG_H ${abi_flags} -I. -Iinclude ${CFLAGS} test/testusermpicallback.c -Lsrc/.libs -llis -lm ${LDFLAGS} -o test/testusermpicallback
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
           mpiexec -n 1 ./test/testusermpicallback
           mpiexec -n 2 ./test/testusermpicallback
