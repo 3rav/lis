@@ -64,7 +64,8 @@ static int exercise(const char *solver_name,LIS_INT fail_on)
     if(lis_solver_get_status(solver,&status)) goto done;
     if(fail_on)
     {
-        if(err!=LIS_ERR_ILL_ARG || status!=LIS_ERR_ILL_ARG ||
+        /* lis_solve reports execution failures via solver status. */
+        if(err!=LIS_SUCCESS || status!=LIS_ERR_ILL_ARG ||
            ctx.calls<fail_on)
         {
             fprintf(stderr,"%s injected call %d: err=%d status=%d calls=%d\n",
