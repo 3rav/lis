@@ -118,7 +118,10 @@ int main(int argc,char **argv)
     }
     lis_vector_set_all((LIS_SCALAR)0.0,x);
     err=lis_matrix_auto_session_solve(session,A,b,x,&policy,&action);
-    if(err || policy!=LIS_MATRIX_POLICY_DIRECT)
+    /* Serial row-only Jacobi intentionally retains the existing cached
+     * CSR AUTO policy; MPI row-only Jacobi must remain DIRECT. */
+    if(err || policy!=(nranks>1 ? LIS_MATRIX_POLICY_DIRECT :
+                                LIS_MATRIX_POLICY_CACHED_CSR))
     {failed=__LINE__;goto done;}
     for(i=0;i<A->n;i++)
         if(fabs((double)(x->value[i]-true_x(A->is+i)))>1e-7)
