@@ -5722,6 +5722,15 @@ LIS_INT lis_solver_set_option2(char* arg1, char *arg2, LIS_SOLVER solver)
 	        return err;
 	}
 
+    /* Opt-in GCRO-DR harmonic Ritz refresh cadence.  Private per-solver
+     * storage preserves the public LIS_SOLVER_STRUCT layout and ABI. */
+    if( strcmp(arg1,"-gcrodr_ritz_stride")==0 )
+    {
+        err=lis_gcrodr_set_ritz_stride(solver,arg2);
+        LIS_DEBUG_FUNC_OUT;
+        return err;
+    }
+
 	if( strcmp(arg1,"-gcrodr_keep")==0 )
 	{
 		LIS_INT value;
