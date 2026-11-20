@@ -62,93 +62,93 @@ int main(int argc,char **argv)
     MPI_Comm_rank(LIS_COMM_WORLD,&rank);
     MPI_Comm_size(LIS_COMM_WORLD,&nranks);
 #endif
-    err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err){failed=1;goto done;}
-    err=lis_matrix_set_size(A,0,8);if(err){failed=1;goto done;}
+    err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err){failed=__LINE__;goto done;}
+    err=lis_matrix_set_size(A,0,8);if(err){failed=__LINE__;goto done;}
     rows.global_n=A->gn;rows.local_n=A->n;rows.is=A->is;
     rows.rank=rank;rows.fail_rank=(nranks>1?1:0);rows.fail=0;
-    err=lis_matrix_set_user(A,&rows,NULL,NULL);if(err){failed=1;goto done;}
-    err=lis_matrix_set_user_row(A,get_row);if(err){failed=1;goto done;}
-    err=lis_matrix_get_capabilities(A,&cap);if(err){failed=1;goto done;}
+    err=lis_matrix_set_user(A,&rows,NULL,NULL);if(err){failed=__LINE__;goto done;}
+    err=lis_matrix_set_user_row(A,get_row);if(err){failed=__LINE__;goto done;}
+    err=lis_matrix_get_capabilities(A,&cap);if(err){failed=__LINE__;goto done;}
     if(!(cap&LIS_MATRIX_CAP_MATVEC) ||
        !(cap&LIS_MATRIX_CAP_MATVECH) ||
-       !(cap&LIS_MATRIX_CAP_DIAGONAL)){failed=1;goto done;}
-    err=lis_vector_duplicate(A,&x);if(err){failed=1;goto done;}
-    err=lis_vector_duplicate(A,&y);if(err){failed=1;goto done;}
-    err=lis_vector_duplicate(A,&b);if(err){failed=1;goto done;}
-    err=lis_vector_duplicate(A,&d);if(err){failed=1;goto done;}
+       !(cap&LIS_MATRIX_CAP_DIAGONAL)){failed=__LINE__;goto done;}
+    err=lis_vector_duplicate(A,&x);if(err){failed=__LINE__;goto done;}
+    err=lis_vector_duplicate(A,&y);if(err){failed=__LINE__;goto done;}
+    err=lis_vector_duplicate(A,&b);if(err){failed=__LINE__;goto done;}
+    err=lis_vector_duplicate(A,&d);if(err){failed=__LINE__;goto done;}
     for(i=0;i<A->n;i++)x->value[i]=true_x(A->is+i);
-    err=lis_matvec(A,x,y);if(err){failed=1;goto done;}
+    err=lis_matvec(A,x,y);if(err){failed=__LINE__;goto done;}
     for(i=0;i<A->n;i++)
         if(fabs((double)(y->value[i]-ax_expected(A->is+i,A->gn)))>1e-11)
-        {failed=1;goto done;}
+        {failed=__LINE__;goto done;}
     lis_vector_copy(y,b);
-    err=lis_matrix_get_diagonal(A,d);if(err){failed=1;goto done;}
+    err=lis_matrix_get_diagonal(A,d);if(err){failed=__LINE__;goto done;}
     for(i=0;i<A->n;i++)
         if(fabs((double)d->value[i]-4.0)>1e-12)
-        {failed=1;goto done;}
-    err=lis_matvech(A,x,y);if(err){failed=1;goto done;}
+        {failed=__LINE__;goto done;}
+    err=lis_matvech(A,x,y);if(err){failed=__LINE__;goto done;}
     for(i=0;i<A->n;i++)
         if(fabs((double)(y->value[i]-ah_expected(A->is+i,A->gn)))>1e-11)
-        {failed=1;goto done;}
+        {failed=__LINE__;goto done;}
 
-    err=lis_solver_create(&solver);if(err){failed=1;goto done;}
+    err=lis_solver_create(&solver);if(err){failed=__LINE__;goto done;}
     err=lis_solver_set_option(
       "-i gmres -p jacobi -scale none -restart 8 -maxiter 100 -tol 1e-10 -print none",
-      solver);if(err){failed=1;goto done;}
+      solver);if(err){failed=__LINE__;goto done;}
     lis_vector_set_all((LIS_SCALAR)0.0,x);
     err=lis_solve(A,b,x,solver);
-    if(err){failed=1;goto done;}
+    if(err){failed=__LINE__;goto done;}
     err=lis_solver_get_status(solver,&status);
-    if(err || status!=LIS_SUCCESS){failed=1;goto done;}
+    if(err || status!=LIS_SUCCESS){failed=__LINE__;goto done;}
     for(i=0;i<A->n;i++)
         if(fabs((double)(x->value[i]-true_x(A->is+i)))>1e-7)
-        {failed=1;goto done;}
+        {failed=__LINE__;goto done;}
 
     /* AUTO + Jacobi must choose DIRECT, not unsupported MPI USER->CSR. */
     err=lis_matrix_auto_session_create(&session);
-    if(err){failed=1;goto done;}
+    if(err){failed=__LINE__;goto done;}
     {
         LIS_SOLVER auto_solver=NULL;
         err=lis_matrix_auto_session_get_solver(session,&auto_solver);
-        if(err){failed=1;goto done;}
+        if(err){failed=__LINE__;goto done;}
         err=lis_solver_set_option(
           "-i gmres -p jacobi -scale none -restart 8 -maxiter 100 -tol 1e-10 -print none",
           auto_solver);
-        if(err){failed=1;goto done;}
+        if(err){failed=__LINE__;goto done;}
     }
     lis_vector_set_all((LIS_SCALAR)0.0,x);
     err=lis_matrix_auto_session_solve(session,A,b,x,&policy,&action);
     if(err || policy!=LIS_MATRIX_POLICY_DIRECT)
-    {failed=1;goto done;}
+    {failed=__LINE__;goto done;}
     for(i=0;i<A->n;i++)
         if(fabs((double)(x->value[i]-true_x(A->is+i)))>1e-7)
-        {failed=1;goto done;}
+        {failed=__LINE__;goto done;}
 
     /* An error on just one rank must be visible to *all* ranks. */
     rows.fail=1;
     err=lis_matrix_get_diagonal(A,d);
-    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    if(err!=LIS_ERR_ILL_ARG){failed=__LINE__;goto done;}
     err=lis_matvec(A,x,y);
-    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    if(err!=LIS_ERR_ILL_ARG){failed=__LINE__;goto done;}
     err=lis_matvech(A,x,y);
-    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    if(err!=LIS_ERR_ILL_ARG){failed=__LINE__;goto done;}
     /* Validate global column bounds and query/fill consistency on
      * one rank. The error must be broadcast collectively by both Ax
      * and A^H even though other ranks have valid rows. */
     rows.fail=2;
     err=lis_matrix_get_diagonal(A,d);
-    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    if(err!=LIS_ERR_ILL_ARG){failed=__LINE__;goto done;}
     err=lis_matvec(A,x,y);
-    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    if(err!=LIS_ERR_ILL_ARG){failed=__LINE__;goto done;}
     err=lis_matvech(A,x,y);
-    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    if(err!=LIS_ERR_ILL_ARG){failed=__LINE__;goto done;}
     rows.fail=3;
     err=lis_matrix_get_diagonal(A,d);
-    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    if(err!=LIS_ERR_ILL_ARG){failed=__LINE__;goto done;}
     err=lis_matvec(A,x,y);
-    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    if(err!=LIS_ERR_ILL_ARG){failed=__LINE__;goto done;}
     err=lis_matvech(A,x,y);
-    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    if(err!=LIS_ERR_ILL_ARG){failed=__LINE__;goto done;}
 done:
     if(session)lis_matrix_auto_session_destroy(session);
     if(solver)lis_solver_destroy(solver);
@@ -163,7 +163,7 @@ done:
     global_failed=failed;
 #endif
     lis_finalize();
-    if(rank==0)printf("USER_MPI_ROW_JACOBI %s ranks=%d\n",
-        global_failed?"FAILED":"PASSED",nranks);
+    if(rank==0)printf("USER_MPI_ROW_JACOBI %s ranks=%d stage=%d err=%d status=%d policy=%d\n",
+        global_failed?"FAILED":"PASSED",nranks,global_failed,(int)err,(int)status,(int)policy);
     return global_failed?1:0;
 }
