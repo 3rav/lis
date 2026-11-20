@@ -100,6 +100,45 @@ fail:
     return 1;
 }
 
+/* Independent recycle-basis quality check, outside timed benchmarking:
+ * C^H C approximately I and A*ZU approximately C for the actual matrix.
+ * This detects a lost recycled subspace even when a solve converges. */
+static int check_gc_c_orthogonality(LIS_MATRIX A,LIS_SOLVER solver)
+{
+    LIS_VECTOR tmp=NULL;
+    LIS_INT i,j,err=0;
+    LIS_SCALAR alpha;
+    LIS_REAL norm=0.0,max_orth=0.0,max_relation=0.0;
+    if(solver->recycle_valid==0 || solver->recycle_dim==0)
+        return 0;
+    if((err=lis_vector_duplicate(A,&tmp)))return 1;
+    for(i=0;i<solver->recycle_dim;i++)
+    {
+        if((err=lis_matvec(A,solver->recycle_zu[i],tmp)))goto fail;
+        if((err=lis_vector_axpy(-1.0,solver->recycle_c[i],tmp)))goto fail;
+        if((err=lis_vector_nrm2(tmp,&norm)))goto fail;
+        if(!isfinite(norm))goto fail;
+        if(norm>max_relation)max_relation=norm;
+        for(j=0;j<solver->recycle_dim;j++)
+        {
+            if((err=lis_vector_dot(solver->recycle_c[j],
+                                   solver->recycle_c[i],&alpha)))goto fail;
+            norm=fabs((double)(alpha-(i==j ? 1.0 : 0.0)));
+            if(!isfinite(norm))goto fail;
+            if(norm>max_orth)max_orth=norm;
+        }
+    }
+    if(max_orth>1e-8 || max_relation>1e-8)goto fail;
+    lis_vector_destroy(tmp);
+    return 0;
+fail:
+    fprintf(stderr,"GCRODR_RECYCLE_ORTHOGONALITY_FAIL err=%lld "
+                   "max_orth=%.9g max_relation=%.9g\n",
+                   (long long)err,(double)max_orth,(double)max_relation);
+    lis_vector_destroy(tmp);
+    return 1;
+}
+
 static int run_case(LIS_MATRIX A,int requested_stride,
                     LIS_INT *iterations,LIS_INT *updates,LIS_INT *uses)
 {
@@ -143,6 +182,7 @@ static int run_case(LIS_MATRIX A,int requested_stride,
         if((rc=lis_vector_nrm2(b,&bnorm)))goto done;
         if(!isfinite(norm) || bnorm<=0.0 || norm/bnorm>1e-8)
             goto done;
+        if(check_gc_c_orthogonality(A,solver))goto done;
     }
     *updates=solver->recycle_updates;
     *uses=solver->recycle_cross_uses;
