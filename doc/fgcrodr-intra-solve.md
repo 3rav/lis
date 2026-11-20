@@ -35,10 +35,38 @@ control these paths.
 All three accept only 0 or 1. They are stored in the individual solver's
 private FGCRO-DR state. Under MPI, the algorithm checks that all ranks
 agree on the mode switches, exact recycle dimension, restart dimension,
-iteration limits and recycling update switch before entering the Krylov
-core. A mismatch produces a deterministic error rather than risking
+iteration limits, recycling update switch, and Ritz update stride
+before entering the Krylov core. A mismatch produces a deterministic error rather than risking
 divergent collectives.
 The settings must be configured coherently on all participating ranks.
+
+## Optional cross-solve Ritz update cadence
+
+The FGCRO-DR harmonic Ritz update can be an expensive part of a
+frequently restarting solve. An optional per-solver setting changes its
+frequency **only for cross-solve recycling**:
+
+```text
+-i fgcrodr -p jacobi -fgcrodr_k 4 -fgcrodr_ritz_stride 4
+```
+
+- `-fgcrodr_ritz_stride 1` is the default and preserves the existing
+  BUILD/UPDATE on every Arnoldi restart.
+- `-fgcrodr_ritz_stride 4` updates on the first cycle of each solve and
+  every fourth restart thereafter. Deferred restarts keep the existing
+  recycle relation `A*Z=C` without recomputing harmonic Ritz vectors.
+- `-fgcrodr_intra 1` **always** updates at every restart, regardless
+  of the stride, to preserve within-solve recycling semantics.
+- Only positive integer stride values are accepted. The value is
+  stored in the private FGCRO-DR state, included in solver option
+  profile comparisons/copies, and verified to agree across MPI ranks.
+
+The setting is opt-in and should be benchmarked with the intended
+preconditioner and real application matrix sequence. On synthetic
+Jacobi-preconditioned systems with many restarts it can reduce setup
+and solve CPU time; with ILUTP the benefit was often negligible.
+More infrequent updates may also increase iterations. The option is
+not a claim of universal speedup or unchanged iteration counts.
 
 The standalone test sets projected-relative normalization **both**
 with intra-solve recycling ON and OFF, so it does **not** isolate that

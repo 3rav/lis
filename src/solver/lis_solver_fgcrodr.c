@@ -19,6 +19,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <limits.h>
 #ifdef USE_MPI
 #include <mpi.h>
 #endif
@@ -76,6 +78,8 @@ struct LIS_FGCRODR_STATE_STRUCT
     LIS_REAL reject_threshold;
 
     LIS_INT update;
+    /* 1 preserves the existing harmonic BUILD/UPDATE on every restart. */
+    LIS_INT ritz_stride;
 
     /* Per-solver controls instead of process-global getenv() switches. */
     LIS_INT intra_recycle;
@@ -123,6 +127,7 @@ lis_fgcrodr_state_defaults(
         FGCRODR_DEFAULT_REJECT_QUALITY;
 
     state->update = LIS_TRUE;
+    state->ritz_stride = 1;
 
     state->last_action =
         LIS_FGCRODR_RECYCLE_NONE;
@@ -316,6 +321,7 @@ lis_fgcrodr_profile_equal(LIS_SOLVER active,LIS_SOLVER fresh)
             a->keep_threshold==b->keep_threshold &&
             a->reject_threshold==b->reject_threshold &&
             a->update==b->update &&
+            a->ritz_stride==b->ritz_stride &&
             a->intra_recycle==b->intra_recycle &&
             a->intra_trace==b->intra_trace &&
             a->projected_relative==b->projected_relative)
@@ -364,6 +370,7 @@ lis_fgcrodr_profile_copy(LIS_SOLVER active,LIS_SOLVER fresh)
     a->keep_threshold=b->keep_threshold;
     a->reject_threshold=b->reject_threshold;
     a->update=b->update;
+    a->ritz_stride=b->ritz_stride;
     a->intra_recycle=b->intra_recycle;
     a->intra_trace=b->intra_trace;
     a->projected_relative=b->projected_relative;
@@ -770,6 +777,25 @@ lis_fgcrodr_set_option(
     }
 
 
+    /* Opt-in cadence for cross-solve recycling.  Intra-solve recycling
+     * always updates every cycle, irrespective of this setting. */
+    if( strcmp(name,"-fgcrodr_ritz_stride")==0 )
+    {
+        long parsed;
+        char *end=NULL;
+        errno=0;
+        parsed=strtol(value,&end,10);
+        if(errno==ERANGE || end==value || *end!='\0' ||
+           parsed<1 || parsed>INT_MAX)
+        {
+            LIS_SETERR(LIS_ERR_ILL_ARG,
+                       "Parameter -fgcrodr_ritz_stride must be a positive integer\n");
+            return LIS_ERR_ILL_ARG;
+        }
+        state->ritz_stride=(LIS_INT)parsed;
+        return LIS_SUCCESS;
+    }
+
     /* Explicit per-solver switches. Invalid values must not
      * silently turn safety-sensitive numerical options off. */
     if( strcmp(name,"-fgcrodr_intra")==0 ||
@@ -841,6 +867,13 @@ lis_fgcrodr_check_params(
             "at least 2 for FGCRO-DR recycling\n",
             solver->options[LIS_OPTIONS_RESTART]);
 
+        return LIS_ERR_ILL_ARG;
+    }
+
+    if( state->ritz_stride<1 )
+    {
+        LIS_SETERR(LIS_ERR_ILL_ARG,
+                   "FGCRO-DR Ritz update stride must be >= 1\n");
         return LIS_ERR_ILL_ARG;
     }
 
@@ -5544,6 +5577,7 @@ lis_fgcrodr_flexible_core(
     LIS_INT intra_recycle;
     LIS_INT intra_trace;
     LIS_INT recycle_counted;
+    LIS_INT ritz_cycle = 0;
     LIS_INT normalize_projected;
     LIS_REAL residual_before_projection;
 
@@ -6598,16 +6632,21 @@ lis_fgcrodr_flexible_core(
          * Subsequent cycles with active recycling perform an augmented
          * harmonic UPDATE using [Z_old,Z_krylov].
          */
-        err =
-            lis_fgcrodr_build_recycle(
-                solver,
-                v,
-                z,
-                ii+1,
-                hraw,
-                h_dim,
-                bcoef,
-                kcur);
+        /* A successful first-cycle BUILD establishes A Z = C.
+         * Deferred cycles keep that relation without harmonic Ritz work.
+         * Intra-solve recycling requires an update at every restart. */
+        if( intra_recycle || ritz_cycle==0 )
+        {
+            err=lis_fgcrodr_build_recycle(
+                solver,v,z,ii+1,hraw,h_dim,bcoef,kcur);
+        }
+        else
+            err=LIS_SUCCESS;
+        if( !intra_recycle )
+        {
+            ++ritz_cycle;
+            if( ritz_cycle>=state->ritz_stride ) ritz_cycle=0;
+        }
 
         if( err )
         {
@@ -6908,7 +6947,7 @@ lis_fgcrodr(
      * not merely on whether positive-k recycling is enabled.
      * Use LIS_MPI_INT so this check also works for 64-bit LIS_INT. */
     {
-        LIS_INT local[6], min_config[6], max_config[6];
+        LIS_INT local[7], min_config[7], max_config[7];
         LIS_INT j;
         local[0] =
             (state->intra_recycle ? 1 : 0) |
@@ -6919,17 +6958,18 @@ lis_fgcrodr(
         local[3] = solver->options[LIS_OPTIONS_MAXITER];
         local[4] = solver->options[LIS_OPTIONS_MAXITER_NO_IMP];
         local[5] = state->update ? 1 : 0;
+        local[6] = state->ritz_stride;
 
-        if( MPI_Allreduce(local,min_config,6,LIS_MPI_INT,
+        if( MPI_Allreduce(local,min_config,7,LIS_MPI_INT,
                           MPI_MIN,solver->A->comm)!=MPI_SUCCESS ||
-            MPI_Allreduce(local,max_config,6,LIS_MPI_INT,
+            MPI_Allreduce(local,max_config,7,LIS_MPI_INT,
                           MPI_MAX,solver->A->comm)!=MPI_SUCCESS )
         {
             LIS_SETERR(LIS_ERR_ILL_ARG,
                        "FGCRO-DR MPI option consistency check failed\n");
             return LIS_ERR_ILL_ARG;
         }
-        for(j=0;j<6;j++)
+        for(j=0;j<7;j++)
         {
             if(min_config[j]!=max_config[j])
             {
