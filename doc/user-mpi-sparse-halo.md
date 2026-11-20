@@ -15,24 +15,29 @@ take precedence; serial USER kernels are unchanged.
    counts, changed query/fill counts and out-of-range global columns.
    Synchronize callback/allocator errors across MPI ranks *before*
    communication.
-2. Group the off-rank global column requests by owner using the
-   existing matrix row partition ranges. Exchange request counts with
-   `MPI_Alltoall` and column IDs with `MPI_Alltoallv`. Validate that
-   every received ID belongs to the receiving rank.
-3. For `Ax`, owners return only requested entries of their local
-   input vectors with `MPI_Alltoallv`. Each rank combines local
-   entries with the fetched remote entries. For `A^H x`, each rank
-   sends conjugated row contributions along the same request edges
-   in reverse, and owners sum received contributions.
+2. Sort off-rank column occurrences by global ID, deduplicate them,
+   and map every nonzero occurrence to its unique per-rank remote slot.
+   The sorted IDs are naturally grouped by owning rank because the
+   matrix row partition ranges are monotone. Exchange unique request
+   counts with `MPI_Alltoall` and IDs with `MPI_Alltoallv`. Validate
+   that every received ID belongs to the receiving rank.
+3. For `Ax`, owners return each requested unique entry once using
+   `MPI_Alltoallv`; every local row occurrence reads its shared remote
+   slot while retaining its own matrix coefficient. For `A^H x`,
+   each rank first sums conjugated row contributions to each shared
+   remote slot, then sends one value per unique remote column along
+   the same reverse request edges. Owners add received contributions.
 4. Save the local input vector before updating any output, allowing
    direct in-place matvec and matvech on this MPI fallback.
 
 No full global vector is allocated, and no `MPI_Allgatherv` or
 global-length `MPI_Allreduce` remains in the sparse matvec path.
 Storage scales as O(local_n + local_nnz + ranks + incoming_requests),
-and vector traffic scales with O(off-rank_nnz) entries rather than
-O(global_n) values. MPI metadata still incurs O(ranks) costs per call.
-Repeated remote indices are currently **not deduplicated**.
+and vector traffic scales with O(unique_off_rank_columns_per_requester)
+entries rather than O(global_n) values. Each requester counts a column
+once even if it appears in multiple local rows. The per-call sorting
+adds O(off-rank_nnz log(off-rank_nnz)) work and O(off-rank_nnz)
+scratch; MPI metadata still incurs O(ranks) costs per call.
 
 The request plan is rebuilt per call, intentionally supporting USER
 row patterns that change without a structure-generation notification;
@@ -46,8 +51,8 @@ all ranks rather than deadlocking in the subsequent exchange.
 ## Regression
 
 `test/testusermpisparse.c` exercises 1, 2, 3 and 4 ranks, a
-diagonally-dominant cyclic matrix with duplicate remote columns,
-forward/transpose numerical parity, a GMRES solve, in-place products,
+diagonally-dominant cyclic matrix with duplicate remote columns
+within and across rows, forward/transpose numerical parity, a GMRES solve, in-place products,
 runtime changes to diagonal-only and empty rows, callback failures
 from a single rank and malformed row data. The CI matrix covers
 32-/64-bit `LIS_INT`, Release and ASan/UBSan.

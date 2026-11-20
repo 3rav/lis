@@ -17,10 +17,11 @@ from the application-owned local rows. This is a correctness-first fallback:
   and the number of MPI ranks.
 
 **Sparse exchange is rebuilt at every matvec call.** Unlike the original
-full-vector fallback of PR #127, the implementation in PR #130 transfers
-O(off-rank nonzeros) values and column requests rather than replicating
-the full global vector. Repeated remote columns are not yet deduplicated
-and request-count metadata remains O(ranks). For maximum performance on
+full-vector fallback of PR #127, the sparse implementation in PR #130,
+with the deduplication stacked above it, transfers only unique off-rank
+column values and requests per calling rank rather than replicating the
+full global vector. Per-call sorting and request-count metadata remain
+O(off-rank nonzeros log(off-rank nonzeros)) and O(ranks) respectively. For maximum performance on
 large systems, explicit communication-aware USER matvec callbacks or
 assembled CSR with its reusable sparse halo plan may still be preferable.
 See [sparse MPI exchange](user-mpi-sparse-halo.md).
