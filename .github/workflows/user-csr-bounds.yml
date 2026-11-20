@@ -32,9 +32,13 @@ jobs:
             export LDFLAGS=""
           fi
           index_flags=""
-          if [ "${{ matrix.index }}" = int64 ]; then index_flags="--enable-longlong"; fi
+          abi_flags=""
+          if [ "${{ matrix.index }}" = int64 ]; then
+            index_flags="--enable-longlong"
+            abi_flags="-D_LONG__LONG"
+          fi
           ./configure --enable-omp --enable-test --disable-mpi --disable-fortran --disable-f90 --disable-saamg ${index_flags}
           make -j2
-          cc -DHAVE_CONFIG_H -I. -Iinclude -fopenmp ${CFLAGS} test/testusercsrbounds.c -Lsrc/.libs -llis -lm ${LDFLAGS} -o test/testusercsrbounds
+          cc -DHAVE_CONFIG_H ${abi_flags} -I. -Iinclude -fopenmp ${CFLAGS} test/testusercsrbounds.c -Lsrc/.libs -llis -lm ${LDFLAGS} -o test/testusercsrbounds
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
           ./test/testusercsrbounds
