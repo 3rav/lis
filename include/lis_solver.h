@@ -267,6 +267,9 @@ extern "C"
 	extern LIS_INT lis_gcrodr_check_params(LIS_SOLVER solver);
 	extern LIS_INT lis_gcrodr_malloc_work(LIS_SOLVER solver);
 	extern LIS_INT lis_gcrodr_clear_recycle(LIS_SOLVER solver);
+        /* Private solver configuration (no public struct/ABI changes). */
+        extern LIS_INT lis_gcrodr_get_ritz_stride(LIS_SOLVER solver);
+        extern LIS_INT lis_gcrodr_set_ritz_stride(LIS_SOLVER solver,const char *value);
 
 /*******************/
 /* FGCRO-DR        */
