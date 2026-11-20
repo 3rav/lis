@@ -1338,6 +1338,12 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
     LIS_INT i,j,k,m,kmax,kcur,cycle_steps,jdim,ii,i1,jj,hld,cs,sn,pass;
     LIS_INT lucky,candidate;
     LIS_INT ritz_stride,ritz_cycle=0;
+#ifdef LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS
+    /* Diagnostic-only DGKS-style conditional second MGS pass.  Normal
+     * builds compile the original two-pass code unchanged. */
+    LIS_INT adaptive_mgs=0, c_reorth=0, c_skipped=0, v_reorth=0, v_skipped=0;
+    const char *mgs_mode=getenv("LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS");
+#endif
     double time,ptime;
 
     LIS_DEBUG_FUNC_IN;
@@ -1345,6 +1351,9 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
     A = solver->A;
     /* Each solve begins with the first harmonic Ritz update enabled. */
     ritz_stride=lis_gcrodr_get_ritz_stride(solver);
+#ifdef LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS
+    adaptive_mgs=(mgs_mode!=NULL && strcmp(mgs_mode,"dgks")==0);
+#endif
 #ifdef USE_MPI
     /* Collective Krylov flow must agree across all ranks. */
     {
@@ -1484,27 +1493,99 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
             if( err ) goto fail;
 
             /* Project A M^-1 v_j away from C, with a second MGS pass. */
-            for(pass=0;pass<2;pass++)
+#ifdef LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS
+            if(adaptive_mgs)
             {
+                /* DGKS proxy: compare first-pass projected energy with
+                 * remaining energy.  A large projection, cancellation or
+                 * nonfinite norm requires another pass.  The threshold
+                 * 0.945 approximately corresponds to ||w_after|| <
+                 * 0.717 ||w_before|| for an orthonormal basis.
+                 *
+                 * This optimization is intentionally NOT in production:
+                 * the additional norm reduction can cost more than the
+                 * saved dots, especially for MPI and small k.
+                 */
+                LIS_REAL projection2=0.0,remaining=0.0;
                 for(i=0;i<kcur;i++)
                 {
                     lis_vector_dot(solver->recycle_c[i],v[j+1],&t);
+                    projection2+=lis_gcrodr_abs2_scalar(t);
                     bcoef[i+j*_max(1,kmax)] += t;
                     lis_vector_axpy(-t,solver->recycle_c[i],v[j+1]);
+                }
+                if(kcur>0)
+                {
+                    lis_vector_nrm2(v[j+1],&remaining);
+                    if(remaining!=remaining ||
+                       projection2 > (LIS_REAL)0.945*remaining*remaining)
+                    {
+                        c_reorth++;
+                        for(i=0;i<kcur;i++)
+                        {
+                            lis_vector_dot(solver->recycle_c[i],v[j+1],&t);
+                            bcoef[i+j*_max(1,kmax)] += t;
+                            lis_vector_axpy(-t,solver->recycle_c[i],v[j+1]);
+                        }
+                    }
+                    else c_skipped++;
+                }
+            }
+            else
+#endif
+            {
+                for(pass=0;pass<2;pass++)
+                {
+                    for(i=0;i<kcur;i++)
+                    {
+                        lis_vector_dot(solver->recycle_c[i],v[j+1],&t);
+                        bcoef[i+j*_max(1,kmax)] += t;
+                        lis_vector_axpy(-t,solver->recycle_c[i],v[j+1]);
+                    }
                 }
             }
 
             /* Arnoldi MGS + reorthogonalization. */
-            for(pass=0;pass<2;pass++)
+#ifdef LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS
+            if(adaptive_mgs)
             {
+                LIS_REAL projection2=0.0;
                 for(i=0;i<=j;i++)
                 {
                     lis_vector_dot(v[i],v[j+1],&t);
+                    projection2+=lis_gcrodr_abs2_scalar(t);
                     hraw[i+j*hld] += t;
                     lis_vector_axpy(-t,v[i],v[j+1]);
                 }
+                lis_vector_nrm2(v[j+1],&wnorm);
+                if(wnorm!=wnorm ||
+                   projection2 > (LIS_REAL)0.945*wnorm*wnorm)
+                {
+                    v_reorth++;
+                    for(i=0;i<=j;i++)
+                    {
+                        lis_vector_dot(v[i],v[j+1],&t);
+                        hraw[i+j*hld] += t;
+                        lis_vector_axpy(-t,v[i],v[j+1]);
+                    }
+                    lis_vector_nrm2(v[j+1],&wnorm);
+                }
+                else v_skipped++;
             }
-            lis_vector_nrm2(v[j+1],&wnorm);
+            else
+#endif
+            {
+                for(pass=0;pass<2;pass++)
+                {
+                    for(i=0;i<=j;i++)
+                    {
+                        lis_vector_dot(v[i],v[j+1],&t);
+                        hraw[i+j*hld] += t;
+                        lis_vector_axpy(-t,v[i],v[j+1]);
+                    }
+                }
+                lis_vector_nrm2(v[j+1],&wnorm);
+            }
             hraw[(j+1)+j*hld] = wnorm;
             if( wnorm>GCRODR_TINY && wnorm==wnorm )
                 lis_vector_scale(1.0/wnorm,v[j+1]);
@@ -1826,6 +1907,15 @@ fail:
     solver->ptime = ptime;
 
 done:
+#ifdef LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS
+    if(adaptive_mgs)
+        fprintf(stderr,
+                "GCRODR_ADAPTIVE_MGS_COUNTS c_reorth=%lld c_skipped=%lld "
+                "v_reorth=%lld v_skipped=%lld iter=%lld ret=%lld\n",
+                (long long)c_reorth,(long long)c_skipped,
+                (long long)v_reorth,(long long)v_skipped,
+                (long long)iter,(long long)err);
+#endif
     lis_free(h);
     lis_free(hraw);
     lis_free(bcoef);
