@@ -804,7 +804,11 @@ lis_matrix_policy_has_matvec(
         return LIS_TRUE;
 
     case LIS_MATRIX_USER:
-        return A->user_matvec!=NULL ? LIS_TRUE : LIS_FALSE;
+        /* Serial row-backed USER implements generic Ax even without an
+         * application-provided user_matvec callback.  Do not force an
+         * unnecessary CSR materialization for -p none. */
+        return A->user_matvec!=NULL ||
+               (A->user_get_row!=NULL && A->nprocs==1 && A->n==A->gn);
 
     case LIS_MATRIX_OPERATOR:
         if(A->operator_A==NULL)
