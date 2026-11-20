@@ -59,11 +59,9 @@ static int exercise(LIS_INT fail_on,LIS_INT ell)
     }
     else
     {
-        /* The legacy BiCGSTAB(l) may report an exact-solution Lanczos
-         * breakdown for a scalar diagonal operator. Do not treat this
-         * as convergence: certify the returned x independently below. */
-        if(err!=LIS_SUCCESS ||
-           (status!=LIS_SUCCESS && status!=LIS_BREAKDOWN))
+        /* The zero-initial-guess control must converge and return
+         * an accurate iterate. Nonzero x0 is tested separately. */
+        if(err!=LIS_SUCCESS || status!=LIS_SUCCESS)
         {
             fprintf(stderr,"BiCGSTAB(l=%d) control: api=%d status=%d calls=%d\n",
                     (int)ell,(int)err,(int)status,(int)ctx.calls);
