@@ -1,0 +1,59 @@
+name: GCRO-DR / FGCRO-DR Ritz cadence MPI safety
+
+on:
+  push:
+    branches: ['bench/gcrodr-fgcrodr-cost-20261119']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recycle-mpi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mpi-recycle-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      OMPI_MCA_rmaps_base_oversubscribe: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenMPI and autotools
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libtool-bin openmpi-bin libopenmpi-dev
+      - name: Build MPI LIS with isolated Ritz experiment enabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          ./configure --enable-test --enable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg CFLAGS='-O2 -g -DLIS_RECYCLE_THROTTLE_EXPERIMENT'
+          make -j2
+      - name: Compare baseline and fourth-restart cadence using 2 MPI ranks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p mpi-recycle-results
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          for mode in 1 4; do
+            export LIS_EXPERIMENT_RITZ_STRIDE="$mode"
+            for program in testgcrodrsequence testfgcrodrintra testfgcrodrtransport; do
+              log="mpi-recycle-results/${program}-stride${mode}.log"
+              timeout --preserve-status 150s mpirun --oversubscribe --bind-to none -np 2 "./test/$program" > "$log" 2>&1 || {
+                tail -n 80 "$log"
+                exit 1
+              }
+              echo "PASS 2 MPI ranks: ${program} stride=${mode}"
+            done
+          done
+      - name: Upload MPI logs (also on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: krylov-recycle-mpi-${{ github.run_id }}
+          path: |
+            mpi-recycle-results/
+            config.log
+          if-no-files-found: ignore

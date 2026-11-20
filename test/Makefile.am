@@ -394,3 +394,8 @@ testcondense_lis_LDADD = $(LDADD) -lm
 TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
 TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
 EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+
+# Exploratory diagnostic, excluded from TESTS (make check).
+test_PROGRAMS += bench_recycle_cost
+bench_recycle_cost_SOURCES = bench_recycle_cost.c
+bench_recycle_cost_LDADD = $(LDADD) -lm

@@ -1,0 +1,76 @@
+name: GCRODR and FGCRODR exploratory timing
+
+on:
+  push:
+    branches: ['bench/gcrodr-fgcrodr-cost-20261119']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  timing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build native LIS solver benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg CFLAGS='-O2 -g -DLIS_RECYCLE_THROTTLE_EXPERIMENT'
+          make -j2
+          make -C test bench_recycle_cost
+      - name: Check GCRODR and FGCRODR recycling lifecycle with both cadences
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p krylov-recycle-cost/lifecycle
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          for mode in 1 4; do
+            export LIS_EXPERIMENT_RITZ_STRIDE="$mode"
+            for executable in testgcrodrsequence testfgcrodrintra testfgcrodrtransport; do
+              "./test/$executable" \
+                > "krylov-recycle-cost/lifecycle/${executable}-${mode}.log" 2>&1
+              echo "PASS: $executable stride=$mode"
+            done
+          done
+      - name: Time first and recycled solves at two problem sizes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p krylov-recycle-cost
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          for profile in standard extended; do
+            for precon in jacobi ilutp; do
+              folder="krylov-recycle-cost/$profile/$precon"
+              mkdir -p "$folder"
+              for mode in 1 4 once 1_repeat; do
+                if [ "$mode" = "1_repeat" ]; then
+                  export LIS_EXPERIMENT_RITZ_STRIDE=1
+                else
+                  export LIS_EXPERIMENT_RITZ_STRIDE="$mode"
+                fi
+                for side in 28 40; do
+                  ./test/bench_recycle_cost "$side" 4 "$precon" "$profile" \
+                    > "$folder/n${side}-${mode}.csv" \
+                    2> "$folder/n${side}-${mode}.stderr"
+                done
+              done
+              python3 tools/audit_recycle_cadence.py "$folder" \
+                | tee "$folder/summary.txt"
+            done
+          done
+      - name: Preserve timings and errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcrodr-fgcrodr-cost-${{ github.run_id }}
+          path: krylov-recycle-cost/
+          if-no-files-found: warn
