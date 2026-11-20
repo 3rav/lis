@@ -36,7 +36,7 @@ static int set_intra(LIS_SOLVER solver, int enabled)
         solver)!=LIS_SUCCESS;
 }
 
-static int solve_one(LIS_MATRIX A, LIS_VECTOR b, int intra, int requested_k, int trace)
+static int solve_one(LIS_MATRIX A, LIS_VECTOR b, int intra, int requested_k, int trace, int ritz_stride)
 {
     LIS_VECTOR x=NULL, ax=NULL;
     LIS_SOLVER solver=NULL;
@@ -55,7 +55,7 @@ static int solve_one(LIS_MATRIX A, LIS_VECTOR b, int intra, int requested_k, int
         goto done;
     snprintf(opts,sizeof(opts),
         "-i fgcrodr -p jacobi -restart 2 -maxiter 300 "
-        "-tol 1e-5 -fgcrodr_k %d -print none",requested_k);
+        "-tol 1e-5 -fgcrodr_k %d -fgcrodr_ritz_stride %d -print none",requested_k,ritz_stride);
     if((rc=lis_solver_set_option(opts,solver))) goto done;
     if((rc=lis_vector_set_all(0.0,x))) goto done;
     rc=lis_solve(A,b,x,solver);
@@ -117,6 +117,29 @@ done:
     return failed;
 }
 
+
+/* Validate strict positive input without relying on global environment. */
+static int check_ritz_stride_options(void)
+{
+    LIS_SOLVER a=NULL,b=NULL;
+    if(lis_solver_create(&a)!=LIS_SUCCESS) return 1;
+    if(lis_solver_create(&b)!=LIS_SUCCESS) goto fail;
+    if(lis_solver_set_option("-fgcrodr_ritz_stride 4",a)!=LIS_SUCCESS ||
+       lis_solver_set_option("-fgcrodr_ritz_stride 0",a)!=LIS_ERR_ILL_ARG ||
+       lis_solver_set_option("-fgcrodr_ritz_stride -1",a)!=LIS_ERR_ILL_ARG ||
+       lis_solver_set_option("-fgcrodr_ritz_stride 1.5",a)!=LIS_ERR_ILL_ARG ||
+       lis_solver_set_option("-fgcrodr_ritz_stride 9999999999999999999999",a)!=LIS_ERR_ILL_ARG ||
+       lis_solver_set_option("-fgcrodr_ritz_stride 1",b)!=LIS_SUCCESS)
+        goto fail;
+    lis_solver_destroy(b);
+    lis_solver_destroy(a);
+    puts("FGCRODR_RITZ_STRIDE_OPTIONS_OK");
+    return 0;
+fail:
+    if(b)lis_solver_destroy(b);
+    if(a)lis_solver_destroy(a);
+    return 1;
+}
 
 /* A synthetic changed-operator sequence.  Reusing the solver across
  * distinct matrix objects must not project the new residual against
@@ -403,6 +426,13 @@ static int check_mpi_mode_mismatch(LIS_MATRIX A,LIS_VECTOR b,int mode)
             rank==0 ? "-maxiter 10" : "-maxiter 11",
             solver))) goto done;
     }
+    else if(mode==4)
+    {
+        /* Divergent stride can deadlock a collective Krylov iteration. */
+        if((err=lis_solver_set_option(
+            rank==0 ? "-fgcrodr_ritz_stride 1" : "-fgcrodr_ritz_stride 4",
+            solver))) goto done;
+    }
     else
         goto done;
     if((err=lis_vector_set_all(0.0,x))) goto done;
@@ -494,10 +524,12 @@ edge_done:
         }
     }
 #endif
-    if(solve_one(A,b,0,1,0) ||
-       solve_one(A,b,1,1,1) ||
-       solve_one(A,b,1,1,0) ||
-       solve_one(A,b,1,1000000,0)) goto done;
+    if(check_ritz_stride_options() ||
+       solve_one(A,b,0,1,0,1) ||
+       solve_one(A,b,0,1,0,4) ||
+       solve_one(A,b,1,1,1,1) ||
+       solve_one(A,b,1,1,0,4) ||
+       solve_one(A,b,1,1000000,0,1)) goto done;
     if(check_changed_operator(A,b)) goto done;
     /* Run the restart tests on the unmodified reference operator.
      * The value-generation test intentionally changes A in place. */
@@ -507,7 +539,8 @@ edge_done:
     if(check_mpi_mode_mismatch(A,b,0) ||
        check_mpi_mode_mismatch(A,b,1) ||
        check_mpi_mode_mismatch(A,b,2) ||
-       check_mpi_mode_mismatch(A,b,3)) goto done;
+       check_mpi_mode_mismatch(A,b,3) ||
+       check_mpi_mode_mismatch(A,b,4)) goto done;
     failed=0;
 done:
     if(failed)
