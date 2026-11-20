@@ -156,7 +156,7 @@ LIS_INT lis_gmres(LIS_SOLVER solver)
 	LIS_SCALAR t;
 
 	LIS_REAL bnrm2,nrm2,tol,min_nrm2;
-	LIS_INT iter,maxiter,n,output,maxiter_noimp,noimp_count;
+	LIS_INT err,iter,maxiter,n,output,maxiter_noimp,noimp_count;
 	double time,ptime;
 
 	LIS_REAL rnorm;
@@ -192,9 +192,21 @@ LIS_INT lis_gmres(LIS_SOLVER solver)
 	sn      = (m+2)*h_dim;
 
 	/* r = M^-1 * (b - A * x) */
-	lis_matvec(A,x,z);
+	err=lis_matvec(A,x,z);
+	if(err)
+	{
+		solver->retcode=err;
+		lis_free(h);
+		return err;
+	}
 	lis_vector_xpay(b,-1.0,z);
-	lis_psolve(solver,z,v[0]);
+	err=lis_psolve(solver,z,v[0]);
+	if(err)
+	{
+		solver->retcode=err;
+		lis_free(h);
+		return err;
+	}
 	
 	/* Initial Residual */
 	if( lis_solver_get_initial_residual(solver,NULL,NULL,v[0],&bnrm2) )
@@ -232,11 +244,23 @@ LIS_INT lis_gmres(LIS_SOLVER solver)
 
 			/* z = M^-1 * v */
 			time = lis_wtime();
-			lis_psolve(solver,v[iiv],z);
+			err=lis_psolve(solver,v[iiv],z);
+			if(err)
+			{
+				solver->retcode=err;
+				lis_free(h);
+				return err;
+			}
 			ptime += lis_wtime()-time;
 
 			/* w = A * z */
-			lis_matvec(A,z,v[i1v]);
+			err=lis_matvec(A,z,v[i1v]);
+			if(err)
+			{
+				solver->retcode=err;
+				lis_free(h);
+				return err;
+			}
 
 			for(k=0;k<i;k++)
 			{
@@ -381,7 +405,13 @@ LIS_INT lis_gmres(LIS_SOLVER solver)
 
 		/* r = M^-1 * z */
 		time = lis_wtime();
-		lis_psolve(solver,z,r);
+		err=lis_psolve(solver,z,r);
+		if(err)
+		{
+			solver->retcode=err;
+			lis_free(h);
+			return err;
+		}
 		ptime += lis_wtime()-time;
 
 		/* x = x + r */
@@ -392,7 +422,13 @@ LIS_INT lis_gmres(LIS_SOLVER solver)
 		 * Keep the restarted Arnoldi residual in the original
 		 * residual space: v[0] = b - A*x.
 		 */
-		lis_matvec(A,x,z);
+		err=lis_matvec(A,x,z);
+		if(err)
+		{
+			solver->retcode=err;
+			lis_free(h);
+			return err;
+		}
 		lis_vector_xpay(b,-1.0,z);
 		lis_vector_copy(z,v[0]);
 		lis_vector_nrm2(v[0],&rnorm);
