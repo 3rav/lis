@@ -8,9 +8,8 @@
 /* Regression: BiCGSTAB(l) once added the nonzero initial x twice:
  * for A=4I, b[0]=1, x0[0]=0.15 it returned x[0]=0.40 instead of 0.25.
  *
- * The legacy method may report LIS_BREAKDOWN for an exact Krylov
- * termination, so certify Ax=b independently rather than relabel
- * that status as success.
+ * Require LIS_SUCCESS and the exact physical iterate. The solver's
+ * true-residual certification must reject an incorrectly doubled x0.
  */
 typedef struct { LIS_INT n; } OPERATOR;
 static LIS_INT ax(void *ptr,const LIS_SCALAR *x,LIS_SCALAR *y)
