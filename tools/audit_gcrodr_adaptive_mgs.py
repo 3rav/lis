@@ -15,9 +15,9 @@ from pathlib import Path
 PRECONS = ("jacobi", "ilutp")
 SIDES = (28, 40)
 RESTARTS = (12, 24)
-MODES = ("full", "dgks", "full_repeat")
+MODES = ("full", "dgks", "one_c", "full_repeat")
 METRIC = re.compile(
-    r"GCRODR_ADAPTIVE_MGS_COUNTS c_reorth=(\d+) c_skipped=(\d+) "
+    r"GCRODR_ADAPTIVE_MGS_COUNTS mode=(\d+) c_reorth=(\d+) c_skipped=(\d+) "
     r"v_reorth=(\d+) v_skipped=(\d+) iter=(\d+) ret=(-?\d+)"
 )
 
@@ -57,51 +57,62 @@ def main():
         print("usage: audit_gcrodr_adaptive_mgs.py RESULTS", file=sys.stderr)
         return 2
     root = Path(sys.argv[1])
-    stats = [0, 0, 0, 0, 0]
-    case_speedups = []
-    case_itdelta = []
-    print("precon side restart k stride full_ms dgks_ms speedup "
+    stats = {mode:[0,0,0,0,0] for mode in ("dgks","one_c")}
+    case_speedups = {"dgks":[], "one_c":[]}
+    case_itdelta = {"dgks":[], "one_c":[]}
+    print("mode precon side restart k stride full_ms candidate_ms speedup "
           "baseline_repeat_drift iter_delta")
     for precon in PRECONS:
         for side in SIDES:
             for restart in RESTARTS:
                 data = {mode:read_cases(root, precon, side, restart, mode)
                         for mode in MODES}
-                for k in (4, 8):
-                    for stride in (1, 4):
-                        full, fi = median_sequence(data["full"], "gcrodr",
-                                                   k, stride, 0)
-                        adaptive, ai = median_sequence(data["dgks"], "gcrodr",
+                for mode in ("dgks","one_c"):
+                    for k in (4, 8):
+                        for stride in (1, 4):
+                            full, fi = median_sequence(data["full"], "gcrodr",
                                                        k, stride, 0)
-                        rep, _ = median_sequence(data["full_repeat"],
-                                                 "gcrodr", k, stride, 0)
-                        speedup=full/adaptive
-                        drift=rep/full
-                        case_speedups.append(speedup)
-                        case_itdelta.append(ai-fi)
-                        print(f"{precon} {side} {restart} {k} {stride} "
-                              f"{full*1000:.4f} {adaptive*1000:.4f} "
-                              f"{speedup:.4f} {drift:.4f} {ai-fi:+.0f}")
-                log = root / "dgks" / f"{precon}-n{side}-r{restart}.stderr"
-                for line in log.read_text(encoding="utf-8").splitlines():
-                    match=METRIC.search(line)
-                    if match:
-                        ns=list(map(int,match.groups()))
-                        for i in range(5):
-                            stats[i]+=ns[i]
-                        if ns[5] != 0:
-                            raise ValueError(f"{log}: non-success MGS solve {ns}")
-    if stats[1]+stats[0]==0 or stats[3]+stats[2]==0:
-        raise ValueError("adaptive GCRO-DR never executed C/V basis projections")
-    if stats[1]==0 or stats[3]==0:
-        raise ValueError("adaptive MGS did not skip any second pass")
-    print(f"\nAdaptive C: second-pass executed={stats[0]}, skipped={stats[1]}")
-    print(f"Adaptive V: second-pass executed={stats[2]}, skipped={stats[3]}")
-    print(f"Median GCRO-DR speedup (32 combinations): "
-          f"{statistics.median(case_speedups):.3f}x")
-    print(f"Faster cases: {sum(x>1 for x in case_speedups)}/{len(case_speedups)}")
-    print(f"Median change in iterations: "
-          f"{statistics.median(case_itdelta):+.1f}")
+                            candidate, ai = median_sequence(data[mode], "gcrodr",
+                                                            k, stride, 0)
+                            rep, _ = median_sequence(data["full_repeat"],
+                                                     "gcrodr", k, stride, 0)
+                            speedup=full/candidate
+                            drift=rep/full
+                            case_speedups[mode].append(speedup)
+                            case_itdelta[mode].append(ai-fi)
+                            print(f"{mode} {precon} {side} {restart} {k} {stride} "
+                                  f"{full*1000:.4f} {candidate*1000:.4f} "
+                                  f"{speedup:.4f} {drift:.4f} {ai-fi:+.0f}")
+                    log = root / mode / f"{precon}-n{side}-r{restart}.stderr"
+                    for line in log.read_text(encoding="utf-8").splitlines():
+                        match=METRIC.search(line)
+                        if match:
+                            ns=list(map(int,match.groups()))
+                            if ns[0] != (1 if mode=="dgks" else 2):
+                                raise ValueError(f"{log}: wrong instrument mode {ns}")
+                            for i in range(5):
+                                stats[mode][i]+=ns[i+1]
+                            if ns[6] != 0:
+                                raise ValueError(f"{log}: unsuccessful solve {ns}")
+    for mode in ("dgks","one_c"):
+        st=stats[mode]
+        if st[1]+st[0]==0:
+            raise ValueError(f"{mode}: adaptive GCRO-DR did not perform C projections")
+        if st[1]==0:
+            raise ValueError(f"{mode}: did not skip any C second pass")
+        if mode=="dgks" and st[3]+st[2]==0:
+            raise ValueError("DGKS mode never executed V projections")
+        if mode=="one_c" and (st[0]!=0 or st[2]!=0 or st[3]!=0):
+            raise ValueError(f"{mode}: unexpected extra-pass counter {st}")
+        print(f"\n{mode}: C second executed={st[0]}, skipped={st[1]}, "
+              f"V second executed={st[2]}, skipped={st[3]}")
+        print(f"{mode}: median GCRO-DR speedup (32 combinations): "
+              f"{statistics.median(case_speedups[mode]):.3f}x")
+        print(f"{mode}: faster cases "
+              f"{sum(x>1 for x in case_speedups[mode])}/"
+              f"{len(case_speedups[mode])}")
+        print(f"{mode}: median change in iterations: "
+              f"{statistics.median(case_itdelta[mode]):+.1f}")
     print("NOTE: synthetic shared-runner CPU; no production claim or time gate.")
     return 0
 
