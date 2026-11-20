@@ -804,7 +804,11 @@ lis_matrix_policy_has_matvec(
         return LIS_TRUE;
 
     case LIS_MATRIX_USER:
-        return A->user_matvec!=NULL ? LIS_TRUE : LIS_FALSE;
+        /* MPI row-backed Ax is provided by the collective fallback.
+         * The serial capability matches the independent AUTO row fix. */
+        return A->user_matvec!=NULL ||
+               (A->user_get_row!=NULL &&
+                (A->nprocs>1 || A->n==A->gn));
 
     case LIS_MATRIX_OPERATOR:
         if(A->operator_A==NULL)
@@ -848,8 +852,12 @@ lis_matrix_policy_direct_supported(
 
     if(precon_type==LIS_PRECON_TYPE_JACOBI)
     {
-        return A->matrix_type==LIS_MATRIX_USER
-            && A->user_get_diagonal!=NULL
+        /* In MPI, row-only USER can provide its own diagonal without
+         * unsupported distributed USER-to-CSR conversion.  Preserve the
+         * existing serial AUTO/Jacobi cache policy. */
+        return A->matrix_type==LIS_MATRIX_USER &&
+               (A->user_get_diagonal!=NULL ||
+                (A->nprocs>1 && A->user_get_row!=NULL))
             ? LIS_TRUE : LIS_FALSE;
     }
 

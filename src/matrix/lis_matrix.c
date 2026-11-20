@@ -812,13 +812,15 @@ LIS_INT lis_matrix_get_capabilities(
 #ifdef USE_MPI
                         else if( A->nprocs>1 )
                         {
-                                /* MPI row fallback supports Ax and A^H x.
-                                 * Diagonal extraction/preconditioners
-                                 * remain serial without a direct callback. */
+                                /* Collective row-backed Ax, A^H x and
+                                 * local diagonal extraction for Jacobi.
+                                 * Distributed ILU remains unsupported. */
                                 *capabilities |=
                                         LIS_MATRIX_CAP_MATVEC
                                         |
-                                        LIS_MATRIX_CAP_MATVECH;
+                                        LIS_MATRIX_CAP_MATVECH
+                                        |
+                                        LIS_MATRIX_CAP_DIAGONAL;
                         }
 #endif
                 }
