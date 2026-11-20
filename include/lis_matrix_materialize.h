@@ -64,8 +64,11 @@ LIS_INT lis_matrix_materialize_csr_cached(
  * LIS format/conversion behavior is preserved.
  *
  * USER/OPERATOR matrices are passed through directly when the configured
- * preconditioner can consume their available callbacks. Otherwise, a cached
- * CSR view is selected. The cache tracks source generations and reports
+ * preconditioner can consume their available callbacks. In particular, a
+ * serial row-only USER can use generic Ax with no preconditioner, without
+ * materialization. A row-only USER using Jacobi but no explicit diagonal
+ * callback deliberately retains the cached CSR route for numeric refresh.
+ * Otherwise, a cached CSR view is selected. The cache tracks source generations and reports
  * REUSE, VALUES, or REBUILD through action.
  *
  * selected is borrowed. For DIRECT it aliases source; for CACHED_CSR it is

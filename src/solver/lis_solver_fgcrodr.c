@@ -3039,10 +3039,11 @@ lis_fgcrodr_install_recycle(
          *
          *     C_i = A Z_i
          */
-        lis_matvec(
+        err = lis_matvec(
             solver->A,
             state->z[keep],
             state->c[keep]);
+        if(err) goto fail;
 
 
         /*
@@ -4845,10 +4846,15 @@ lis_fgcrodr_validate_recycle(
 
     for(i=0;i<state->dim;i++)
     {
-        lis_matvec(
+        err = lis_matvec(
             solver->A,
             state->z[i],
             az);
+        if(err)
+        {
+            lis_vector_destroy(az);
+            return err;
+        }
 
 
         err =
@@ -5196,10 +5202,11 @@ lis_fgcrodr_prepare_recycle(
      */
     for(i=0;i<oldk;i++)
     {
-        lis_matvec(
+        err = lis_matvec(
             solver->A,
             state->z[i],
             scratch_c[i]);
+        if(err) goto cleanup;
 
 
         lis_vector_nrm2(
@@ -5984,10 +5991,20 @@ lis_fgcrodr_flexible_core(
             /*     w      = w - C B(:,j)                        */
             /* ------------------------------------------------ */
 
-            lis_matvec(
+            err = lis_matvec(
                 A,
                 z[iiv],
                 v[i1v]);
+            if(err)
+            {
+                solver->retcode=err;
+                solver->iter=iter;
+                solver->ptime=ptime;
+                if(bcoef) lis_free(bcoef);
+                if(hraw) lis_free(hraw);
+                lis_free(h);
+                return err;
+            }
 
 
             /*
@@ -6677,15 +6694,24 @@ lis_fgcrodr_flexible_core(
          * Keep this residual in v[0] so a rejected candidate can
          * continue directly through the existing restart path.
          */
-        lis_matvec(
+        err = lis_matvec(
             A,
             x,
             v[0]);
-
-        lis_vector_xpay(
+        if(!err) err=lis_vector_xpay(
             b,
             -1.0,
             v[0]);
+        if(err)
+        {
+            solver->retcode=err;
+            solver->iter=iter;
+            solver->ptime=ptime;
+            if(bcoef) lis_free(bcoef);
+            if(hraw) lis_free(hraw);
+            lis_free(h);
+            return err;
+        }
 
 
         if( candidate )

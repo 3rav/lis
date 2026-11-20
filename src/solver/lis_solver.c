@@ -5028,6 +5028,8 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 	
 	if (!solver->setup)
 	  {
+	    /* Previous solve status must not leak into this dispatch. */
+	    solver->retcode = LIS_SUCCESS;
 #ifndef USE_QUAD_PRECISION
 	    err = lis_solver_execute[nsolver](solver);
 #else
@@ -5044,6 +5046,11 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 		err = lis_solver_execute_switch[nsolver](solver);
 	      }
 #endif
+	    /* The historical initial-residual helper returns a boolean stop
+	     * signal. Preserve callback failures recorded in solver->retcode
+	     * even when its caller returns LIS_SUCCESS for that stop signal. */
+	    if(err==LIS_SUCCESS && solver->retcode!=LIS_SUCCESS)
+	        err=solver->retcode;
 	    solver->retcode = err;
 	  }
 
@@ -5197,7 +5204,7 @@ LIS_INT lis_solve_kernel(LIS_MATRIX A, LIS_VECTOR b, LIS_VECTOR x, LIS_SOLVER so
 LIS_INT lis_solver_get_initial_residual(LIS_SOLVER solver, LIS_PRECON M, LIS_VECTOR t, LIS_VECTOR r, LIS_REAL *bnrm2)
 {
 	LIS_Comm comm;  
-	LIS_INT	output,conv;
+	LIS_INT	output,conv,err;
 	#ifdef USE_QUAD_PRECISION
 	LIS_INT	i;
 	#endif
@@ -5234,18 +5241,24 @@ LIS_INT lis_solver_get_initial_residual(LIS_SOLVER solver, LIS_PRECON M, LIS_VEC
 	if( !solver->options[LIS_OPTIONS_INITGUESS_ZEROS] )
 	{
 		#ifndef USE_QUAD_PRECISION
-			lis_matvec(A,x,p);           /* p = Ax    */
-			lis_vector_xpay(b,-1,p);     /* p = b - p */
+			err = lis_matvec(A,x,p); /* p = Ax */
+			if(err) { solver->retcode=err; return LIS_FAILS; }
+			err = lis_vector_xpay(b,-1,p); /* p = b - p */
+			if(err) { solver->retcode=err; return LIS_FAILS; }
 		#else
 			if( solver->precision==LIS_PRECISION_DOUBLE )
 			{
-				lis_matvec(A,x,p);           /* p = Ax    */
-				lis_vector_xpay(b,-1,p);     /* p = b - p */
+				err = lis_matvec(A,x,p); /* p = Ax */
+				if(err) { solver->retcode=err; return LIS_FAILS; }
+				err = lis_vector_xpay(b,-1,p); /* p = b - p */
+				if(err) { solver->retcode=err; return LIS_FAILS; }
 			}
 			else
 			{
-				lis_matvec(A,xx,p);          /* p = Ax    */
-				lis_vector_xpay(b,-1,p);     /* p = b - p */
+				err = lis_matvec(A,xx,p); /* p = Ax */
+				if(err) { solver->retcode=err; return LIS_FAILS; }
+				err = lis_vector_xpay(b,-1,p); /* p = b - p */
+				if(err) { solver->retcode=err; return LIS_FAILS; }
 				
 				#ifdef _OPENMP
 				#pragma omp parallel for private(i)
@@ -5344,7 +5357,8 @@ LIS_INT lis_solver_get_initial_residual(LIS_SOLVER solver, LIS_PRECON M, LIS_VEC
 	if( M!=NULL )
 	{
 		/* r = M^-1 * p */
-		lis_psolve(solver, p, r);
+		err = lis_psolve(solver, p, r);
+		if(err) { solver->retcode=err; return LIS_FAILS; }
 	}
 
 	LIS_DEBUG_FUNC_OUT;
