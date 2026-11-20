@@ -1613,7 +1613,15 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 			}
 
 			/* w = A * z */
-			lis_matvec(A,z[iiv], v[i1v]);
+			err=lis_matvec(A,z[iiv], v[i1v]);
+			if( err )
+			{
+				solver->retcode=err;
+				solver->iter=iter;
+				solver->ptime=ptime;
+				lis_free(h);
+				return err;
+			}
 
 			for(k=0;k<i;k++)
 			{
@@ -1770,8 +1778,16 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 		 * candidate.  Form the explicit residual of the updated
 		 * iterate before accepting success.
 		 */
-		lis_matvec(A,x,v[0]);
-		lis_vector_xpay(b,-1.0,v[0]);
+		err=lis_matvec(A,x,v[0]);
+		if(!err)err=lis_vector_xpay(b,-1.0,v[0]);
+		if(err)
+		{
+			solver->retcode=err;
+			solver->iter=iter;
+			solver->ptime=ptime;
+			lis_free(h);
+			return err;
+		}
 		lis_vector_nrm2(v[0],&rnorm);
 
 		if( candidate )
