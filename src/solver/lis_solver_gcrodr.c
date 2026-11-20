@@ -1352,7 +1352,10 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
     /* Each solve begins with the first harmonic Ritz update enabled. */
     ritz_stride=lis_gcrodr_get_ritz_stride(solver);
 #ifdef LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS
-    adaptive_mgs=(mgs_mode!=NULL && strcmp(mgs_mode,"dgks")==0);
+    /* Experimental modes: 0=unchanged, 1=DGKS C+V,
+     * 2=single C projection with historical double-MGS for V. */
+    adaptive_mgs=(mgs_mode!=NULL && strcmp(mgs_mode,"dgks")==0) ? 1 :
+                 (mgs_mode!=NULL && strcmp(mgs_mode,"one_c")==0) ? 2 : 0;
 #endif
 #ifdef USE_MPI
     /* Collective Krylov flow must agree across all ranks. */
@@ -1516,9 +1519,11 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
                 }
                 if(kcur>0)
                 {
-                    lis_vector_nrm2(v[j+1],&remaining);
-                    if(remaining!=remaining ||
-                       projection2 > (LIS_REAL)0.945*remaining*remaining)
+                    if(adaptive_mgs==1)
+                        lis_vector_nrm2(v[j+1],&remaining);
+                    if(adaptive_mgs==1 &&
+                       (remaining!=remaining ||
+                        projection2 > (LIS_REAL)0.945*remaining*remaining))
                     {
                         c_reorth++;
                         for(i=0;i<kcur;i++)
@@ -1547,7 +1552,7 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
 
             /* Arnoldi MGS + reorthogonalization. */
 #ifdef LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS
-            if(adaptive_mgs)
+            if(adaptive_mgs==1)
             {
                 LIS_REAL projection2=0.0;
                 for(i=0;i<=j;i++)
@@ -1910,9 +1915,9 @@ done:
 #ifdef LIS_EXPERIMENT_GCRODR_ADAPTIVE_MGS
     if(adaptive_mgs)
         fprintf(stderr,
-                "GCRODR_ADAPTIVE_MGS_COUNTS c_reorth=%lld c_skipped=%lld "
+                "GCRODR_ADAPTIVE_MGS_COUNTS mode=%lld c_reorth=%lld c_skipped=%lld "
                 "v_reorth=%lld v_skipped=%lld iter=%lld ret=%lld\n",
-                (long long)c_reorth,(long long)c_skipped,
+                (long long)adaptive_mgs,(long long)c_reorth,(long long)c_skipped,
                 (long long)v_reorth,(long long)v_skipped,
                 (long long)iter,(long long)err);
 #endif
