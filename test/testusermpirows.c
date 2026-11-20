@@ -17,15 +17,17 @@ static LIS_INT get_row(void *data,LIS_INT row,LIS_INT *nnz,
     ROWS *s=(ROWS *)data;
     LIS_INT g;
     if(row<0 || row>=s->local_n || !nnz)return LIS_ERR_ILL_ARG;
-    if(s->fail && s->rank==s->fail_rank && row==0)
+    if(s->fail==1 && s->rank==s->fail_rank && row==0)
         return LIS_ERR_ILL_ARG;
     if(!cols && !vals){*nnz=3;return LIS_SUCCESS;}
     if(!cols || !vals || *nnz<3)return LIS_ERR_ILL_ARG;
     g=s->is+row;
     cols[0]=g; vals[0]=(LIS_SCALAR)4.0;
     cols[1]=(g+1)%s->global_n; vals[1]=(LIS_SCALAR)0.5;
+    if(s->fail==2 && s->rank==s->fail_rank && row==0)
+        cols[1]=s->global_n; /* Invalid global column. */
     cols[2]=(g+s->global_n-1)%s->global_n; vals[2]=(LIS_SCALAR)0.25;
-    *nnz=3;
+    *nnz=(s->fail==3 && s->rank==s->fail_rank && row==0) ? 2 : 3;
     return LIS_SUCCESS;
 }
 static LIS_SCALAR true_x(LIS_INT g)
@@ -95,6 +97,19 @@ int main(int argc,char **argv)
 
     /* An error on just one rank must be visible to *all* ranks. */
     rows.fail=1;
+    err=lis_matvec(A,x,y);
+    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    err=lis_matvech(A,x,y);
+    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    /* Validate global column bounds and query/fill consistency on
+     * one rank. The error must be broadcast collectively by both Ax
+     * and A^H even though other ranks have valid rows. */
+    rows.fail=2;
+    err=lis_matvec(A,x,y);
+    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    err=lis_matvech(A,x,y);
+    if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
+    rows.fail=3;
     err=lis_matvec(A,x,y);
     if(err!=LIS_ERR_ILL_ARG){failed=1;goto done;}
     err=lis_matvech(A,x,y);
