@@ -47,22 +47,25 @@ jobs:
           set -euo pipefail
           mkdir -p krylov-recycle-cost
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
-          for precon in jacobi ilutp; do
-            mkdir -p "krylov-recycle-cost/$precon"
-            for mode in 1 4 once 1_repeat; do
-              if [ "$mode" = "1_repeat" ]; then
-                export LIS_EXPERIMENT_RITZ_STRIDE=1
-              else
-                export LIS_EXPERIMENT_RITZ_STRIDE="$mode"
-              fi
-              for side in 28 40; do
-                ./test/bench_recycle_cost "$side" 4 "$precon" \
-                  > "krylov-recycle-cost/$precon/n${side}-${mode}.csv" \
-                  2> "krylov-recycle-cost/$precon/n${side}-${mode}.stderr"
+          for profile in standard extended; do
+            for precon in jacobi ilutp; do
+              folder="krylov-recycle-cost/$profile/$precon"
+              mkdir -p "$folder"
+              for mode in 1 4 once 1_repeat; do
+                if [ "$mode" = "1_repeat" ]; then
+                  export LIS_EXPERIMENT_RITZ_STRIDE=1
+                else
+                  export LIS_EXPERIMENT_RITZ_STRIDE="$mode"
+                fi
+                for side in 28 40; do
+                  ./test/bench_recycle_cost "$side" 4 "$precon" "$profile" \
+                    > "$folder/n${side}-${mode}.csv" \
+                    2> "$folder/n${side}-${mode}.stderr"
+                done
               done
+              python3 tools/audit_recycle_cadence.py "$folder" \
+                | tee "$folder/summary.txt"
             done
-            python3 tools/audit_recycle_cadence.py "krylov-recycle-cost/$precon" \
-              | tee "krylov-recycle-cost/$precon/summary.txt"
           done
       - name: Preserve timings and errors
         if: always()
