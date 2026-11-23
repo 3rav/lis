@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
 jobs:
   generated-files:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install current build tools
+      - name: Install the same Automake toolchain as CA-MFAMG
         run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool libtool-bin
       - name: Regenerate Autotools files and check tracked outputs
         shell: bash
