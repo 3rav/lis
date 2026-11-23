@@ -1,0 +1,18 @@
+name: Generated Autotools files consistency
+on:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  generated-files:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the same Automake toolchain as CA-MFAMG
+        run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool libtool-bin
+      - name: Regenerate Autotools files and check tracked outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          git diff --exit-code -- include/Makefile.in \
+            src/matrix/Makefile.in src/precon/Makefile.in test/Makefile.in
