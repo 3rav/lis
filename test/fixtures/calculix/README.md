@@ -40,7 +40,11 @@ storage. The CI harness checks out the *unmodified* `3rav/CalculiX` at
 All calls are serial, nonconcurrent, default precision; the borrowed `ad/au`
 arrays must remain valid until they are updated or the context is closed.
 The interface does **not** take ownership of CCX input or output arrays.
-The RHS remains unchanged and the solution is only published on success.
+When `rhs` and `solution` are distinct arrays, the RHS remains unchanged.
+For the traditional CalculiX **in-place** solver convention, passing `b`
+for both arguments is supported; a successful solve overwrites `b` with
+the solution, and an unsuccessful solve leaves `b` unchanged. All output
+buffers and output metrics are published only after success.
 The validation adapter scans diagonal/lower/upper numerical values and rejects
 NaN/Inf before binding or updating a view; these scans are O(n+nnz) and can
 be made configurable in a separately reviewed production integration.
