@@ -2,7 +2,8 @@ name: CSR transpose single-worker fast path and OOM regression
 
 on:
   push:
-    branches: [develop]
+    branches:
+      - develop
     paths:
       - 'src/matvec/lis_matvec_csr.c'
       - 'src/system/lis_memory.c'
@@ -12,6 +13,8 @@ on:
       - 'test/Makefile.am'
       - 'test/Makefile.in'
       - '.github/workflows/csr-transpose-single-thread.yml'
+      - '**/Makefile.am'
+      - '**/Makefile.in'
   pull_request:
     paths:
       - 'src/matvec/lis_matvec_csr.c'
@@ -22,8 +25,9 @@ on:
       - 'test/Makefile.am'
       - 'test/Makefile.in'
       - '.github/workflows/csr-transpose-single-thread.yml'
+      - '**/Makefile.am'
+      - '**/Makefile.in'
   workflow_dispatch:
-
 concurrency:
   group: csr-transpose-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
