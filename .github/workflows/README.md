@@ -23,15 +23,20 @@ rather than the former stack of unrelated workflows.
 
 - `ci-extended.yml`: the original expensive FGCRO-DR leak proofs, OpenMP
   TSan/Archer, memory-allocation failure injections, MPI OOM and MFAMG scalar
-  combinations; runs on `push` to `develop` or via `workflow_dispatch`.
-- Specialized workflow `workflow_dispatch` (and existing push events)
-  retains its original full mode/index matrices.
+  combinations; runs on `push` to `develop`, on PRs touching critical paths, or via `workflow_dispatch`.
+- Specialized workflows run full mode/index matrices on matching pushes to
+  `develop` and manual dispatch where available. Shared headers, build files
+  and relevant infrastructure are included in the path filters.
+- GitHub requires a workflow to exist on the default branch for manual
+  dispatch. Until these workflows are present on `master`, do not rely on
+  manual dispatch; use the automatic PR and integration triggers instead.
 
 ## Merge policy
 
-Before merging an algorithm/ABI-wide change, run the corresponding
-specialized workflow at full scope. For sweeping `include/**`, memory
-allocator or build-system changes, use extended CI as well.
+Before merging an algorithm/ABI-wide change, require the relevant targeted
+PR checks and extended CI where applicable. Full specialized matrices run on
+matching integration pushes; if full pre-merge coverage is required and manual
+dispatch is unavailable, arrange it on a validation branch with the maintainer.
 
 Branch protection may explicitly require old job names. Update any required
 checks when adopting this split; skipped/removed required jobs can otherwise
