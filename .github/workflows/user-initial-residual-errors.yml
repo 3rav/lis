@@ -13,13 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [release, asan-ubsan]
-        index: [int32, int64]
-        quad: [disabled]
-        include:
-          - mode: release
-            index: int32
-            quad: enabled
+        # PR: two ABI/sanitizer profiles plus QUAD compatibility.
+        include: ${{ fromJSON(github.event_name != 'pull_request' && '[{"mode":"release","index":"int32","quad":"disabled"},{"mode":"release","index":"int64","quad":"disabled"},{"mode":"asan-ubsan","index":"int32","quad":"disabled"},{"mode":"asan-ubsan","index":"int64","quad":"disabled"},{"mode":"release","index":"int32","quad":"enabled"}]' || '[{"mode":"release","index":"int32","quad":"disabled"},{"mode":"asan-ubsan","index":"int64","quad":"disabled"},{"mode":"release","index":"int32","quad":"enabled"}]') }}
     env:
       OMP_NUM_THREADS: '1'
       OMP_DYNAMIC: 'FALSE'
