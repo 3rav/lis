@@ -1,6 +1,11 @@
 name: USER MPI null commtable duplication
 on:
   pull_request:
+    paths:
+      - 'src/matrix/lis_matrix_user.c'
+      - 'src/matrix/lis_matrix.c'
+      - 'test/testusermpiduplicate.c'
+      - '.github/workflows/user-mpi-duplicate.yml'
   push:
     branches: [fix/user-mpi-null-commtable-duplicate-20261120]
   workflow_dispatch:
