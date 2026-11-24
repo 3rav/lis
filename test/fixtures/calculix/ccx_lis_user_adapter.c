@@ -4,6 +4,7 @@
 #include "ccx_lis_user_adapter.h"
 #include "lis_matrix_split_view.h"
 #include <math.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,6 +35,22 @@ static LIS_INT checked_arrays(ITG nnz, const double *ad,
     return LIS_SUCCESS;
 }
 
+/* Deliberately O(n+nnz): this is a checked validation adapter, not a
+ * zero-overhead production interface. It rejects corrupt CCX tangents
+ * before exposing borrowed arrays to a Krylov method. */
+static LIS_INT checked_finite_values(ITG n,ITG nnz,
+    const double *ad,const double *au,ITG nzs3,int asymmetric)
+{
+    ITG i;
+    for(i=0;i<n;i++)if(!isfinite(ad[i]))return LIS_ERR_ILL_ARG;
+    for(i=0;i<nnz;i++) {
+        if(!isfinite(au[i]))return LIS_ERR_ILL_ARG;
+        if(asymmetric && !isfinite(au[(size_t)nzs3+(size_t)i]))
+            return LIS_ERR_ILL_ARG;
+    }
+    return LIS_SUCCESS;
+}
+
 static LIS_INT build_matrix(ITG n, ITG nnz,
     const ITG *icol, const ITG *irow,
     const double *ad, const double *au, size_t au_capacity,
@@ -51,6 +68,16 @@ static LIS_INT build_matrix(ITG n, ITG nnz,
        (nnz>0 && !irow) ||
        checked_arrays(nnz,ad,au,au_capacity,nzs3,asymmetric))
         return err;
+    /* The i64 topology entrypoint itself rejects out-of-range LIS_INT,
+     * but check before allocating/copying a potentially huge CCX pattern. */
+    if(sizeof(LIS_INT)==sizeof(int32_t)) {
+        if((uint64_t)n>INT32_MAX || (uint64_t)nnz>INT32_MAX-1)
+            return LIS_ERR_ILL_ARG;
+    } else if(sizeof(LIS_INT)!=sizeof(int64_t))
+        return LIS_ERR_NOT_IMPLEMENTED;
+    err=checked_finite_values(n,nnz,ad,au,nzs3,asymmetric);
+    if(err)return err;
+    err=LIS_ERR_ILL_ARG;
     if((uint64_t)n>=SIZE_MAX/sizeof(int64_t) ||
        (uint64_t)nnz>SIZE_MAX/sizeof(int64_t))
         return LIS_ERR_ILL_ARG;
@@ -157,6 +184,8 @@ LIS_INT ccx_lis_user_update(CCX_LIS_USER_CONTEXT *ctx,
     LIS_INT err;
     if(!ctx)return LIS_ERR_ILL_ARG;
     err=checked_arrays(ctx->nnz,ad,au,au_capacity,nzs3,ctx->asymmetric);
+    if(err)return err;
+    err=checked_finite_values(ctx->n,ctx->nnz,ad,au,nzs3,ctx->asymmetric);
     if(err)return err;
     err=lis_matrix_split_triangular_shared_view_set_values_real64(
         ctx->view,ad,au,(ctx->asymmetric && ctx->nnz>0)?au+(size_t)nzs3:NULL);
