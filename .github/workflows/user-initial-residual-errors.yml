@@ -1,11 +1,38 @@
 name: USER initial residual callback error regression
 on:
+  push:
+    branches: [develop]
+    paths:
+      - 'src/solver/lis_solver.c'
+      - 'src/matrix/lis_matrix_user.c'
+      - 'test/testuser.c'
+      - '.github/workflows/user-initial-residual-errors.yml'
+      - 'src/matvec/lis_matvec.c'
+      - 'src/vector/**'
+      - 'src/precon/lis_precon.c'
+      - 'src/matrix/lis_matrix.c'
+      - 'src/solver/lis_solver_*.c'
+      - 'include/**'
+      - 'configure.ac'
+      - '**/Makefile.am'
+      - '**/Makefile.in'
+      - 'src/system/lis_memory.c'
   pull_request:
     paths:
       - 'src/solver/lis_solver.c'
       - 'src/matrix/lis_matrix_user.c'
       - 'test/testuser.c'
       - '.github/workflows/user-initial-residual-errors.yml'
+      - 'src/matvec/lis_matvec.c'
+      - 'src/vector/**'
+      - 'src/precon/lis_precon.c'
+      - 'src/matrix/lis_matrix.c'
+      - 'src/solver/lis_solver_*.c'
+      - 'include/**'
+      - 'configure.ac'
+      - '**/Makefile.am'
+      - '**/Makefile.in'
+      - 'src/system/lis_memory.c'
   workflow_dispatch:
 jobs:
   initial-user-error:
