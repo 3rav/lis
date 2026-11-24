@@ -17,8 +17,9 @@ on:
       - 'src/solver/lis_solver.c'
       - 'src/vector/**'
       - 'include/**'
-      - '**/Makefile.am'
-      - '**/Makefile.in'
+      - 'Makefile.am'
+      - 'src/Makefile.am'
+      - 'include/Makefile.am'
   pull_request:
     paths:
       - 'src/matrix/lis_matrix_bsr.c'
@@ -33,8 +34,9 @@ on:
       - 'src/solver/lis_solver.c'
       - 'src/vector/**'
       - 'include/**'
-      - '**/Makefile.am'
-      - '**/Makefile.in'
+      - 'Makefile.am'
+      - 'src/Makefile.am'
+      - 'include/Makefile.am'
   workflow_dispatch:
 concurrency:
   group: bsr-transpose-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
