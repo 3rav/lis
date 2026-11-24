@@ -1,6 +1,11 @@
 name: USER initial residual callback error regression
 on:
   pull_request:
+    paths:
+      - 'src/solver/lis_solver.c'
+      - 'src/matrix/lis_matrix_user.c'
+      - 'test/testuser.c'
+      - '.github/workflows/user-initial-residual-errors.yml'
   workflow_dispatch:
 jobs:
   initial-user-error:
