@@ -38,8 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [release, asan-ubsan]
-        index: [int32, int64]
+        include: ${{ fromJSON(github.event_name != 'pull_request' && '[{"mode":"release","index":"int32"},{"mode":"release","index":"int64"},{"mode":"asan-ubsan","index":"int32"},{"mode":"asan-ubsan","index":"int64"}]' || '[{"mode":"release","index":"int32"},{"mode":"asan-ubsan","index":"int64"}]') }}
     env:
       OMP_NUM_THREADS: '2'
       OMP_DYNAMIC: 'FALSE'
@@ -113,7 +112,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [complex-openmp, serial-without-openmp]
+        variant: ${{ fromJSON(github.event_name != 'pull_request' && '["complex-openmp","serial-without-openmp"]' || '["serial-without-openmp"]') }}
     env:
       OMP_NUM_THREADS: '2'
       OMP_DYNAMIC: 'FALSE'
