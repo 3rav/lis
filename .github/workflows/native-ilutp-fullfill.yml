@@ -4,6 +4,15 @@ on:
   pull_request:
     branches:
       - develop
+    paths:
+      - 'src/precon/lis_precon_ilutp*'
+      - 'src/precon/lis_precon_mfamg_ilutp*'
+      - 'test/testilutp.c'
+      - 'test/testilutequil.c'
+      - 'test/benchilutp*'
+      - 'test/gen_ilutp_fullfill_case.py'
+      - 'configure.ac'
+      - '.github/workflows/native-ilutp-fullfill.yml'
   workflow_dispatch:
 
 permissions:
