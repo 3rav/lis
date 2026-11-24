@@ -16,8 +16,9 @@ on:
       - 'src/matvec/**'
       - 'src/vector/**'
       - 'include/**'
-      - '**/Makefile.am'
-      - '**/Makefile.in'
+      - 'Makefile.am'
+      - 'src/Makefile.am'
+      - 'include/Makefile.am'
       - 'src/system/lis_memory.c'
   pull_request:
     paths:
@@ -32,8 +33,9 @@ on:
       - 'src/matvec/**'
       - 'src/vector/**'
       - 'include/**'
-      - '**/Makefile.am'
-      - '**/Makefile.in'
+      - 'Makefile.am'
+      - 'src/Makefile.am'
+      - 'include/Makefile.am'
       - 'src/system/lis_memory.c'
   workflow_dispatch:
 concurrency:
