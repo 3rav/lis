@@ -98,6 +98,26 @@ int main(int argc,char **argv)
     ccx_lis_user_close(direct);direct=NULL;
     printf("CCX_ADAPTER unsymmetric ILUT direct USER PASS\n");
 
+    /* Symmetric CCX inputformat=0: the borrowed lower values must be
+     * reflected by the generic USER view; no upper array is passed. */
+    {
+        double sym_diag[4]={9,10,11,12};
+        double sym_au[10]={-.5,.2,-.7,.3,-.4, -.5,.2,-.7,.3,-.4};
+        double sym_rhs[4];
+        reference(n,icol,irow,sym_diag,sym_au,5,truth,sym_rhs);
+        err=ccx_lis_user_open(n,nnz,icol,irow,sym_diag,sym_au,10,0,0,
+            "-i cg -p jacobi -tol 1e-11 -maxiter 100 -scale none -print none",
+            &symmetric);
+        if(err || !symmetric)goto done;
+        err=ccx_lis_user_solve(symmetric,sym_rhs,solution,&rr,
+                               &policy,&action);
+        if(err || policy!=LIS_MATRIX_POLICY_DIRECT ||
+           action!=LIS_MATRIX_POLICY_ACTION_DIRECT || rr>1e-10 ||
+           check("symmetric direct",solution,truth,n))goto done;
+        ccx_lis_user_close(symmetric);symmetric=NULL;
+        printf("CCX_ADAPTER symmetric CG/Jacobi direct USER PASS\n");
+    }
+
     err=ccx_lis_user_solve(ctx,b,solution,&rr,&policy,&action);
     if(err||policy!=LIS_MATRIX_POLICY_CACHED_CSR||
        action!=LIS_MATRIX_MATERIALIZE_REBUILD||
