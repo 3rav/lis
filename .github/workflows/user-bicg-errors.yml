@@ -1,6 +1,13 @@
 name: USER BiCGSTAB and CGS callback errors
 on:
   pull_request:
+    paths:
+      - 'src/solver/lis_solver_bicgstab.c'
+      - 'src/solver/lis_solver_cgs.c'
+      - 'src/solver/lis_solver.c'
+      - 'src/matrix/lis_matrix_user.c'
+      - 'test/testuserbicgerrors.c'
+      - '.github/workflows/user-bicg-errors.yml'
   workflow_dispatch:
 jobs:
   callbacks:
