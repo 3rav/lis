@@ -48,7 +48,7 @@ int main(int argc,char **argv)
     const double truth[4]={1,-1,2,.5};
     double b[4],solution[4]={0,0,0,0},bcopy[4];
     double rr=99;
-    CCX_LIS_USER_CONTEXT *ctx=NULL,*bad=NULL;
+    CCX_LIS_USER_CONTEXT *ctx=NULL,*bad=NULL,*diagonal=NULL;
     LIS_INT err=0,policy=0,action=0;
     int failed=1;
     err=lis_initialize(&argc,&argv);
@@ -94,6 +94,25 @@ int main(int argc,char **argv)
        check("reuse",solution,truth,n))goto done;
     printf("CCX_ADAPTER no-change CSR_REUSE PASS\n");
 
+    /* Reject a non-finite RHS without exposing an incomplete solution.
+     * A failed solve must also leave policy/action and metrics untouched. */
+    {
+        double bad_rhs[4]={b[0],b[1],NAN,b[3]};
+        double untouched[4]={991,992,993,994};
+        double untouched_metric=123;
+        LIS_INT untouched_policy=55,untouched_action=66;
+        err=ccx_lis_user_solve(ctx,bad_rhs,untouched,&untouched_metric,
+                               &untouched_policy,&untouched_action);
+        if(err!=LIS_ERR_ILL_ARG || untouched_metric!=123 ||
+           untouched_policy!=55 || untouched_action!=66 ||
+           untouched[0]!=991 || untouched[1]!=992 ||
+           untouched[2]!=993 || untouched[3]!=994)goto done;
+        err=ccx_lis_user_solve(ctx,b,solution,&rr,&policy,&action);
+        if(err || action!=LIS_MATRIX_MATERIALIZE_REUSE ||
+           check("recovered RHS",solution,truth,n))goto done;
+    }
+    printf("CCX_ADAPTER invalid RHS atomic rejection PASS\n");
+
     /* Invalid numeric update must preserve the old operator/cache. */
     err=ccx_lis_user_update(ctx,diag,au,11,offset);
     if(err==LIS_SUCCESS)goto done;
@@ -127,12 +146,32 @@ int main(int argc,char **argv)
     if(err||action!=LIS_MATRIX_MATERIALIZE_REBUILD||rr>1e-10||
        check("contact topology",solution,truth,n))goto done;
     printf("CCX_ADAPTER contact-like structure CSR_REBUILD PASS\n");
+
+    /* Diagonal-only stiffness systems are legal, with nnz=0 and au=NULL.
+     * Exercise an entirely direct route without a CSR copy. */
+    {
+        const ITG empty_col[4]={0,0,0,0};
+        const double diagonal_values[4]={2,3,4,5};
+        const double exact_diagonal[4]={1,-2,3,-4};
+        const double rhs_diagonal[4]={2,-6,12,-20};
+        err=ccx_lis_user_open(n,0,empty_col,NULL,diagonal_values,NULL,0,0,0,
+            "-i cg -p jacobi -tol 1e-12 -maxiter 100 -scale none -print none",
+            &diagonal);
+        if(err || !diagonal)goto done;
+        err=ccx_lis_user_solve(diagonal,rhs_diagonal,solution,&rr,
+                               &policy,&action);
+        if(err || policy!=LIS_MATRIX_POLICY_DIRECT ||
+           action!=LIS_MATRIX_POLICY_ACTION_DIRECT || rr>1e-10 ||
+           check("diagonal only",solution,exact_diagonal,n))goto done;
+        printf("CCX_ADAPTER diagonal-only direct USER PASS\n");
+    }
     failed=0;
 done:
     if(failed)fprintf(stderr,
         "CCX_USER_ADAPTER FAIL err=%lld policy=%lld action=%lld\n",
         (long long)err,(long long)policy,(long long)action);
     ccx_lis_user_close(ctx);
+    ccx_lis_user_close(diagonal);
     ccx_lis_user_close(bad);
     lis_finalize();
     printf("CCX_USER_ADAPTER=%s\n",failed?"FAIL":"PASS");
