@@ -47,7 +47,8 @@ static LIS_INT build_matrix(ITG n, ITG nnz,
     LIS_INT err=LIS_ERR_ILL_ARG;
     if(!matrix||!view)return err;
     *matrix=NULL;*view=NULL;
-    if(n<=0 || nnz<0 || !icol || (nnz>0 && !irow) ||
+    if(n<=0 || nnz<0 || nnz>=INT64_MAX || !icol ||
+       (nnz>0 && !irow) ||
        checked_arrays(nnz,ad,au,au_capacity,nzs3,asymmetric))
         return err;
     if((uint64_t)n>=SIZE_MAX/sizeof(int64_t) ||
@@ -79,6 +80,14 @@ static LIS_INT build_matrix(ITG n, ITG nnz,
         (asymmetric && nnz>0)?au+(size_t)nzs3:NULL,matrix,view);
 done:
     if(topology)lis_matrix_split_triangular_topology_destroy(topology);
+    if(err!=LIS_SUCCESS) {
+        /* Do not publish partially created LIS objects to the caller.
+         * In particular, rebind() returns immediately on build failure. */
+        if(*matrix)lis_matrix_destroy(*matrix);
+        if(*view)lis_matrix_split_triangular_shared_view_destroy(*view);
+        *matrix=NULL;
+        *view=NULL;
+    }
     free(idx);free(ptr);
     return err;
 }
@@ -199,8 +208,12 @@ LIS_INT ccx_lis_user_solve(CCX_LIS_USER_CONTEXT *ctx,
     LIS_INT err,status,i,actual_policy,actual_action;
     LIS_REAL residual,rhsnorm;
     if(!ctx || !rhs || !solution)return LIS_ERR_ILL_ARG;
+    /* Validate all input first: a rejected RHS cannot partially replace
+       the session's previous right-hand side. */
     for(i=0;i<ctx->n;i++) {
         if(!isfinite(rhs[i]))return LIS_ERR_ILL_ARG;
+    }
+    for(i=0;i<ctx->n;i++) {
         ctx->b->value[i]=(LIS_SCALAR)rhs[i];
     }
     err=lis_vector_set_all((LIS_SCALAR)0,ctx->x);if(err)return err;
