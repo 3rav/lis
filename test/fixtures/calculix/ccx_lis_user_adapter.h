@@ -40,8 +40,12 @@ LIS_INT ccx_lis_user_rebind(
     const ITG irow[], const double ad[], const double au[],
     size_t au_capacity, ITG nzs3);
 
-/* The supplied RHS is not modified. On solver failure solution is not
- * published. policy/action may be NULL; relative_residual may be NULL. */
+/* With distinct rhs and solution buffers, the supplied RHS is not
+ * modified. As with the legacy CalculiX solver, rhs==solution is supported:
+ * on success the caller's RHS buffer is replaced by the computed solution.
+ * On failure neither buffer is published/modified. Overlapping buffers
+ * must be at least n doubles long. policy/action may be NULL and
+ * relative_residual may be NULL. */
 LIS_INT ccx_lis_user_solve(
     CCX_LIS_USER_CONTEXT *ctx, const double rhs[], double solution[],
     double *relative_residual, LIS_INT *policy, LIS_INT *action);
