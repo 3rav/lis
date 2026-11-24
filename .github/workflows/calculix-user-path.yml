@@ -50,3 +50,9 @@ jobs:
             -o ./testccxuserpath
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
           ./testccxuserpath
+          cc $CFLAGS -DHAVE_CONFIG_H $ccx_flags \
+            -Iinclude -Iccx-source/ccx/src -Itest/fixtures/calculix \
+            test/testccxadapter.c test/fixtures/calculix/ccx_lis_user_adapter.c \
+            -Lsrc/.libs -llis -lm -fopenmp $LDFLAGS \
+            -o ./testccxadapter
+          ./testccxadapter
