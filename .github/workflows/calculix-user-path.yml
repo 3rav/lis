@@ -45,7 +45,7 @@ jobs:
           fi
           ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg $index_flags
           make -j2
-          cc $CFLAGS $ccx_flags -Iinclude -Iccx-source/ccx/src \
+          cc $CFLAGS -DHAVE_CONFIG_H $ccx_flags -Iinclude -Iccx-source/ccx/src \
             test/testccxuserpath.c -Lsrc/.libs -llis -lm -fopenmp $LDFLAGS \
             -o ./testccxuserpath
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
