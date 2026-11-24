@@ -41,6 +41,18 @@ All calls are serial, nonconcurrent, default precision; the borrowed `ad/au`
 arrays must remain valid until they are updated or the context is closed.
 The interface does **not** take ownership of CCX input or output arrays.
 The RHS remains unchanged and the solution is only published on success.
+The validation adapter scans diagonal/lower/upper numerical values and rejects
+NaN/Inf before binding or updating a view; these scans are O(n+nnz) and can
+be made configurable in a separately reviewed production integration.
+The adapter also prechecks dimensions against the configured LIS_INT range.
+
+**Important borrowed-data caveat:** rejection is transactional for a *new*
+candidate buffer or topology. If CalculiX mutates the currently borrowed
+`ad`/`au` arrays *in place* and introduces invalid numbers before calling
+`ccx_lis_user_update()`, the adapter cannot restore the previous physical
+values without making an additional numerical copy. The caller must restore
+those arrays before attempting another solve; a rejected update does not
+magically roll back external storage.
 
 ## Build / verification
 
