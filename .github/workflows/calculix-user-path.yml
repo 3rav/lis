@@ -1,0 +1,52 @@
+name: CalculiX storage ABI to LIS_MATRIX_USER end-to-end test
+on:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  ccx-user-path:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        index: [int32, int64]
+        build: [release, asan-ubsan]
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - name: Checkout upstream-based LIS branch
+        uses: actions/checkout@v4
+      - name: Checkout unmodified CalculiX 2.19 source (header and storage ABI)
+        uses: actions/checkout@v4
+        with:
+          repository: 3rav/CalculiX
+          ref: 84d5dd9ca1bdaf6ad6e92c5c0d50b8f1965975ba
+          path: ccx-source
+          persist-credentials: false
+      - name: Install Autotools and compilers
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Configure, build, and run CCX storage-to-USER integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          ccx_flags="-DARCH=Linux"
+          index_flags=""
+          if [ "${{ matrix.index }}" = int64 ]; then
+            ccx_flags="$ccx_flags -DLONGLONG"
+            index_flags="--enable-longlong"
+          fi
+          if [ "${{ matrix.build }}" = asan-ubsan ]; then
+            export CFLAGS="-std=c99 -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined"
+            export LDFLAGS="-fsanitize=address,undefined"
+          else
+            export CFLAGS="-std=c99 -O2 -g"
+            export LDFLAGS=""
+          fi
+          ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg $index_flags
+          make -j2
+          cc $CFLAGS $ccx_flags -Iinclude -Iccx-source/ccx/src \
+            test/testccxuserpath.c -Lsrc/.libs -llis -lm -fopenmp $LDFLAGS \
+            -o ./testccxuserpath
+          export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
+          ./testccxuserpath
