@@ -46,6 +46,15 @@ int main(int argc,char **argv)
     double au[12]={-.5,.2,-.7,.3,-.4,0,0,-.2,-.1,-.8,.1,-.6};
     double diag_new[4]={8,9,10,11};
     double au_new[10]={-.2,.3,-.25,-.4,0,-.1,-.5,.15,-.2,0};
+    /* Borrowed arrays must remain alive through every error path and
+     * eventual context destruction, not only within a local test block. */
+    double sym_diag[4]={9,10,11,12};
+    double sym_au[10]={-.5,.2,-.7,.3,-.4, -.5,.2,-.7,.3,-.4};
+    double sym_rhs[4];
+    const ITG empty_col[4]={0,0,0,0};
+    const double diagonal_values[4]={2,3,4,5};
+    const double exact_diagonal[4]={1,-2,3,-4};
+    const double rhs_diagonal[4]={2,-6,12,-20};
     const double truth[4]={1,-1,2,.5};
     double b[4],solution[4]={0,0,0,0},bcopy[4];
     double rr=99;
@@ -101,9 +110,6 @@ int main(int argc,char **argv)
     /* Symmetric CCX inputformat=0: the borrowed lower values must be
      * reflected by the generic USER view; no upper array is passed. */
     {
-        double sym_diag[4]={9,10,11,12};
-        double sym_au[10]={-.5,.2,-.7,.3,-.4, -.5,.2,-.7,.3,-.4};
-        double sym_rhs[4];
         reference(n,icol,irow,sym_diag,sym_au,5,truth,sym_rhs);
         err=ccx_lis_user_open(n,nnz,icol,irow,sym_diag,sym_au,10,0,0,
             "-i cg -p jacobi -tol 1e-11 -maxiter 100 -scale none -print none",
@@ -209,10 +215,6 @@ int main(int argc,char **argv)
     /* Diagonal-only stiffness systems are legal, with nnz=0 and au=NULL.
      * Exercise an entirely direct route without a CSR copy. */
     {
-        const ITG empty_col[4]={0,0,0,0};
-        const double diagonal_values[4]={2,3,4,5};
-        const double exact_diagonal[4]={1,-2,3,-4};
-        const double rhs_diagonal[4]={2,-6,12,-20};
         err=ccx_lis_user_open(n,0,empty_col,NULL,diagonal_values,NULL,0,0,0,
             "-i cg -p jacobi -tol 1e-12 -maxiter 100 -scale none -print none",
             &diagonal);
