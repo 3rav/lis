@@ -1,6 +1,11 @@
 name: USER row-only AUTO direct regression
 on:
   pull_request:
+    paths:
+      - 'src/solver/lis_solver.c'
+      - 'src/matrix/lis_matrix_user.c'
+      - 'test/testmatrixpolicysolve.c'
+      - '.github/workflows/user-rowonly-direct.yml'
   workflow_dispatch:
 jobs:
   row-only-direct:
