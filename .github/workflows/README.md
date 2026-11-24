@@ -15,22 +15,29 @@ several times. Native regression **sources and Automake tests are not removed**.
 - Initial-residual validation also retains one QUAD profile on PRs.
 - CSR-transpose and CA-MFAMG similarly select focused PR configurations.
 
-The exact number of checks depends on changed paths. A small generic solver
-change without matching specialized paths executes the **8 baseline** checks,
-rather than the former stack of unrelated workflows.
+The exact number of checks depends on changed paths. A routine PR without
+matching specialized paths executes the **8 baseline** checks. Changes to
+`src/solver/lis_solver_*.c` also trigger the three initial-residual profiles
+(11 jobs before any other matching or solver-specific workflows). Shared
+matrix, matvec, preconditioner and other critical infrastructure changes can
+intentionally trigger substantially broader validation.
 
 ## Broader validation
 
 - `ci-extended.yml`: the original expensive FGCRO-DR leak proofs, OpenMP
   TSan/Archer, memory-allocation failure injections, MPI OOM and MFAMG scalar
-  combinations; runs on `push` to `develop`, on PRs touching critical paths, or via `workflow_dispatch`.
+  combinations; runs on matching critical paths for both PRs and pushes to
+  `develop`, or via `workflow_dispatch` where available. Documentation-only
+  and generated test Makefile-only changes do not trigger extended CI.
 - Specialized workflows run full mode/index matrices on matching pushes to
   `develop` and manual dispatch where available. Shared headers, build files
   and relevant infrastructure are included in the path filters. Library build
   filters target `configure.ac`, `Makefile.am`, `src/Makefile.am` and
   `include/Makefile.am`; test registrations and generated Makefile updates
-  do not fan out to every specialized workflow. Explicit test-specific
-  Makefile filters remain where needed.
+  do not fan out to specialized workflows solely because of Makefile changes.
+  CSR-transpose watches its own test source and implementation dependencies;
+  the baseline build checks continue to cover test registration and generated
+  Makefile changes.
 - GitHub requires a workflow to exist on the default branch for manual
   dispatch. Until these workflows are present on `master`, do not rely on
   manual dispatch; use the automatic PR and integration triggers instead.
