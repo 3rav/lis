@@ -6,7 +6,8 @@
  * CalculiX ccx/src/spooles.c (inputformat 0/1) defines icol[j] as
  * the number of strict-lower entries in column j, irow[k] as a
  * one-based row number, ad[j] as diagonal, au[0:nzs] as lower
- * and au[nzs:2*nzs] as opposite upper values for nonsymmetric storage.
+ * and au[nzs3:nzs3+nzs] as opposite upper values for nonsymmetric
+ * storage (nzs3 is an independent CCX offset).
  *
  * This is a real-header and real-storage-ABI integration test, NOT
  * proof that the unmodified ccx executable calls LIS. The fixture is
@@ -31,7 +32,8 @@ typedef struct {
     ITG icol[CCX_N];
     ITG irow[CCX_NNZ];
     double ad[CCX_N];
-    double au[2*CCX_NNZ];
+    double au[2*CCX_NNZ+2];
+    ITG nzs3;
 } CCX_STORAGE;
 
 static void ccx_reference(const CCX_STORAGE *ccx, int nonsymmetric,
@@ -44,7 +46,7 @@ static void ccx_reference(const CCX_STORAGE *ccx, int nonsymmetric,
         for(k=0;k<ccx->icol[j];k++,p++) {
             const ITG i=ccx->irow[p]-1; /* exact ccx FORTRAN -> C origin */
             const double lo=ccx->au[p];
-            const double up=nonsymmetric?ccx->au[CCX_NNZ+p]:lo;
+            const double up=nonsymmetric?ccx->au[ccx->nzs3+p]:lo;
             if(!transpose) {
                 y[i]+=lo*x[j];
                 y[j]+=up*x[i];
@@ -96,10 +98,10 @@ static int solve_sequence(const char *label,CCX_STORAGE *ccx,int nonsymmetric,
             ccx->ad[0]+=0.75;
             ccx->ad[3]+=0.5;
             ccx->au[0]-=0.125;
-            if(nonsymmetric)ccx->au[CCX_NNZ+0]+=0.2;
+            if(nonsymmetric)ccx->au[ccx->nzs3+0]+=0.2;
             err=lis_matrix_split_triangular_shared_view_set_values_real64(
                 view,ccx->ad,ccx->au,
-                nonsymmetric?ccx->au+CCX_NNZ:NULL);
+                nonsymmetric?ccx->au+ccx->nzs3:NULL);
             if(err)goto done;
         }
         /* Independent CCX column-storage operator, not LIS SpMV, creates b. */
@@ -176,7 +178,7 @@ int main(int argc,char **argv)
         {2,2,1,0}, {2,4,3,4,4},
         {9.,10.,11.,12.},
         {-0.5,0.2,-0.7,0.3,-0.4,
-         -0.2,-0.1,-0.8,0.1,-0.6}
+         0,0,-0.2,-0.1,-0.8,0.1,-0.6}
     };
     int64_t ptr[CCX_N+1],row[CCX_NNZ];
     ITG k,j,total=0;
@@ -191,6 +193,8 @@ int main(int argc,char **argv)
         return 1;
     }
     err=lis_initialize(&argc,&argv);if(err)return 1;
+    ccx_sym.nzs3=CCX_NNZ;
+    ccx_unsym.nzs3=CCX_NNZ+2; /* test an independent upper offset */
     /* The original CCX icol[] is a vector of per-column counts, not ptr[]. */
     ptr[0]=1;
     for(j=0;j<CCX_N;j++) {
@@ -210,7 +214,7 @@ int main(int argc,char **argv)
     if(err)goto done;
     err=lis_matrix_create_split_triangular_shared_view_real64(
         LIS_COMM_WORLD,topology,ccx_unsym.ad,
-        ccx_unsym.au,ccx_unsym.au+CCX_NNZ,&B,&vB);
+        ccx_unsym.au,ccx_unsym.au+ccx_unsym.nzs3,&B,&vB);
     if(err)goto done;
     lis_matrix_split_triangular_topology_destroy(topology);
     topology=NULL;
