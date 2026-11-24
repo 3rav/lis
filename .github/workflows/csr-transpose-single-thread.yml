@@ -13,8 +13,9 @@ on:
       - 'test/Makefile.am'
       - 'test/Makefile.in'
       - '.github/workflows/csr-transpose-single-thread.yml'
-      - '**/Makefile.am'
-      - '**/Makefile.in'
+      - 'Makefile.am'
+      - 'src/Makefile.am'
+      - 'include/Makefile.am'
   pull_request:
     paths:
       - 'src/matvec/lis_matvec_csr.c'
@@ -25,8 +26,9 @@ on:
       - 'test/Makefile.am'
       - 'test/Makefile.in'
       - '.github/workflows/csr-transpose-single-thread.yml'
-      - '**/Makefile.am'
-      - '**/Makefile.in'
+      - 'Makefile.am'
+      - 'src/Makefile.am'
+      - 'include/Makefile.am'
   workflow_dispatch:
 concurrency:
   group: csr-transpose-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
