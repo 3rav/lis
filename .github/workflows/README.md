@@ -26,7 +26,11 @@ rather than the former stack of unrelated workflows.
   combinations; runs on `push` to `develop`, on PRs touching critical paths, or via `workflow_dispatch`.
 - Specialized workflows run full mode/index matrices on matching pushes to
   `develop` and manual dispatch where available. Shared headers, build files
-  and relevant infrastructure are included in the path filters.
+  and relevant infrastructure are included in the path filters. Library build
+  filters target `configure.ac`, `Makefile.am`, `src/Makefile.am` and
+  `include/Makefile.am`; test registrations and generated Makefile updates
+  do not fan out to every specialized workflow. Explicit test-specific
+  Makefile filters remain where needed.
 - GitHub requires a workflow to exist on the default branch for manual
   dispatch. Until these workflows are present on `master`, do not rely on
   manual dispatch; use the automatic PR and integration triggers instead.
