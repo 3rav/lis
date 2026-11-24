@@ -59,7 +59,7 @@ static int close_vec(LIS_VECTOR x,const double ref[CCX_N],double tol)
     for(i=0;i<CCX_N;i++) {
         if(!isfinite((double)x->value[i]) ||
            fabs((double)x->value[i]-ref[i])>tol) {
-            fprintf(stderr,"vector[%lld]: actual=%.17g expected=%.17g\\n",
+            fprintf(stderr,"vector[%lld]: actual=%.17g expected=%.17g\n",
                     (long long)i,(double)x->value[i],ref[i]);
             return 0;
         }
@@ -115,13 +115,13 @@ static int solve_sequence(const char *label,CCX_STORAGE *ccx,int nonsymmetric,
         err=lis_vector_set_all((LIS_SCALAR)0,x);if(err)goto done;
         err=lis_matrix_auto_session_solve(session,A,b,x,&policy,&action);
         if(err) {
-            fprintf(stderr,"%s step=%lld session error=%lld\\n",
+            fprintf(stderr,"%s step=%lld session error=%lld\n",
                     label,(long long)step,(long long)err);
             goto done;
         }
         err=lis_solver_get_status(solver,&status);
         if(err || status!=LIS_SUCCESS || policy!=want_policy) {
-            fprintf(stderr,"%s step=%lld status=%lld policy=%lld want=%lld\\n",
+            fprintf(stderr,"%s step=%lld status=%lld policy=%lld want=%lld\n",
                     label,(long long)step,(long long)status,
                     (long long)policy,(long long)want_policy);
             goto done;
@@ -140,11 +140,11 @@ static int solve_sequence(const char *label,CCX_STORAGE *ccx,int nonsymmetric,
             err=lis_vector_nrm2(y,&norm);if(err)goto done;
             err=lis_vector_nrm2(b,&rhsnorm);if(err)goto done;
             if(!isfinite((double)norm) || norm>1e-9*(1+rhsnorm)) {
-                fprintf(stderr,"%s step=%lld residual=%g rhs=%g\\n",
+                fprintf(stderr,"%s step=%lld residual=%g rhs=%g\n",
                         label,(long long)step,(double)norm,(double)rhsnorm);
                 goto done;
             }
-            printf("CCX_USER case=%s step=%lld policy=%s action=%lld residual=%.3e PASS\\n",
+            printf("CCX_USER case=%s step=%lld policy=%s action=%lld residual=%.3e PASS\n",
                    label,(long long)step,
                    policy==LIS_MATRIX_POLICY_DIRECT?"DIRECT":"CACHED_CSR",
                    (long long)action,(double)norm);
@@ -152,7 +152,7 @@ static int solve_sequence(const char *label,CCX_STORAGE *ccx,int nonsymmetric,
     }
     failed=0;
 done:
-    if(failed)fprintf(stderr,"CCX_USER FAIL case=%s err=%lld\\n",
+    if(failed)fprintf(stderr,"CCX_USER FAIL case=%s err=%lld\n",
                       label,(long long)err);
     if(session)lis_matrix_auto_session_destroy(session);
     if(y)lis_vector_destroy(y);
@@ -224,6 +224,6 @@ done:
     if(vB)lis_matrix_split_triangular_shared_view_destroy(vB);
     if(topology)lis_matrix_split_triangular_topology_destroy(topology);
     lis_finalize();
-    printf("CCX_USER_VALIDATION=%s\\n",failed?"FAIL":"PASS");
+    printf("CCX_USER_VALIDATION=%s\n",failed?"FAIL":"PASS");
     return failed;
 }
