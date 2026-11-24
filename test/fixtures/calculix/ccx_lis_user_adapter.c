@@ -1,6 +1,12 @@
 /* Standalone, opt-in adapter for CalculiX's original ITG/icol/irow/ad/au
  * format. Keep CCX's normal SPOOLES build and selection unchanged.
+ * Critical: lis.h defines the layout of public LIS structs according to
+ * configured CFLAGS; silently compiling without its 64-bit macro can lead
+ * to misaligned pointers/segfaults even if liblis itself is correct.
  */
+#ifndef HAVE_CONFIG_H
+#error "Compile the CCX USER adapter against liblis's generated lis_config.h with matching CFLAGS"
+#endif
 #include "ccx_lis_user_adapter.h"
 #include "lis_matrix_split_view.h"
 #include <math.h>
@@ -64,6 +70,11 @@ static LIS_INT build_matrix(ITG n, ITG nnz,
     LIS_INT err=LIS_ERR_ILL_ARG;
     if(!matrix||!view)return err;
     *matrix=NULL;*view=NULL;
+    /* Detect mismatched CalculiX/LIS integer ABIs before constructing
+     * objects; this makes the caller's LONGLONG/_LONG__LONG pairing explicit.
+     * In particular, the 64-bit CCX header must not be used with 32-bit
+     * LIS_INT (or vice versa). */
+    if(sizeof(ITG)!=sizeof(LIS_INT))return LIS_ERR_ILL_ARG;
     if(n<=0 || nnz<0 || nnz>=INT64_MAX || !icol ||
        (nnz>0 && !irow) ||
        checked_arrays(nnz,ad,au,au_capacity,nzs3,asymmetric))
