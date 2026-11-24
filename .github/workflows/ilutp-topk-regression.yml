@@ -2,6 +2,12 @@ name: ILUTP bounded top-k regression
 
 on:
   pull_request:
+    paths:
+      - 'src/precon/lis_precon_ilutp*'
+      - 'test/testilutp.c'
+      - 'test/check_ilutp_topk.py'
+      - 'configure.ac'
+      - '.github/workflows/ilutp-topk-regression.yml'
   workflow_dispatch:
 concurrency:
   group: ilutp-topk-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
