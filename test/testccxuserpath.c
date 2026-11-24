@@ -12,6 +12,9 @@
  * proof that the unmodified ccx executable calls LIS. The fixture is
  * intentionally constructed, not extracted from an .inp run.
  */
+#ifndef HAVE_CONFIG_H
+#error "CCX USER integration must compile with liblis's generated lis_config.h"
+#endif
 #include "lis.h"
 #include "lis_matrix_split_view.h"
 #include "lis_matrix_materialize.h"
@@ -182,6 +185,11 @@ int main(int argc,char **argv)
     LIS_MATRIX_SPLIT_TRIANGULAR_SHARED_VIEW vA=NULL,vB=NULL;
     LIS_INT err;
     int failed=1;
+    if(sizeof(ITG)!=sizeof(LIS_INT)) {
+        fprintf(stderr,"CCX/LIS integer ABI mismatch: ITG=%lu LIS_INT=%lu\n",
+                (unsigned long)sizeof(ITG),(unsigned long)sizeof(LIS_INT));
+        return 1;
+    }
     err=lis_initialize(&argc,&argv);if(err)return 1;
     /* The original CCX icol[] is a vector of per-column counts, not ptr[]. */
     ptr[0]=1;
