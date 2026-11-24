@@ -134,7 +134,12 @@ static int solve_sequence(const char *label,CCX_STORAGE *ccx,int nonsymmetric,
         if(want_policy==LIS_MATRIX_POLICY_DIRECT &&
            action!=LIS_MATRIX_POLICY_ACTION_DIRECT)goto done;
         if(want_policy==LIS_MATRIX_POLICY_CACHED_CSR &&
-           action==LIS_MATRIX_POLICY_ACTION_DIRECT)goto done;
+           action!=(step==0?LIS_MATRIX_MATERIALIZE_REBUILD:
+                            LIS_MATRIX_MATERIALIZE_VALUES)) {
+            fprintf(stderr,"%s step=%lld unexpected CSR cache action=%lld\n",
+                    label,(long long)step,(long long)action);
+            goto done;
+        }
         if(!close_vec(x,truth,1e-8)) goto done;
 
         /* Independent Ax-b residual check; catches false solver SUCCESS. */
