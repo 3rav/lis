@@ -163,6 +163,17 @@ int main(int argc,char **argv)
            untouched[0]!=-601 || untouched[1]!=-602 ||
            untouched[2]!=-603 || untouched[3]!=-604 ||
            check("failed solve keeps RHS",b,bcopy,n))goto done;
+        /* The legacy in-place CCX convention must also leave b intact
+         * when the solver refuses to publish an unconverged solution. */
+        {
+            double in_place_failed[4];
+            memcpy(in_place_failed,b,sizeof(in_place_failed));
+            err=ccx_lis_user_solve(limited,in_place_failed,in_place_failed,
+                                   &bad_rr,&bad_policy,&bad_action);
+            if(err==LIS_SUCCESS ||
+               check("failed in-place CCX solve",in_place_failed,b,n) ||
+               bad_rr!=555 || bad_policy!=777 || bad_action!=888)goto done;
+        }
         ccx_lis_user_close(limited);limited=NULL;
         printf("CCX_ADAPTER nonconverged solve does not publish x PASS\n");
     }
