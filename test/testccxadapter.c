@@ -1,0 +1,140 @@
+/* Standalone exercise of the optional CCX->USER checked bridge.
+ * Includes the original CCX CalculiX.h, does not modify ccx Makefiles.
+ */
+#ifndef HAVE_CONFIG_H
+#error "Compile with the same LIS config and integer-width macros"
+#endif
+#include "ccx_lis_user_adapter.h"
+#include <math.h>
+#include <stdio.h>
+
+static void reference(ITG n,const ITG *icol,const ITG *row,
+                      const double *diag,const double *au,
+                      ITG offset,const double *x,double *b)
+{
+    ITG i,j,k,p=0;
+    for(i=0;i<n;i++)b[i]=diag[i]*x[i];
+    for(j=0;j<n;j++)for(k=0;k<icol[j];k++,p++){
+        ITG irow=row[p]-1;
+        b[irow]+=au[p]*x[j];
+        b[j]+=au[offset+p]*x[irow];
+    }
+}
+static int check(const char *label,const double *actual,
+                 const double *expected,ITG n)
+{
+    ITG i;
+    for(i=0;i<n;i++)if(!isfinite(actual[i])||
+                        fabs(actual[i]-expected[i])>1e-8){
+        fprintf(stderr,"%s[%lld]=%.17g want %.17g\n",
+            label,(long long)i,actual[i],expected[i]);
+        return 1;
+    }
+    return 0;
+}
+int main(int argc,char **argv)
+{
+    const ITG n=4,nnz=5,offset=7;
+    ITG icol[4]={2,2,1,0},irow[5]={2,4,3,4,4};
+    ITG changed_icol[4]={1,2,1,0},changed_irow[4]={2,3,4,4};
+    ITG bad_icol[4]={-1,2,1,0};
+    ITG huge_icol[4]={2147483647,2,1,0};
+    ITG bad_row[5]={1,4,3,4,4};
+    ITG unsorted_row[5]={4,2,3,4,4};
+    double diag[4]={9,10,11,12};
+    double au[12]={-.5,.2,-.7,.3,-.4,0,0,-.2,-.1,-.8,.1,-.6};
+    double diag_new[4]={8,9,10,11};
+    double au_new[10]={-.2,.3,-.25,-.4,0,-.1,-.5,.15,-.2,0};
+    const double truth[4]={1,-1,2,.5};
+    double b[4],solution[4]={0,0,0,0},bcopy[4];
+    double rr=99;
+    CCX_LIS_USER_CONTEXT *ctx=NULL,*bad=NULL;
+    LIS_INT err=0,policy=0,action=0;
+    int failed=1;
+    err=lis_initialize(&argc,&argv);
+    if(err)return 1;
+
+    /* Bad CCX input must fail before materialization or array access. */
+#define EXPECT_REJECT(tag, expr) do { \
+    err=(expr); \
+    if(err==LIS_SUCCESS || bad!=NULL) { \
+        fprintf(stderr,"CCX_USER_ADAPTER bad %s unexpectedly succeeded\n",tag); \
+        goto done; \
+    } \
+} while(0)
+    EXPECT_REJECT("negative counts",ccx_lis_user_open(
+        n,nnz,bad_icol,irow,diag,au,12,offset,1,NULL,&bad));
+    EXPECT_REJECT("overflowed counts",ccx_lis_user_open(
+        n,nnz,huge_icol,irow,diag,au,12,offset,1,NULL,&bad));
+    EXPECT_REJECT("diagonal row index",ccx_lis_user_open(
+        n,nnz,icol,bad_row,diag,au,12,offset,1,NULL,&bad));
+    EXPECT_REJECT("unsorted rows",ccx_lis_user_open(
+        n,nnz,icol,unsorted_row,diag,au,12,offset,1,NULL,&bad));
+    EXPECT_REJECT("short au capacity",ccx_lis_user_open(
+        n,nnz,icol,irow,diag,au,11,offset,1,NULL,&bad));
+    EXPECT_REJECT("overlapping upper",ccx_lis_user_open(
+        n,nnz,icol,irow,diag,au,12,1,1,NULL,&bad));
+#undef EXPECT_REJECT
+
+    err=ccx_lis_user_open(
+        n,nnz,icol,irow,diag,au,12,offset,1,
+        "-i gmres -p ssor -restart 10 -tol 1e-11 -maxiter 100 -scale none -print none",
+        &ctx);
+    if(err||!ctx)goto done;
+    reference(n,icol,irow,diag,au,offset,truth,b);
+    for(ITG i=0;i<n;i++)bcopy[i]=b[i];
+    err=ccx_lis_user_solve(ctx,b,solution,&rr,&policy,&action);
+    if(err||policy!=LIS_MATRIX_POLICY_CACHED_CSR||
+       action!=LIS_MATRIX_MATERIALIZE_REBUILD||
+       rr>1e-10||check("initial",solution,truth,n)||
+       check("RHS unchanged",b,bcopy,n))goto done;
+    printf("CCX_ADAPTER first CSR_REBUILD residual=%.3e PASS\n",rr);
+    err=ccx_lis_user_solve(ctx,b,solution,&rr,&policy,&action);
+    if(err||action!=LIS_MATRIX_MATERIALIZE_REUSE||rr>1e-10||
+       check("reuse",solution,truth,n))goto done;
+    printf("CCX_ADAPTER no-change CSR_REUSE PASS\n");
+
+    /* Invalid numeric update must preserve the old operator/cache. */
+    err=ccx_lis_user_update(ctx,diag,au,11,offset);
+    if(err==LIS_SUCCESS)goto done;
+    err=ccx_lis_user_solve(ctx,b,solution,&rr,&policy,&action);
+    if(err||action!=LIS_MATRIX_MATERIALIZE_REUSE||
+       check("failed-update rollback",solution,truth,n))goto done;
+
+    diag[0]+=1;
+    au[offset+1]-=.25;
+    err=ccx_lis_user_update(ctx,diag,au,12,offset);
+    if(err)goto done;
+    reference(n,icol,irow,diag,au,offset,truth,b);
+    err=ccx_lis_user_solve(ctx,b,solution,&rr,&policy,&action);
+    if(err||action!=LIS_MATRIX_MATERIALIZE_VALUES||rr>1e-10||
+       check("numeric refresh",solution,truth,n))goto done;
+    printf("CCX_ADAPTER Newton numeric CSR_VALUES PASS\n");
+
+    err=ccx_lis_user_rebind(ctx,nnz,bad_icol,irow,
+                            diag,au,12,offset);
+    if(err==LIS_SUCCESS)goto done;
+    err=ccx_lis_user_solve(ctx,b,solution,&rr,&policy,&action);
+    if(err||action!=LIS_MATRIX_MATERIALIZE_REUSE||
+       check("failed-topology rollback",solution,truth,n))goto done;
+
+    /* Replace sparse topology with a genuinely different nnz/count map. */
+    err=ccx_lis_user_rebind(ctx,4,changed_icol,changed_irow,
+                            diag_new,au_new,10,5);
+    if(err)goto done;
+    reference(n,changed_icol,changed_irow,diag_new,au_new,5,truth,b);
+    err=ccx_lis_user_solve(ctx,b,solution,&rr,&policy,&action);
+    if(err||action!=LIS_MATRIX_MATERIALIZE_REBUILD||rr>1e-10||
+       check("contact topology",solution,truth,n))goto done;
+    printf("CCX_ADAPTER contact-like structure CSR_REBUILD PASS\n");
+    failed=0;
+done:
+    if(failed)fprintf(stderr,
+        "CCX_USER_ADAPTER FAIL err=%lld policy=%lld action=%lld\n",
+        (long long)err,(long long)policy,(long long)action);
+    ccx_lis_user_close(ctx);
+    ccx_lis_user_close(bad);
+    lis_finalize();
+    printf("CCX_USER_ADAPTER=%s\n",failed?"FAIL":"PASS");
+    return failed;
+}
