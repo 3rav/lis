@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [serial, openmp, int64, sanitized, mpi]
+        mode: ${{ fromJSON(github.event_name != 'pull_request' && '["serial","openmp","int64","sanitized","mpi"]' || '["serial","sanitized"]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Install LIS build prerequisites
