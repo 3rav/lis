@@ -44,9 +44,7 @@ The RHS remains unchanged and the solution is only published on success.
 
 ## Build / verification
 
-The separate `calclix-user-path.yml` GitHub Actions workflow (actual file
-`calclix-user-path.yml` is not required; see
-`../../.github/workflows/calculix-user-path.yml`) compiles
+The `.github/workflows/calculix-user-path.yml` GitHub Actions workflow compiles
 `testccxuserpath` (low-level storage ABI) and `testccxadapter`
 (checked adapter). Both run in int32/int64 Release and ASan+UBSan variants,
 with the same LIS and CalculiX integer ABI macros.
