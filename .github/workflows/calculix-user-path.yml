@@ -44,7 +44,9 @@ jobs:
             export LDFLAGS=""
           fi
           ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg $index_flags
-          make -j2
+          # Only liblis is needed here. Avoid compiling the entire native
+          # test suite four times; its own CI workflows cover those tests.
+          make -C src -j2
           cc $CFLAGS -DHAVE_CONFIG_H $ccx_flags -Iinclude -Iccx-source/ccx/src \
             test/testccxuserpath.c -Lsrc/.libs -llis -lm -fopenmp $LDFLAGS \
             -o ./testccxuserpath
