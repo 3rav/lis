@@ -1,6 +1,24 @@
 name: BSR transpose scratch OOM regression
 
 on:
+  push:
+    branches:
+      - 'develop'
+    paths:
+      - 'src/matrix/lis_matrix_bsr.c'
+      - 'src/matvec/lis_matvec_bsr.c'
+      - 'src/system/lis_memory.c'
+      - 'test/testoomalloc.c'
+      - 'test/testbsraudit.c'
+      - 'configure.ac'
+      - '.github/workflows/bsr-transpose-oom.yml'
+      - 'src/matrix/lis_matrix.c'
+      - 'src/matvec/lis_matvec.c'
+      - 'src/solver/lis_solver.c'
+      - 'src/vector/**'
+      - 'include/**'
+      - '**/Makefile.am'
+      - '**/Makefile.in'
   pull_request:
     paths:
       - 'src/matrix/lis_matrix_bsr.c'
@@ -10,8 +28,14 @@ on:
       - 'test/testbsraudit.c'
       - 'configure.ac'
       - '.github/workflows/bsr-transpose-oom.yml'
+      - 'src/matrix/lis_matrix.c'
+      - 'src/matvec/lis_matvec.c'
+      - 'src/solver/lis_solver.c'
+      - 'src/vector/**'
+      - 'include/**'
+      - '**/Makefile.am'
+      - '**/Makefile.in'
   workflow_dispatch:
-
 concurrency:
   group: bsr-transpose-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
