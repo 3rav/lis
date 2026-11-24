@@ -49,7 +49,7 @@ int main(int argc,char **argv)
     const double truth[4]={1,-1,2,.5};
     double b[4],solution[4]={0,0,0,0},bcopy[4];
     double rr=99;
-    CCX_LIS_USER_CONTEXT *ctx=NULL,*bad=NULL,*diagonal=NULL;
+    CCX_LIS_USER_CONTEXT *ctx=NULL,*bad=NULL,*diagonal=NULL,*direct=NULL,*symmetric=NULL;
     LIS_INT err=0,policy=0,action=0;
     int failed=1;
     err=lis_initialize(&argc,&argv);
@@ -84,6 +84,20 @@ int main(int argc,char **argv)
     if(err||!ctx)goto done;
     reference(n,icol,irow,diag,au,offset,truth,b);
     for(ITG i=0;i<n;i++)bcopy[i]=b[i];
+    /* Same native CCX backing arrays, but an ILUT-eligible solver:
+     * the bridge must not request materialization or copy numeric values. */
+    err=ccx_lis_user_open(
+        n,nnz,icol,irow,diag,au,12,offset,1,
+        "-i gmres -p ilut -restart 10 -tol 1e-11 -maxiter 100 -scale none -print none",
+        &direct);
+    if(err || !direct)goto done;
+    err=ccx_lis_user_solve(direct,b,solution,&rr,&policy,&action);
+    if(err || policy!=LIS_MATRIX_POLICY_DIRECT ||
+       action!=LIS_MATRIX_POLICY_ACTION_DIRECT || rr>1e-10 ||
+       check("unsymmetric direct",solution,truth,n))goto done;
+    ccx_lis_user_close(direct);direct=NULL;
+    printf("CCX_ADAPTER unsymmetric ILUT direct USER PASS\n");
+
     err=ccx_lis_user_solve(ctx,b,solution,&rr,&policy,&action);
     if(err||policy!=LIS_MATRIX_POLICY_CACHED_CSR||
        action!=LIS_MATRIX_MATERIALIZE_REBUILD||
@@ -196,6 +210,8 @@ done:
         "CCX_USER_ADAPTER FAIL err=%lld policy=%lld action=%lld\n",
         (long long)err,(long long)policy,(long long)action);
     ccx_lis_user_close(ctx);
+    ccx_lis_user_close(direct);
+    ccx_lis_user_close(symmetric);
     ccx_lis_user_close(diagonal);
     ccx_lis_user_close(bad);
     lis_finalize();
