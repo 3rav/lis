@@ -1,6 +1,12 @@
 name: USER to CSR bounds regression
 on:
   pull_request:
+    paths:
+      - 'src/matrix/lis_matrix_user.c'
+      - 'src/matrix/lis_matrix_csr.c'
+      - 'src/system/lis_memory.c'
+      - 'test/testusercsrbounds.c'
+      - '.github/workflows/user-csr-bounds.yml'
   push:
     branches: [fix/user-to-csr-overflow-20261120]
   workflow_dispatch:
