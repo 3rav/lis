@@ -58,7 +58,7 @@ int main(int argc,char **argv)
     const double truth[4]={1,-1,2,.5};
     double b[4],solution[4]={0,0,0,0},bcopy[4];
     double rr=99;
-    CCX_LIS_USER_CONTEXT *ctx=NULL,*bad=NULL,*diagonal=NULL,*direct=NULL,*symmetric=NULL;
+    CCX_LIS_USER_CONTEXT *ctx=NULL,*bad=NULL,*diagonal=NULL,*direct=NULL,*symmetric=NULL,*limited=NULL;
     LIS_INT err=0,policy=0,action=0;
     int failed=1;
     err=lis_initialize(&argc,&argv);
@@ -134,6 +134,38 @@ int main(int argc,char **argv)
     if(err||action!=LIS_MATRIX_MATERIALIZE_REUSE||rr>1e-10||
        check("reuse",solution,truth,n))goto done;
     printf("CCX_ADAPTER no-change CSR_REUSE PASS\n");
+
+    /* ccx legacy solvers overwrite b in place. Using the same array for
+     * rhs and solution must be safe on success (the adapter copies the
+     * input to its LIS-owned vector before writing the result). */
+    {
+        double in_place[4];
+        memcpy(in_place,b,sizeof(in_place));
+        err=ccx_lis_user_solve(ctx,in_place,in_place,&rr,&policy,&action);
+        if(err || action!=LIS_MATRIX_MATERIALIZE_REUSE || rr>1e-10 ||
+           check("in-place CCX solve",in_place,truth,n))goto done;
+        printf("CCX_ADAPTER in-place CCX RHS/solution PASS\n");
+    }
+
+    /* The solver's failure path must not publish an unconverged x,
+     * a policy, a residual metric or a partial replacement of b. */
+    {
+        double untouched[4]={-601,-602,-603,-604};
+        double bad_rr=555;
+        LIS_INT bad_policy=777,bad_action=888;
+        err=ccx_lis_user_open(n,nnz,icol,irow,diag,au,12,offset,1,
+            "-i gmres -p none -restart 2 -tol 1e-30 -maxiter 1 -scale none -print none",
+            &limited);
+        if(err || !limited)goto done;
+        err=ccx_lis_user_solve(limited,b,untouched,&bad_rr,&bad_policy,&bad_action);
+        if(err==LIS_SUCCESS || bad_rr!=555 ||
+           bad_policy!=777 || bad_action!=888 ||
+           untouched[0]!=-601 || untouched[1]!=-602 ||
+           untouched[2]!=-603 || untouched[3]!=-604 ||
+           check("failed solve keeps RHS",b,bcopy,n))goto done;
+        ccx_lis_user_close(limited);limited=NULL;
+        printf("CCX_ADAPTER nonconverged solve does not publish x PASS\n");
+    }
 
     /* Reject a non-finite RHS without exposing an incomplete solution.
      * A failed solve must also leave policy/action and metrics untouched. */
@@ -234,6 +266,7 @@ done:
     ccx_lis_user_close(ctx);
     ccx_lis_user_close(direct);
     ccx_lis_user_close(symmetric);
+    ccx_lis_user_close(limited);
     ccx_lis_user_close(diagonal);
     ccx_lis_user_close(bad);
     lis_finalize();
