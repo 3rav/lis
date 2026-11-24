@@ -1,7 +1,7 @@
 name: Native LIS ILUTP complete-fill regression
 
 on:
-  pull_request:
+  push:
     branches:
       - develop
     paths:
@@ -13,8 +13,36 @@ on:
       - 'test/gen_ilutp_fullfill_case.py'
       - 'configure.ac'
       - '.github/workflows/native-ilutp-fullfill.yml'
+      - 'src/precon/**'
+      - 'src/matrix/**'
+      - 'src/solver/lis_solver.c'
+      - 'src/matvec/**'
+      - 'src/vector/**'
+      - 'include/**'
+      - '**/Makefile.am'
+      - '**/Makefile.in'
+      - 'src/system/lis_memory.c'
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'src/precon/lis_precon_ilutp*'
+      - 'src/precon/lis_precon_mfamg_ilutp*'
+      - 'test/testilutp.c'
+      - 'test/testilutequil.c'
+      - 'test/benchilutp*'
+      - 'test/gen_ilutp_fullfill_case.py'
+      - 'configure.ac'
+      - '.github/workflows/native-ilutp-fullfill.yml'
+      - 'src/precon/**'
+      - 'src/matrix/**'
+      - 'src/solver/lis_solver.c'
+      - 'src/matvec/**'
+      - 'src/vector/**'
+      - 'include/**'
+      - '**/Makefile.am'
+      - '**/Makefile.in'
+      - 'src/system/lis_memory.c'
   workflow_dispatch:
-
 permissions:
   contents: read
 
