@@ -172,6 +172,117 @@ done:
     return failed;
 }
 
+
+/*
+ * Contact-like sparsity change. A new CCX column pattern is published as a
+ * new immutable USER topology and source matrix; the *same* AUTO session
+ * must discard its old CSR/preconditioner and rebuild on source switch.
+ * A third solve on the unchanged source must reuse the cached CSR.
+ */
+static int test_structure_change(void)
+{
+    CCX_STORAGE first={
+        .icol={2,2,1,0},.irow={2,4,3,4,4},
+        .ad={9,10,11,12},
+        .au={-.5,.2,-.7,.3,-.4,0,0,-.2,-.1,-.8,.1,-.6},
+        .nzs3=7
+    };
+    CCX_STORAGE second={
+        .icol={1,2,1,0},.irow={2,3,4,4,0},
+        .ad={8,9,10,11},
+        .au={-.2,.3,-.25,-.4,0, -.1,-.5,.15,-.2,0,0,0},
+        .nzs3=5
+    };
+    const double exact[CCX_N]={1,-1,2,.5};
+    int64_t ptr1[CCX_N+1]={1,3,5,6,6};
+    int64_t row1[CCX_NNZ]={2,4,3,4,4};
+    int64_t ptr2[CCX_N+1]={1,2,4,5,5};
+    int64_t row2[CCX_NNZ-1]={2,3,4,4};
+    const int64_t bad_ptr[CCX_N+1]={1,2,2,2,2};
+    const int64_t bad_row[1]={1}; /* diagonal entry is forbidden */
+    LIS_MATRIX A=NULL,B=NULL,source;
+    LIS_MATRIX_SPLIT_TRIANGULAR_TOPOLOGY tA=NULL,tB=NULL,invalid=NULL;
+    LIS_MATRIX_SPLIT_TRIANGULAR_SHARED_VIEW vA=NULL,vB=NULL;
+    LIS_MATRIX_AUTO_SESSION session=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_VECTOR b=NULL,x=NULL,r=NULL;
+    LIS_INT k,i,err=0,policy=0,action=0,status=0;
+    double rhs[CCX_N];
+    int failed=1;
+    char opts[]="-i gmres -p ssor -restart 20 -tol 1e-11 -maxiter 100 -scale none -print none";
+
+    err=lis_matrix_create_split_triangular_topology_i64(
+        CCX_N,CCX_NNZ,ptr1,row1,1,&tA);if(err)goto done;
+    err=lis_matrix_create_split_triangular_topology_i64(
+        CCX_N,CCX_NNZ-1,ptr2,row2,1,&tB);if(err)goto done;
+    err=lis_matrix_create_split_triangular_shared_view_real64(
+        LIS_COMM_WORLD,tA,first.ad,first.au,first.au+first.nzs3,&A,&vA);
+    if(err)goto done;
+    err=lis_matrix_create_split_triangular_shared_view_real64(
+        LIS_COMM_WORLD,tB,second.ad,second.au,second.au+second.nzs3,&B,&vB);
+    if(err)goto done;
+    lis_matrix_split_triangular_topology_destroy(tA);tA=NULL;
+    lis_matrix_split_triangular_topology_destroy(tB);tB=NULL;
+    err=lis_matrix_auto_session_create(&session);if(err)goto done;
+    err=lis_matrix_auto_session_get_solver(session,&solver);if(err)goto done;
+    err=lis_solver_set_option(opts,solver);if(err)goto done;
+    err=lis_vector_duplicate(A,&x);if(err)goto done;
+    err=lis_vector_duplicate(A,&b);if(err)goto done;
+    err=lis_vector_duplicate(A,&r);if(err)goto done;
+
+    for(k=0;k<3;k++) {
+        const CCX_STORAGE *storage=k==0?&first:&second;
+        source=k==0?A:B;
+        ccx_reference(storage,1,0,exact,rhs);
+        for(i=0;i<CCX_N;i++)b->value[i]=(LIS_SCALAR)rhs[i];
+        err=lis_vector_set_all((LIS_SCALAR)0,x);if(err)goto done;
+        err=lis_matrix_auto_session_solve(session,source,b,x,&policy,&action);
+        if(err)goto done;
+        err=lis_solver_get_status(solver,&status);
+        if(err||status!=LIS_SUCCESS||
+           policy!=LIS_MATRIX_POLICY_CACHED_CSR||
+           action!=(k==2?LIS_MATRIX_MATERIALIZE_REUSE:
+                        LIS_MATRIX_MATERIALIZE_REBUILD)) {
+            fprintf(stderr,
+                    "CCX_USER topology step=%lld status=%lld policy=%lld action=%lld\n",
+                    (long long)k,(long long)status,
+                    (long long)policy,(long long)action);
+            goto done;
+        }
+        if(!close_vec(x,exact,1e-8))goto done;
+        err=lis_matvec(source,x,r);if(err)goto done;
+        err=lis_vector_axpy((LIS_SCALAR)-1,b,r);if(err)goto done;
+        {
+            LIS_REAL residual;
+            err=lis_vector_nrm2(r,&residual);if(err)goto done;
+            if(!isfinite((double)residual)||residual>1e-9)goto done;
+            printf("CCX_USER STRUCTURE step=%lld action=%lld residual=%.3e PASS\n",
+                   (long long)k,(long long)action,(double)residual);
+        }
+    }
+    /* Invalid replacement must fail before publishing topology. */
+    err=lis_matrix_create_split_triangular_topology_i64(
+        CCX_N,1,bad_ptr,bad_row,1,&invalid);
+    if(err==LIS_SUCCESS||invalid!=NULL)goto done;
+    err=0;
+    failed=0;
+done:
+    if(failed)fprintf(stderr,"CCX_USER STRUCTURE FAIL err=%lld\n",
+                      (long long)err);
+    if(session)lis_matrix_auto_session_destroy(session);
+    if(r)lis_vector_destroy(r);
+    if(x)lis_vector_destroy(x);
+    if(b)lis_vector_destroy(b);
+    if(A)lis_matrix_destroy(A);
+    if(B)lis_matrix_destroy(B);
+    if(vA)lis_matrix_split_triangular_shared_view_destroy(vA);
+    if(vB)lis_matrix_split_triangular_shared_view_destroy(vB);
+    if(tA)lis_matrix_split_triangular_topology_destroy(tA);
+    if(tB)lis_matrix_split_triangular_topology_destroy(tB);
+    if(invalid)lis_matrix_split_triangular_topology_destroy(invalid);
+    return failed;
+}
+
 int main(int argc,char **argv)
 {
     CCX_STORAGE ccx_sym={
@@ -233,6 +344,7 @@ int main(int argc,char **argv)
     if(solve_sequence("UNSYM-GMRES-SSOR",&ccx_unsym,1,B,vB,
            "-i gmres -p ssor -restart 20 -tol 1e-11 -maxiter 200 -print none -scale none",
            LIS_MATRIX_POLICY_CACHED_CSR))goto done;
+    if(test_structure_change())goto done;
     failed=0;
 done:
     if(A)lis_matrix_destroy(A);
