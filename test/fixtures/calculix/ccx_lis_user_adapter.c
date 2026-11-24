@@ -76,7 +76,7 @@ static LIS_INT build_matrix(ITG n, ITG nnz,
     if(err)goto done;
     err=lis_matrix_create_split_triangular_shared_view_real64(
         LIS_COMM_WORLD,topology,ad,au,
-        asymmetric?au+(size_t)nzs3:NULL,matrix,view);
+        (asymmetric && nnz>0)?au+(size_t)nzs3:NULL,matrix,view);
 done:
     if(topology)lis_matrix_split_triangular_topology_destroy(topology);
     free(idx);free(ptr);
@@ -150,7 +150,7 @@ LIS_INT ccx_lis_user_update(CCX_LIS_USER_CONTEXT *ctx,
     err=checked_arrays(ctx->nnz,ad,au,au_capacity,nzs3,ctx->asymmetric);
     if(err)return err;
     err=lis_matrix_split_triangular_shared_view_set_values_real64(
-        ctx->view,ad,au,ctx->asymmetric?au+(size_t)nzs3:NULL);
+        ctx->view,ad,au,(ctx->asymmetric && ctx->nnz>0)?au+(size_t)nzs3:NULL);
     if(!err)ctx->nzs3=nzs3;
     return err;
 }
