@@ -13,8 +13,9 @@ on:
       - 'src/vector/**'
       - 'src/precon/lis_precon.c'
       - 'include/**'
-      - '**/Makefile.am'
-      - '**/Makefile.in'
+      - 'Makefile.am'
+      - 'src/Makefile.am'
+      - 'include/Makefile.am'
       - 'src/system/lis_memory.c'
   pull_request:
     paths:
@@ -28,8 +29,9 @@ on:
       - 'src/vector/**'
       - 'src/precon/lis_precon.c'
       - 'include/**'
-      - '**/Makefile.am'
-      - '**/Makefile.in'
+      - 'Makefile.am'
+      - 'src/Makefile.am'
+      - 'include/Makefile.am'
       - 'src/system/lis_memory.c'
   workflow_dispatch:
 jobs:
