@@ -2,6 +2,24 @@ name: LIS extended regressions (develop / manual)
 on:
   push:
     branches: [develop]
+    paths:
+      - 'src/solver/lis_solver_fgcrodr.c'
+      - 'src/solver/lis_solver_gcrodr.c'
+      - 'src/precon/**'
+      - 'src/system/**'
+      - 'src/matrix/**'
+      - 'src/matvec/**'
+      - 'src/vector/**'
+      - 'test/testfgcrodr*'
+      - 'test/testmfamg*'
+      - 'test/testhalfilut.c'
+      - 'test/testoom*'
+      - 'include/**'
+      - 'configure.ac'
+      - 'Makefile.am'
+      - 'src/Makefile.am'
+      - 'include/Makefile.am'
+      - '.github/workflows/ci-extended.yml'
   pull_request:
     paths:
       - 'src/solver/lis_solver_fgcrodr.c'
@@ -23,8 +41,8 @@ on:
       - '.github/workflows/ci-extended.yml'
   workflow_dispatch:
 # These expensive sanitizer, OOM, scalar-ABI and race-audit jobs are
-# preserved, but run on integration or explicit dispatch rather than
-# rebuilding the entire library independently for every ordinary PR.
+# preserved and run for matching critical changes on PRs and integration,
+# or explicit dispatch, rather than rebuilding on every ordinary PR.
 permissions:
   contents: read
 concurrency:
