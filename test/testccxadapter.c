@@ -7,6 +7,7 @@
 #include "ccx_lis_user_adapter.h"
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 static void reference(ITG n,const ITG *icol,const ITG *row,
                       const double *diag,const double *au,
@@ -112,6 +113,30 @@ int main(int argc,char **argv)
            check("recovered RHS",solution,truth,n))goto done;
     }
     printf("CCX_ADAPTER invalid RHS atomic rejection PASS\n");
+
+    /* Reject invalid numeric candidates before publishing a new borrowed
+     * matrix generation. This protects the previous CSR and preconditioner
+     * because the previous borrowed storage is not modified. */
+    {
+        double invalid_diag[4];
+        double invalid_au[12];
+        memcpy(invalid_diag,diag,sizeof(diag));
+        memcpy(invalid_au,au,sizeof(au));
+        invalid_diag[2]=NAN;
+        err=ccx_lis_user_update(ctx,invalid_diag,au,12,offset);
+        if(err!=LIS_ERR_ILL_ARG)goto done;
+        invalid_diag[2]=diag[2];
+        invalid_au[offset+3]=INFINITY;
+        err=ccx_lis_user_update(ctx,diag,invalid_au,12,offset);
+        if(err!=LIS_ERR_ILL_ARG)goto done;
+        err=ccx_lis_user_rebind(ctx,nnz,icol,irow,
+                                invalid_diag,invalid_au,12,offset);
+        if(err!=LIS_ERR_ILL_ARG)goto done;
+        err=ccx_lis_user_solve(ctx,b,solution,&rr,&policy,&action);
+        if(err||action!=LIS_MATRIX_MATERIALIZE_REUSE||
+           check("rejected nonfinite update",solution,truth,n))goto done;
+    }
+    printf("CCX_ADAPTER nonfinite tangent rejection and rollback PASS\n");
 
     /* Invalid numeric update must preserve the old operator/cache. */
     err=ccx_lis_user_update(ctx,diag,au,11,offset);
