@@ -151,7 +151,7 @@ lis_esi_solve_with_retry(
                 return LIS_SUCCESS;
         }
 
-        if( !lis_esolver_inner_solve_retryable(status) )
+        if( !lis_esolver_inner_solve_can_retry(A,NULL,solver,status) )
         {
                 return status;
         }
@@ -202,7 +202,7 @@ lis_esi_solve_with_recovery(
                 return LIS_SUCCESS;
         }
 
-        if( !lis_esolver_inner_solve_retryable(status) )
+        if( !lis_esolver_inner_solve_can_retry(A,NULL,solver,status) )
         {
                 return status;
         }
@@ -230,7 +230,7 @@ lis_esi_solve_with_recovery(
                 return LIS_SUCCESS;
         }
 
-        if( !lis_esolver_inner_solve_retryable(status) )
+        if( !lis_esolver_inner_solve_can_retry(A,NULL,solver,status) )
         {
                 return status;
         }
@@ -294,7 +294,7 @@ lis_esi_solve_with_recovery(
                         return LIS_SUCCESS;
                 }
 
-                if( !lis_esolver_inner_solve_retryable(status) )
+                if( !lis_esolver_inner_solve_can_retry(A,NULL,solver,status) )
                 {
                         return status;
                 }
@@ -331,7 +331,7 @@ lis_egsi_solve_with_recovery(
                 return LIS_SUCCESS;
         }
 
-        if( !lis_esolver_inner_solve_retryable(status) )
+        if( !lis_esolver_inner_solve_can_retry(A,B,solver,status) )
         {
                 return status;
         }
@@ -359,7 +359,7 @@ lis_egsi_solve_with_recovery(
                 return LIS_SUCCESS;
         }
 
-        if( !lis_esolver_inner_solve_retryable(status) )
+        if( !lis_esolver_inner_solve_can_retry(A,B,solver,status) )
         {
                 return status;
         }
@@ -423,7 +423,7 @@ lis_egsi_solve_with_recovery(
                         return LIS_SUCCESS;
                 }
 
-                if( !lis_esolver_inner_solve_retryable(status) )
+                if( !lis_esolver_inner_solve_can_retry(A,B,solver,status) )
                 {
                         return status;
                 }

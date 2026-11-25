@@ -6,7 +6,7 @@
 #include <stdio.h>
 
 #if !defined(USE_MPI) && !defined(_COMPLEX)
-typedef struct { LIS_INT n,calls,fail; LIS_SCALAR diag; } CTX;
+typedef struct { LIS_INT n,calls,fail; LIS_SCALAR diag; LIS_INT code; } CTX;
 static LIS_INT apply(void *ptr,const LIS_SCALAR *x,LIS_SCALAR *y)
 {
     CTX *c=(CTX *)ptr;
@@ -15,7 +15,7 @@ static LIS_INT apply(void *ptr,const LIS_SCALAR *x,LIS_SCALAR *y)
     if(c->fail && c->calls==c->fail)
     {
         y[0]=(LIS_SCALAR)NAN;
-        return LIS_ERR_ILL_ARG;
+        return c->code;
     }
     for(i=0;i<c->n;i++) y[i]=c->diag*x[i];
     return LIS_SUCCESS;
@@ -28,9 +28,9 @@ static LIS_INT create(CTX *c,LIS_MATRIX *A)
     if(err)return err;
     return lis_matrix_set_user(*A,c,apply,apply);
 }
-static int run(int buckling,LIS_INT afail,LIS_INT bfail)
+static int run(int buckling,LIS_INT afail,LIS_INT bfail,LIS_INT code)
 {
-    CTX ac={4,0,afail,4.0},bc={4,0,bfail,2.0};
+    CTX ac={4,0,afail,4.0,code},bc={4,0,bfail,2.0,code};
     LIS_MATRIX A=NULL,B=NULL;
     LIS_VECTOR x=NULL;
     LIS_ESOLVER e=NULL;
@@ -50,7 +50,7 @@ static int run(int buckling,LIS_INT afail,LIS_INT bfail)
        lis_esolver_get_residualnorm(e,&residual))goto done;
     if(afail || bfail)
     {
-        if(err!=LIS_SUCCESS || status!=LIS_ERR_ILL_ARG || iter!=0 ||
+        if(err!=LIS_SUCCESS || status!=code || iter!=0 ||
            !isnan((double)residual) ||
            (afail && ac.calls!=afail) || (bfail && bc.calls<bfail))
         {
@@ -63,6 +63,9 @@ static int run(int buckling,LIS_INT afail,LIS_INT bfail)
     else if(err!=LIS_SUCCESS || status!=LIS_SUCCESS ||
             !(fabs((double)value-2.0)<=1e-9) ||
             !(residual<=1e-10))goto done;
+    if((code==LIS_MAXITER || code==LIS_BREAKDOWN) &&
+       (!isnan((double)value) || (afail && ac.calls!=afail) ||
+        (bfail && bc.calls!=bfail)))goto done;
     for(i=0;i<x->n;i++)if(!isfinite((double)x->value[i]))goto done;
     failed=0;
 done:
@@ -84,10 +87,13 @@ int main(int argc,char **argv)
 #else
     int failed=0;
     if(lis_initialize(&argc,&argv))return 1;
-    failed|=run(0,0,1);
-    failed|=run(1,1,0);
-    failed|=run(0,0,0);
-    failed|=run(1,0,0);
+    failed|=run(0,0,1,LIS_ERR_ILL_ARG);
+    failed|=run(1,1,0,LIS_ERR_ILL_ARG);
+    failed|=run(0,0,0,LIS_ERR_ILL_ARG);
+    failed|=run(1,0,0,LIS_ERR_ILL_ARG);
+    /* A is first applied by the inner shift-invert solve. */
+    failed|=run(0,1,0,LIS_MAXITER);
+    failed|=run(0,1,0,LIS_BREAKDOWN);
     lis_finalize();
     printf("USER_EIGEN_INVERSE %s\n",failed?"FAILED":"PASSED");
     return failed?1:0;

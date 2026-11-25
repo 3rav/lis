@@ -241,6 +241,31 @@ LIS_INT lis_esolver_inner_solve_retryable(
                status==LIS_MAXITER;
 }
 
+static LIS_INT lis_esolver_has_user_operand(LIS_MATRIX A);
+
+/* A numeric code alone cannot distinguish application failure from
+ * numerical nonconvergence. Until origin is tracked, fail closed for
+ * callback-capable inner solves; preserve native-matrix recovery. */
+LIS_INT lis_esolver_inner_solve_can_retry(
+        LIS_MATRIX A,
+        LIS_MATRIX B,
+        LIS_SOLVER solver,
+        LIS_INT status)
+{
+        LIS_INT pc;
+        if( !lis_esolver_inner_solve_retryable(status) || solver==NULL )
+                return LIS_FALSE;
+        if( lis_esolver_has_user_operand(A) ||
+            lis_esolver_has_user_operand(B) )
+                return LIS_FALSE;
+        pc = solver->options[LIS_OPTIONS_PRECON];
+        if( pc>=LIS_PRECON_TYPE_USERDEF ||
+            (pc==LIS_PRECON_TYPE_HYBRID &&
+             solver->options[LIS_OPTIONS_PPRECON]>=LIS_PRECON_TYPE_USERDEF) )
+                return LIS_FALSE;
+        return LIS_TRUE;
+}
+
 #undef __FUNC__
 #define __FUNC__ "lis_esolver_inner_solve_certify"
 LIS_INT lis_esolver_inner_solve_certify(
@@ -264,7 +289,7 @@ LIS_INT lis_esolver_inner_solve_certify(
                 return LIS_SUCCESS;
         }
 
-        if( !lis_esolver_inner_solve_retryable(status) )
+        if( !lis_esolver_inner_solve_can_retry(A,NULL,solver,status) )
         {
                 LIS_DEBUG_FUNC_OUT;
                 return status;

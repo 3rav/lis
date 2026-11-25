@@ -3166,7 +3166,7 @@ lis_egli_solve_with_retry(
                 return LIS_SUCCESS;
         }
 
-        if( !lis_esolver_inner_solve_retryable(status) )
+        if( !lis_esolver_inner_solve_can_retry(S,NULL,solver,status) )
         {
                 return status;
         }
@@ -3274,7 +3274,7 @@ lis_egli_first_solve_with_recovery(
                 return LIS_SUCCESS;
         }
 
-        if( !lis_esolver_inner_solve_retryable(status) )
+        if( !lis_esolver_inner_solve_can_retry(A,B,solver,status) )
         {
                 return status;
         }
@@ -3302,7 +3302,7 @@ lis_egli_first_solve_with_recovery(
                 return LIS_SUCCESS;
         }
 
-        if( !lis_esolver_inner_solve_retryable(status) )
+        if( !lis_esolver_inner_solve_can_retry(A,B,solver,status) )
         {
                 return status;
         }
@@ -3415,7 +3415,7 @@ lis_egli_first_solve_with_recovery(
                         return LIS_SUCCESS;
                 }
 
-                if( !lis_esolver_inner_solve_retryable(status) )
+                if( !lis_esolver_inner_solve_can_retry(A,B,solver,status) )
                 {
                         return status;
                 }
