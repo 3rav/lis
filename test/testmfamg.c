@@ -5856,7 +5856,22 @@ static int check_independent_amg_basis(void)
        lis_vector_nrm2(r,&nr) || lis_vector_nrm2(b,&nb) ||
        !(nb>0) || !(nr/nb<1e-7))
         goto done;
+    /* A repeated explicit basis and an empty legacy clear must not retire
+     * the sequence hierarchy. Copy into caller-owned storage first. */
+    if(lis_solver_copy_amg_coarse_basis_vector(s,0,z) ||
+       z->value[0]!=(LIS_SCALAR)1 ||
+       lis_solver_copy_amg_coarse_basis_vector(s,1,z)!=LIS_ERR_ILL_ARG ||
+       lis_solve_sequence(A,b,x,s) || !s->sequence_precon)
+        goto done;
+    {
+        LIS_PRECON kept=s->sequence_precon;
+        if(lis_solver_clear_near_nullspace(s) ||
+           lis_solver_set_amg_coarse_basis(s,1,&z) ||
+           s->sequence_precon!=kept)
+            goto done;
+    }
     if(lis_solver_clear_amg_coarse_basis(s) ||
+       s->sequence_precon!=NULL ||
        lis_solver_get_amg_coarse_basis_dim(s,&dim) || dim!=0)
         goto done;
     failed=0;

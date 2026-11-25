@@ -2043,9 +2043,9 @@ LIS_INT lis_solver_clear_near_nullspace(LIS_SOLVER solver)
 
 	/* A sequence-owned MFAMG hierarchy may still contain interpolation
 	 * derived from the old legacy basis. Retire reusable state before
-	 * releasing it, including when a previously absent basis is installed.
+	 * releasing a nonempty basis. Empty-to-empty clear is a no-op.
 	 * Do not destroy caller-owned preconditioners. */
-	if(solver->sequence_precon!=NULL)
+	if(solver->near_nullspace_dim>0 && solver->sequence_precon!=NULL)
 	{
 		err=lis_solver_reset_sequence(solver);
 		if(err) return err;
@@ -2187,7 +2187,13 @@ LIS_INT lis_solver_set_near_nullspace(
 		}
 	}
 
-	err = lis_solver_clear_near_nullspace(solver);
+	/* Adding a previously absent legacy basis also invalidates the
+	 * hierarchy; clear(empty) deliberately does not. */
+	if(solver->near_nullspace_dim==0 && solver->sequence_precon!=NULL)
+		err=lis_solver_reset_sequence(solver);
+	else
+		err=LIS_SUCCESS;
+	if(!err)err=lis_solver_clear_near_nullspace(solver);
 	if( err )
 	{
 		for(i=0;i<nvec;i++)
@@ -2236,6 +2242,41 @@ LIS_INT lis_solver_get_amg_coarse_basis_dim(LIS_SOLVER solver,LIS_INT *dim)
     return LIS_SUCCESS;
 }
 
+LIS_INT lis_solver_copy_amg_coarse_basis_vector(
+    LIS_SOLVER solver,LIS_INT index,LIS_VECTOR out)
+{
+    LIS_VECTOR src;
+    if(!solver || index<0 || index>=solver->amg_coarse_basis_dim ||
+       !solver->amg_coarse_basis || !out)
+        return LIS_ERR_ILL_ARG;
+    src=solver->amg_coarse_basis[index];
+    if(!lis_solver_vector_compatible(src,out) || !src->value || !out->value)
+        return LIS_ERR_ILL_ARG;
+    return lis_vector_copy(src,out);
+}
+
+/* Exact representation equality is intentional: no tolerance-based
+ * numerical decision may retain a changed hierarchy. Distributed modes
+ * conservatively take the normal setter path on every rank. */
+static LIS_INT lis_solver_amg_basis_unchanged(
+    LIS_SOLVER solver,LIS_INT nvec,LIS_VECTOR vectors[])
+{
+    LIS_INT i;
+    size_t bytes;
+    if(solver->amg_coarse_basis_dim!=nvec || !solver->amg_coarse_basis ||
+       vectors[0]->nprocs!=1 || vectors[0]->precision!=LIS_PRECISION_DEFAULT ||
+       vectors[0]->n<=0 ||
+       (uintmax_t)vectors[0]->n>SIZE_MAX/sizeof(LIS_SCALAR))
+        return LIS_FALSE;
+    bytes=(size_t)vectors[0]->n*sizeof(LIS_SCALAR);
+    for(i=0;i<nvec;i++)
+        if(!lis_solver_vector_compatible(solver->amg_coarse_basis[i],vectors[i]) ||
+           !solver->amg_coarse_basis[i]->value || !vectors[i]->value ||
+           memcmp(solver->amg_coarse_basis[i]->value,vectors[i]->value,bytes))
+            return LIS_FALSE;
+    return LIS_TRUE;
+}
+
 LIS_INT lis_solver_clear_amg_coarse_basis(LIS_SOLVER solver)
 {
     LIS_INT err;
@@ -2265,6 +2306,7 @@ LIS_INT lis_solver_set_amg_coarse_basis(
            !lis_solver_vector_compatible(vectors[0],vectors[i]))
             return LIS_ERR_ILL_ARG;
     if(nvec>vectors[0]->gn) return LIS_ERR_ILL_ARG;
+    if(lis_solver_amg_basis_unchanged(solver,nvec,vectors)) return LIS_SUCCESS;
     bytes=(size_t)nvec*sizeof(*owned);
     owned=(LIS_VECTOR *)lis_malloc(bytes,"lis_solver_set_amg_coarse_basis::owned");
     if(owned==NULL) return LIS_OUT_OF_MEMORY;

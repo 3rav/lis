@@ -1642,7 +1642,8 @@ extern LIS_INT lis_vector_export_real64_tolerant(
 	/* Optional MFAMG interpolation basis. Copies caller vectors independently
 	 * of mathematical near-nullspace. With no explicit basis, MFAMG retains
 	 * its historical near-nullspace fallback. An explicit basis is not
-	 * deflation. Changes reset reusable sequence state. Retire caller-owned
+	 * deflation. Changes reset reusable sequence state; identical serial
+	 * default-precision vectors are a no-op. Retire caller-owned
 	 * preconditioners before changing the basis. nvec=0 clears it. */
 	extern LIS_INT lis_solver_set_amg_coarse_basis(LIS_SOLVER solver,
 		LIS_INT nvec, LIS_VECTOR vectors[]);
@@ -1650,6 +1651,10 @@ extern LIS_INT lis_vector_export_real64_tolerant(
 	/* Dimension of the explicit basis, not the legacy fallback. */
 	extern LIS_INT lis_solver_get_amg_coarse_basis_dim(LIS_SOLVER solver,
 		LIS_INT *dim);
+	/* Copy one explicit mode to an already allocated compatible vector.
+	 * Zero-based index. Never exposes borrowed solver-owned storage. */
+	extern LIS_INT lis_solver_copy_amg_coarse_basis_vector(LIS_SOLVER solver,
+		LIS_INT index,LIS_VECTOR out);
 	extern LIS_INT lis_solver_set_gcrodr_recycle(
 		LIS_SOLVER solver, LIS_INT dim,
 		LIS_REAL keep_quality, LIS_REAL reject_quality);
