@@ -45,6 +45,7 @@
 #ifdef USE_MPI
 	#include <mpi.h>
 #endif
+#include <math.h>
 #include "lislib.h"
 
 #define NWORK 4
@@ -134,7 +135,7 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 	LIS_SCALAR nu;
 
 	LIS_REAL bnrm2, nrm2, tol, min_nrm2;
-	LIS_INT iter,maxiter,output,conv,maxiter_noimp,noimp_count;
+	LIS_INT err,iter,maxiter,output,conv,maxiter_noimp,noimp_count;
 	double time,ptime;
 
 	LIS_INT l,i,j;
@@ -154,6 +155,7 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 	noimp_count   = 0;
 	min_nrm2      = LIS_SCALAR_MAX;
 	ptime   = 0.0;
+	iter    = 0;
 	z_dim   = l+1;
 
 	rtld    = solver->work[0];
@@ -167,6 +169,11 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 	if( tau==NULL )
 	{
 		LIS_SETERR_MEM(sizeof(LIS_SCALAR) * z_dim * (4+l+1));
+		solver->retcode = LIS_ERR_OUT_OF_MEMORY;
+		solver->iter = 0;
+		solver->resid = NAN;
+		solver->ptime = 0.0;
+		LIS_DEBUG_FUNC_OUT;
 		return LIS_ERR_OUT_OF_MEMORY;
 	}
 	gamma   = &tau[z_dim*z_dim];
@@ -178,15 +185,29 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 	if( lis_solver_get_initial_residual(solver,NULL,NULL,r[0],&bnrm2) )
 	{
 		lis_free(tau);
+		if(solver->retcode!=LIS_SUCCESS)
+		{
+			solver->resid = NAN;
+			LIS_DEBUG_FUNC_OUT;
+			return solver->retcode;
+		}
 		LIS_DEBUG_FUNC_OUT;
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
+	/* The initial helper already normalized the nonzero residual. */
+	if(conv==LIS_CONV_COND_NRM2_R && isfinite(bnrm2) && bnrm2>0.0) nrm2 = 1.0;
+	else lis_solver_get_residual[conv](r[0],solver,&nrm2);
 
 	lis_solver_set_shadowresidual(solver,r[0],rtld);
 
 	lis_vector_copy(r[0],bp);
+	/* Keep the initial iterate separate from the preconditioned correction.
+	 * The physical solution is reconstructed as xp + M^-1 x. */
 	lis_vector_copy(x,xp);
+	if(solver->options[LIS_OPTIONS_INITGUESS_ZEROS])
+		lis_vector_set_all(0.0,xp);
+	lis_vector_set_all(0.0,x);
 	lis_vector_set_all(0.0,u[0]);
 	lis_vector_nrm2(r[0],&rnorm0);
 	rnorm  = rnorm0;
@@ -217,9 +238,10 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 			if( rho1==0.0 )
 			{
 				time = lis_wtime();
-				lis_psolve(solver, x, t);
-				lis_vector_copy(t, x);
+				err = lis_psolve(solver, x, t);
 				ptime += lis_wtime()-time;
+				if(err) goto callback_failure;
+				lis_vector_copy(t, x);
 				lis_vector_axpy(1.0,xp,x);
 				solver->retcode   = LIS_BREAKDOWN;
 				solver->iter      = iter;
@@ -243,9 +265,11 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 			/* u[j+1] = A    * u[j]   */
 			/* u[j+1] = M^-1 * u[j+1] */
 			time = lis_wtime();
-			lis_psolve(solver, u[j], t);
+			err = lis_psolve(solver, u[j], t);
 			ptime += lis_wtime()-time;
-			lis_matvec(A,t,u[j+1]);
+			if(err) goto callback_failure;
+			err = lis_matvec(A,t,u[j+1]);
+			if(err) goto callback_failure;
 
 			/* nu = <rtld, u[j+1]> */
 			lis_vector_dot(rtld,u[j+1],&nu);
@@ -254,9 +278,10 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 			if( nu==0.0 )
 			{
 				time = lis_wtime();
-				lis_psolve(solver, x, t);
-				lis_vector_copy(t, x);
+				err = lis_psolve(solver, x, t);
 				ptime += lis_wtime()-time;
+				if(err) goto callback_failure;
+				lis_vector_copy(t, x);
 				lis_vector_axpy(1.0,xp,x);
 				solver->retcode   = LIS_BREAKDOWN;
 				solver->iter      = iter;
@@ -297,9 +322,10 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 					if( output & LIS_PRINT_OUT ) lis_print_rhistory(comm,iter,nrm2);
 				}	
 				time = lis_wtime();
-				lis_psolve(solver, x, t);
-				lis_vector_copy(t, x);
+				err = lis_psolve(solver, x, t);
 				ptime += lis_wtime()-time;
+				if(err) goto callback_failure;
+				lis_vector_copy(t, x);
 				lis_vector_axpy(1.0,xp,x);
 				solver->retcode    = LIS_SUCCESS;
 				solver->iter       = iter;
@@ -313,9 +339,11 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 			/* r[j+1] = A    * r[j]   */
 			/* r[j+1] = M^-1 * r[j+1] */
 			time = lis_wtime();
-			lis_psolve(solver, r[j], t);
+			err = lis_psolve(solver, r[j], t);
 			ptime += lis_wtime()-time;
-			lis_matvec(A,t,r[j+1]);
+			if(err) goto callback_failure;
+			err = lis_matvec(A,t,r[j+1]);
+			if(err) goto callback_failure;
 
 			lis_vector_nrm2(r[0],&rnorm);
 			normx = _max(normx,rnorm);
@@ -383,9 +411,10 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 		if( tol >= nrm2 )
 		{
 			time = lis_wtime();
-			lis_psolve(solver, x, t);
-			lis_vector_copy(t, x);
+			err = lis_psolve(solver, x, t);
 			ptime += lis_wtime()-time;
+			if(err) goto callback_failure;
+			lis_vector_copy(t, x);
 			lis_vector_axpy(1.0,xp,x);
 			solver->retcode    = LIS_SUCCESS;
 			solver->iter       = iter;
@@ -405,22 +434,38 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 			}
 			else if ( ++noimp_count > maxiter_noimp )
 			{
-				solver->retcode = LIS_MAXITER;
-				solver->iter = iter;
-				solver->resid = nrm2;
-				solver->ptime = ptime;
-				LIS_DEBUG_FUNC_OUT;
-				return LIS_MAXITER;
+				goto iteration_limit;
 			}
 		}
 	}
 
+iteration_limit:
+	/* A numerical stop still returns a physical iterate, not a
+	 * preconditioned correction. If reconstruction fails, restore xp. */
+	time = lis_wtime();
+	err = lis_psolve(solver,x,t);
+	ptime += lis_wtime()-time;
+	if(err) goto callback_failure;
+	lis_vector_copy(t,x);
+	lis_vector_axpy(1.0,xp,x);
 	solver->retcode   = LIS_MAXITER;
 	solver->iter      = iter;
 	solver->resid     = nrm2;
+	solver->ptime     = ptime;
 	lis_free(tau);
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_MAXITER;
+
+callback_failure:
+	solver->retcode = err;
+	solver->iter = iter;
+	solver->ptime = ptime;
+	/* The correction is not a physical iterate without M^-1. */
+	lis_vector_copy(xp,x);
+	solver->resid = NAN;
+	lis_free(tau);
+	LIS_DEBUG_FUNC_OUT;
+	return err;
 }
 
 #ifdef USE_QUAD_PRECISION

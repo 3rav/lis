@@ -5819,6 +5819,58 @@ fail:
     goto cleanup;
 }
 
+/* The explicit basis must survive clearing near-nullspace and caller
+ * storage and produce a certified physical solution. */
+static int check_independent_amg_basis(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR z=NULL,b=NULL,x=NULL,r=NULL;
+    LIS_SOLVER s=NULL;
+    LIS_INT dim,status,err;
+    LIS_REAL nr,nb;
+    int failed=1;
+
+    if(create_csr(&A) || lis_vector_duplicate(A,&z) ||
+       lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x) ||
+       lis_vector_duplicate(A,&r) || lis_solver_create(&s))
+        goto done;
+    if(lis_solver_set_option("-i gmres -p mfamg -scale none -tol 1e-8 -maxiter 150 -print none",s) ||
+       lis_vector_set_all((LIS_SCALAR)1,z) ||
+       lis_vector_set_all((LIS_SCALAR)1,b) ||
+       lis_vector_set_all((LIS_SCALAR)0,x) ||
+       lis_solver_set_near_nullspace(s,1,&z) ||
+       lis_solver_set_amg_coarse_basis(s,1,&z) ||
+       lis_solver_clear_near_nullspace(s) ||
+       lis_solver_get_amg_coarse_basis_dim(s,&dim) || dim!=1)
+        goto done;
+    if(lis_vector_set_all((LIS_SCALAR)0,z)) goto done;
+    err=lis_solver_set_amg_coarse_basis(s,1,NULL);
+    if(err!=LIS_ERR_ILL_ARG ||
+       lis_solver_get_amg_coarse_basis_dim(s,&dim) || dim!=1 ||
+       lis_solver_reset_sequence(s) ||
+       lis_solver_get_amg_coarse_basis_dim(s,&dim) || dim!=1)
+        goto done;
+    if(lis_solve(A,b,x,s) || lis_solver_get_status(s,&status) ||
+       status!=LIS_SUCCESS || lis_matvec(A,x,r) ||
+       lis_vector_axpy((LIS_SCALAR)-1,b,r) ||
+       lis_vector_nrm2(r,&nr) || lis_vector_nrm2(b,&nb) ||
+       !(nb>0) || !(nr/nb<1e-7))
+        goto done;
+    if(lis_solver_clear_amg_coarse_basis(s) ||
+       lis_solver_get_amg_coarse_basis_dim(s,&dim) || dim!=0)
+        goto done;
+    failed=0;
+done:
+    if(s) lis_solver_destroy(s);
+    if(r) lis_vector_destroy(r);
+    if(x) lis_vector_destroy(x);
+    if(b) lis_vector_destroy(b);
+    if(z) lis_vector_destroy(z);
+    if(A) lis_matrix_destroy(A);
+    printf("INDEPENDENT_AMG_BASIS %s\n",failed?"FAILED":"PASSED");
+    return failed;
+}
+
 static int
 run_serial(void)
 {
@@ -5845,6 +5897,7 @@ run_serial(void)
 
     failed = 0;
 
+    failed |= check_independent_amg_basis();
     failed |=
         check_mfamg_multivector_basis_foundation();
 

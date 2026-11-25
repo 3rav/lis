@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 static int apply_diagonal(void *ctx, int n, const double *x, double *y)
 {
@@ -13,6 +14,12 @@ static int apply_diagonal(void *ctx, int n, const double *x, double *y)
     (void)ctx;
     for (i = 0; i < n; ++i) y[i] = (double)(i + 1) * x[i];
     return 0;
+}
+
+static int fail_callback(void *ctx,int n,const double *x,double *y)
+{
+    (void)ctx;(void)n;(void)x;(void)y;
+    return 17;
 }
 
 int main(void)
@@ -69,6 +76,39 @@ int main(void)
     if (rc != LIS_KRYLOV_BAD_ARGUMENT) {
         fprintf(stderr, "FAIL invalid options size: %d\n", rc);
         return 1;
+    }
+
+    {
+        lis_krylov_budget budget;
+        lis_krylov_budget_stats used;
+        int idx[5],count=-1;
+        double v[5]={2,3,NAN,4,5},r[5]={0,1e-3,0,-1,1e-9};
+        lis_krylov_ext_options_default(&ext);
+        lis_krylov_budget_default(&budget);
+        budget.max_apply_a=1;
+        rc=lis_krylov_symmetric_budgeted(&p,&options,&ext,NULL,&budget,
+                    values,vectors,residuals,&stats,&extra,&used);
+        if(rc!=LIS_KRYLOV_BUDGET_EXHAUSTED || !used.exhausted ||
+           used.apply_a!=1 || used.total!=1 || stats.nreturned || stats.nconv)
+            return 1;
+        p.apply_a=fail_callback;
+        rc=lis_krylov_symmetric_budgeted(&p,&options,&ext,NULL,&budget,
+                    values,vectors,residuals,&stats,&extra,&used);
+        if(rc!=LIS_KRYLOV_CALLBACK_ERROR || used.exhausted || used.apply_a!=1)
+            return 1;
+        p.apply_a=apply_diagonal;
+        lis_krylov_budget_default(&budget);
+        rc=lis_krylov_symmetric_budgeted(&p,&options,&ext,NULL,&budget,
+                    values,vectors,residuals,&stats,&extra,&used);
+        if(rc!=LIS_KRYLOV_SUCCESS || stats.nconv!=2 ||
+           used.exhausted || used.total!=used.apply_a || !used.apply_a)
+            return 1;
+        rc=lis_krylov_select_converged(5,v,r,1,6,1e-8,idx,5,&count);
+        if(rc || count!=2 || idx[0]!=0 || idx[1]!=4) return 1;
+        count=-1;
+        rc=lis_krylov_select_converged(5,v,r,1,6,1e-8,idx,1,&count);
+        if(rc!=LIS_KRYLOV_BAD_ARGUMENT || count!=-1) return 1;
+        puts("PASS callback budget and converged pair selection");
     }
 
     /* On ILP32, n * ncv = 2^34 and n * (ncv/2) = 2^33.

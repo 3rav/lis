@@ -960,6 +960,11 @@ struct LIS_MATRIX_AUTO_SESSION_STRUCT
     uint64_t selected_csr_epoch;
     LIS_INT selected_policy;
     LIS_INT has_selection;
+    LIS_MATRIX_CSR_CACHE precon_cache;
+    LIS_MATRIX precon_source;
+    uint64_t precon_structure_stamp,precon_value_stamp;
+    uint64_t precon_csr_epoch;
+    LIS_INT paired;
 };
 
 #undef __FUNC__
@@ -1093,6 +1098,13 @@ lis_matrix_auto_session_solve(
        source==NULL || b==NULL || x==NULL)
         return LIS_ERR_ILL_ARG;
 
+    /* Leaving paired mode must retire state before either cache is touched. */
+    if(session->paired)
+    {
+        err=lis_matrix_auto_session_reset(session);
+        if(err) return err;
+    }
+
     /* The outputs are committed only after a successful solve. */
     err=lis_matrix_choose_solver_policy(
         source,session->solver,&desired_policy);
@@ -1216,6 +1228,110 @@ fail:
 }
 
 #undef __FUNC__
+#define __FUNC__ "lis_matrix_auto_session_solve_with_precon_matrix"
+LIS_INT
+lis_matrix_auto_session_solve_with_precon_matrix(
+    LIS_MATRIX_AUTO_SESSION session,
+    LIS_MATRIX source,LIS_MATRIX precon_source,
+    LIS_VECTOR b,LIS_VECTOR x,
+    LIS_INT *policy,LIS_INT *action,
+    LIS_INT *precon_policy,LIS_INT *precon_action)
+{
+    LIS_MATRIX selected=precon_source;
+    LIS_SOLVER solver;
+    uint64_t as,av,ps,pv;
+    LIS_INT pp=LIS_MATRIX_POLICY_DIRECT,pa=LIS_MATRIX_POLICY_ACTION_DIRECT;
+    LIS_INT err,reset_err,ap,aa,method;
+
+    if(!session || !session->solver || !source || !precon_source || !b || !x)
+        return LIS_ERR_ILL_ARG;
+    if(source==precon_source)
+    {
+        err=lis_matrix_auto_session_solve(session,source,b,x,&ap,&aa);
+        if(err) return err;
+        if(policy) *policy=ap;
+        if(action) *action=aa;
+        if(precon_policy) *precon_policy=ap;
+        if(precon_action) *precon_action=aa;
+        return LIS_SUCCESS;
+    }
+    solver=session->solver;
+    method=solver->options[LIS_OPTIONS_SOLVER];
+    if(source->nprocs!=1 || precon_source->nprocs!=1 ||
+       source->n!=source->gn || precon_source->n!=precon_source->gn ||
+       (method!=LIS_SOLVER_GMRES && method!=LIS_SOLVER_FGMRES) ||
+       solver->options[LIS_OPTIONS_PRECON]!=LIS_PRECON_TYPE_JACOBI ||
+       solver->options[LIS_OPTIONS_SCALE]!=LIS_SCALE_NONE ||
+       solver->options[LIS_OPTIONS_PRECISION]!=LIS_PRECISION_DEFAULT ||
+       solver->options[LIS_OPTIONS_STORAGE]!=0 ||
+       solver->options[LIS_OPTIONS_ADDS] || solver->options[LIS_OPTIONS_USE_AT] ||
+       solver->nullspace_dim || solver->left_nullspace_dim ||
+       solver->near_nullspace_dim ||
+       !lis_matrix_policy_has_matvec(source,0))
+        return LIS_ERR_NOT_IMPLEMENTED;
+    if(source->n!=precon_source->n || b->n!=source->n || x->n!=source->n ||
+       b->gn!=source->gn || x->gn!=source->gn)
+        return LIS_ERR_ILL_ARG;
+    if(precon_source->matrix_type==LIS_MATRIX_USER ||
+       precon_source->matrix_type==LIS_MATRIX_OPERATOR)
+        pp=LIS_MATRIX_POLICY_CACHED_CSR;
+    else if(precon_source->matrix_type!=LIS_MATRIX_CSR)
+        return LIS_ERR_NOT_IMPLEMENTED;
+
+    err=lis_matrix_materialize_source_stamp(source,&as,&av,0);
+    if(err) return err;
+    err=lis_matrix_materialize_source_stamp(precon_source,&ps,&pv,0);
+    if(err) return err;
+
+    if(!session->paired || !session->has_selection ||
+       session->source!=source || session->precon_source!=precon_source ||
+       session->structure_stamp!=as || session->value_stamp!=av ||
+       session->precon_structure_stamp!=ps || session->precon_value_stamp!=pv ||
+       (pp==LIS_MATRIX_POLICY_CACHED_CSR &&
+        (!session->precon_cache || !session->precon_cache->valid ||
+         session->precon_cache->source!=precon_source ||
+         session->precon_cache->epoch!=session->precon_csr_epoch)))
+    {
+        err=lis_solver_reset_sequence(solver);
+        if(err) goto fail;
+        session->has_selection=LIS_FALSE;
+    }
+    session->paired=LIS_TRUE;
+    if(pp==LIS_MATRIX_POLICY_CACHED_CSR)
+    {
+        err=lis_matrix_materialize_csr_cached(precon_source,
+                 &session->precon_cache,&selected,&pa);
+        if(err) goto fail;
+    }
+    err=lis_solve_sequence_with_precon_matrix(source,selected,b,x,solver);
+    if(err) goto fail;
+    session->source=source;
+    session->precon_source=precon_source;
+    session->structure_stamp=as;
+    session->value_stamp=av;
+    session->precon_structure_stamp=ps;
+    session->precon_value_stamp=pv;
+    session->precon_csr_epoch=pp==LIS_MATRIX_POLICY_CACHED_CSR ?
+                             session->precon_cache->epoch : 0;
+    session->selected_policy=LIS_MATRIX_POLICY_DIRECT;
+    session->selected_csr_epoch=0;
+    session->has_selection=LIS_TRUE;
+    if(policy) *policy=LIS_MATRIX_POLICY_DIRECT;
+    if(action) *action=LIS_MATRIX_POLICY_ACTION_DIRECT;
+    if(precon_policy) *precon_policy=pp;
+    if(precon_action) *precon_action=pa;
+    return LIS_SUCCESS;
+fail:
+    reset_err=lis_solver_reset_sequence(solver);
+    if(session->precon_cache) session->precon_cache->valid=LIS_FALSE;
+    if(session->cache) session->cache->valid=LIS_FALSE;
+    session->has_selection=LIS_FALSE;
+    session->source=NULL;
+    session->precon_source=NULL;
+    return err ? err : reset_err;
+}
+
+#undef __FUNC__
 #define __FUNC__ "lis_matrix_auto_session_reset"
 LIS_INT
 lis_matrix_auto_session_reset(LIS_MATRIX_AUTO_SESSION session)
@@ -1231,6 +1347,11 @@ lis_matrix_auto_session_reset(LIS_MATRIX_AUTO_SESSION session)
 
     lis_matrix_csr_cache_destroy(session->cache);
     session->cache=NULL;
+    lis_matrix_csr_cache_destroy(session->precon_cache);
+    session->precon_cache=NULL;
+    session->precon_source=NULL;
+    session->precon_csr_epoch=0;
+    session->paired=LIS_FALSE;
     session->source=NULL;
     session->has_selection=LIS_FALSE;
     session->selected_csr_epoch=0;
@@ -1249,6 +1370,7 @@ lis_matrix_auto_session_destroy(LIS_MATRIX_AUTO_SESSION session)
     if(session->solver)
         lis_solver_destroy(session->solver);
     lis_matrix_csr_cache_destroy(session->cache);
+    lis_matrix_csr_cache_destroy(session->precon_cache);
     memset(session,0,sizeof(*session));
     lis_free(session);
 }

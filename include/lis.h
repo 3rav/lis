@@ -27,7 +27,12 @@
 #ifndef __LIS_H__
 #define __LIS_H__
 
-#ifdef HAVE_CONFIG_H
+/* External clients may opt into the configuration installed alongside
+ * this header, without borrowing their own project's HAVE_CONFIG_H.
+ * Use matching include/library prefixes and compiler/MPI flags. */
+#if defined(LIS_USE_INSTALLED_CONFIG)
+#include "lis_config.h"
+#elif defined(HAVE_CONFIG_H)
 #include "lis_config.h"
 #else
 #ifdef HAVE_CONFIG_WIN_H
@@ -36,6 +41,7 @@
 #endif
 
 #include <math.h>
+#include "lis_abi.h"
 
 #ifdef __cplusplus
 #undef HAVE_COMPLEX_H
@@ -1155,6 +1161,9 @@ struct LIS_SOLVER_STRUCT
 	LIS_INT *mfamg_contact_partition;
 	LIS_INT mfamg_contact_partition_n;
 	LIS_INT sequence_precon_mfamg_contact_aware;
+	/* Independent interpolation modes, appended to preserve existing offsets. */
+	LIS_VECTOR *amg_coarse_basis;
+	LIS_INT amg_coarse_basis_dim;
 };
 typedef struct LIS_SOLVER_STRUCT *LIS_SOLVER;
 
@@ -1259,6 +1268,52 @@ struct LIS_ESOLVER_STRUCT
         LIS_INT inverse_recovery_shift_mask;
 };
 typedef struct LIS_ESOLVER_STRUCT *LIS_ESOLVER;
+
+/* Compile-time client description, NOT a query of the linked library.
+ * Compare with lis_abi_get_info before passing LIS objects across the
+ * ABI. Exact size checks catch many, not all, public layout mismatches. */
+static inline void lis_abi_get_client_info(LIS_ABI_INFO *info)
+{
+    const uint16_t endian_probe=1;
+    if(!info) return;
+    info->version=LIS_ABI_INFO_VERSION;
+    info->struct_size=(uint32_t)sizeof(*info);
+    info->lis_int_bytes=(uint32_t)sizeof(LIS_INT);
+    info->lis_scalar_bytes=(uint32_t)sizeof(LIS_SCALAR);
+    info->lis_real_bytes=(uint32_t)sizeof(LIS_REAL);
+#ifdef _COMPLEX
+    info->scalar_kind=LIS_ABI_SCALAR_COMPLEX;
+#else
+    info->scalar_kind=LIS_ABI_SCALAR_REAL;
+#endif
+    info->flags=0;
+#ifdef USE_MPI
+    info->flags|=LIS_ABI_FLAG_MPI;
+#endif
+#ifdef _OPENMP
+    info->flags|=LIS_ABI_FLAG_OPENMP;
+#endif
+#ifdef USE_QUAD_PRECISION
+    info->flags|=LIS_ABI_FLAG_QUAD_SOLVER;
+#endif
+#ifdef _LONG__DOUBLE
+    info->flags|=LIS_ABI_FLAG_LONG_DOUBLE;
+#endif
+#if defined(_COMPLEX) && defined(_LONG__DOUBLE) && defined(HAVE_QUADMATH_H)
+    info->flags|=LIS_ABI_FLAG_FLOAT128;
+#endif
+    info->reserved=0;
+    info->pointer_bytes=(uint32_t)sizeof(void *);
+    info->endianness=*((const unsigned char *)&endian_probe)?
+        LIS_ABI_ENDIAN_LITTLE:LIS_ABI_ENDIAN_BIG;
+    info->comm_bytes=(uint32_t)sizeof(LIS_Comm);
+    info->vector_struct_bytes=(uint32_t)sizeof(struct LIS_VECTOR_STRUCT);
+    info->matrix_struct_bytes=(uint32_t)sizeof(struct LIS_MATRIX_STRUCT);
+    info->precon_struct_bytes=(uint32_t)sizeof(struct LIS_PRECON_STRUCT);
+    info->solver_struct_bytes=(uint32_t)sizeof(struct LIS_SOLVER_STRUCT);
+    info->esolver_struct_bytes=(uint32_t)sizeof(struct LIS_ESOLVER_STRUCT);
+}
+
 
 struct LIS_CONV_OPTIONS_STRUCT
 {
@@ -1579,6 +1634,17 @@ extern LIS_INT lis_vector_export_real64_tolerant(
 	extern LIS_INT lis_solver_set_mfamg_contact_partition(LIS_SOLVER solver,
 		LIS_INT nlocal, const LIS_INT *partition);
 	extern LIS_INT lis_solver_clear_near_nullspace(LIS_SOLVER solver);
+	/* Optional MFAMG interpolation basis. Copies caller vectors independently
+	 * of mathematical near-nullspace. With no explicit basis, MFAMG retains
+	 * its historical near-nullspace fallback. An explicit basis is not
+	 * deflation. Changes reset reusable sequence state. Retire caller-owned
+	 * preconditioners before changing the basis. nvec=0 clears it. */
+	extern LIS_INT lis_solver_set_amg_coarse_basis(LIS_SOLVER solver,
+		LIS_INT nvec, LIS_VECTOR vectors[]);
+	extern LIS_INT lis_solver_clear_amg_coarse_basis(LIS_SOLVER solver);
+	/* Dimension of the explicit basis, not the legacy fallback. */
+	extern LIS_INT lis_solver_get_amg_coarse_basis_dim(LIS_SOLVER solver,
+		LIS_INT *dim);
 	extern LIS_INT lis_solver_set_gcrodr_recycle(
 		LIS_SOLVER solver, LIS_INT dim,
 		LIS_REAL keep_quality, LIS_REAL reject_quality);
@@ -1699,6 +1765,35 @@ extern LIS_INT lis_gesolve_matrix_session_get_esolver(
 extern LIS_INT lis_gesolve_matrix_session_solve(
     LIS_GESOLVE_MATRIX_SESSION session,LIS_MATRIX A,LIS_MATRIX B,
     LIS_VECTOR x,LIS_INT *policy_A,LIS_INT *policy_B);
+/* Diagnostics of the most recent session attempt, independent of the
+ * lifetime of the borrowed eigensolver. Numeric values are diagnostic,
+ * not certification of an eigenpair. A failed preflight/retirement can
+ * leave earlier committed results accessible, but results_committed refers
+ * only to this attempt. Explicit successful reset clears the report. */
+#define LIS_GESOLVE_STAGE_VALIDATE  1
+#define LIS_GESOLVE_STAGE_RETIRE    2
+#define LIS_GESOLVE_STAGE_PREPARE_A 3
+#define LIS_GESOLVE_STAGE_PREPARE_B 4
+#define LIS_GESOLVE_STAGE_SOLVE     5
+#define LIS_GESOLVE_STAGE_STORE     6
+#define LIS_GESOLVE_STAGE_COMPLETE 7
+typedef struct LIS_GESOLVE_SESSION_REPORT_STRUCT
+{
+    LIS_INT stage;
+    LIS_INT return_code;
+    LIS_INT solver_called;
+    LIS_INT solver_api_return;
+    LIS_INT solver_status;
+    LIS_INT iterations_available;
+    LIS_INT iterations;
+    LIS_INT residual_available;
+    LIS_REAL residual_norm;
+    LIS_INT computed_nev;
+    LIS_INT results_committed;
+    LIS_INT cleanup_return;
+} LIS_GESOLVE_SESSION_REPORT;
+extern LIS_INT lis_gesolve_matrix_session_get_report(
+    LIS_GESOLVE_MATRIX_SESSION session,LIS_GESOLVE_SESSION_REPORT *report);
 extern LIS_INT lis_gesolve_matrix_session_get_nev(
     LIS_GESOLVE_MATRIX_SESSION session,LIS_INT *computed_nev);
 extern LIS_INT lis_gesolve_matrix_session_get_eigenpair(

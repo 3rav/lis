@@ -1588,3 +1588,99 @@ int lis_krylov_solve_interval(const lis_krylov_problem *p,
             return LIS_KRYLOV_NO_CONVERGENCE;
     return LIS_KRYLOV_SUCCESS;
 }
+
+
+/* Callback accounting is local to a synchronous solve; the original
+ * workspace does not retain callback/context state across calls. */
+typedef struct {
+    const lis_krylov_problem *original;
+    const lis_krylov_budget *limit;
+    lis_krylov_budget_stats *used;
+} krylov_budget_context;
+
+void lis_krylov_budget_default(lis_krylov_budget *budget)
+{
+    if (!budget) return;
+    memset(budget,0,sizeof(*budget));
+    budget->struct_size=(unsigned int)sizeof(*budget);
+    budget->version=LIS_KRYLOV_BUDGET_VERSION;
+}
+
+static int krylov_budget_call(krylov_budget_context *ctx,
+    lis_krylov_matvec cb,uint64_t *count,uint64_t limit,
+    int n,const double *x,double *y)
+{
+    if (ctx->used->total >= (uint64_t)(INT_MAX/2) ||
+        (ctx->limit->max_total && ctx->used->total >= ctx->limit->max_total) ||
+        (limit && *count >= limit)) {
+        ctx->used->exhausted=1;
+        return -1;
+    }
+    ++*count;
+    ++ctx->used->total;
+    return cb(ctx->original->ctx,n,x,y);
+}
+static int krylov_budget_a(void *opaque,int n,const double *x,double *y)
+{
+    krylov_budget_context *ctx=(krylov_budget_context*)opaque;
+    return krylov_budget_call(ctx,ctx->original->apply_a,
+        &ctx->used->apply_a,ctx->limit->max_apply_a,n,x,y);
+}
+static int krylov_budget_b(void *opaque,int n,const double *x,double *y)
+{
+    krylov_budget_context *ctx=(krylov_budget_context*)opaque;
+    return krylov_budget_call(ctx,ctx->original->apply_b,
+        &ctx->used->apply_b,ctx->limit->max_apply_b,n,x,y);
+}
+static int krylov_budget_solve(void *opaque,int n,const double *x,double *y)
+{
+    krylov_budget_context *ctx=(krylov_budget_context*)opaque;
+    return krylov_budget_call(ctx,ctx->original->solve,
+        &ctx->used->solve,ctx->limit->max_solve,n,x,y);
+}
+int lis_krylov_symmetric_budgeted(const lis_krylov_problem *p,
+    const lis_krylov_options *o,const lis_krylov_ext_options *ext,
+    lis_krylov_workspace *workspace,const lis_krylov_budget *budget,
+    double *values,double *vectors,double *residuals,lis_krylov_stats *stats,
+    lis_krylov_ext_stats *ext_stats,lis_krylov_budget_stats *used)
+{
+    lis_krylov_problem wrapped;
+    krylov_budget_context ctx;
+    int rc;
+    if (stats) memset(stats,0,sizeof(*stats));
+    if (used) memset(used,0,sizeof(*used));
+    if (!p || !budget || !used ||
+        budget->struct_size!=(unsigned int)sizeof(*budget) ||
+        budget->version!=LIS_KRYLOV_BUDGET_VERSION)
+        return LIS_KRYLOV_BAD_ARGUMENT;
+    ctx.original=p;ctx.limit=budget;ctx.used=used;
+    wrapped=*p;
+    wrapped.ctx=&ctx;
+    wrapped.apply_a=p->apply_a?krylov_budget_a:NULL;
+    wrapped.apply_b=p->apply_b?krylov_budget_b:NULL;
+    wrapped.solve=p->solve?krylov_budget_solve:NULL;
+    rc=lis_krylov_symmetric_ex(&wrapped,o,ext,workspace,values,vectors,
+                              residuals,stats,ext_stats);
+    if (used->exhausted) {
+        if (stats) stats->nreturned=stats->nconv=0;
+        return LIS_KRYLOV_BUDGET_EXHAUSTED;
+    }
+    return rc;
+}
+int lis_krylov_select_converged(int nreturned,const double *values,
+    const double *residuals,double lower,double upper,double tolerance,
+    int *indices,int capacity,int *count)
+{
+    int i,k=0;
+    if (!count || nreturned<0 || capacity<nreturned ||
+        !(lower<upper) || !isfinite(tolerance) || tolerance<0 ||
+        (nreturned && (!values || !residuals || !indices)))
+        return LIS_KRYLOV_BAD_ARGUMENT;
+    for(i=0;i<nreturned;++i)
+        if(isfinite(values[i]) && values[i]>lower && values[i]<upper &&
+           isfinite(residuals[i]) && residuals[i]>=0 &&
+           residuals[i]<=tolerance)
+            indices[k++]=i;
+    *count=k;
+    return LIS_KRYLOV_SUCCESS;
+}
