@@ -1643,10 +1643,81 @@ int lis_krylov_solve_interval(const lis_krylov_problem *p,
 }
 
 
+int lis_krylov_count_interval64(int64_t n, void *ctx,
+                              lis_krylov_inertia_callback64 inertia,
+                              double lower, double upper, int64_t *count)
+{
+    int64_t neg_lo = 0, neg_hi = 0, zero_lo = 0, zero_hi = 0;
+    if (count) *count = 0;
+    if (n <= 0 || !inertia || !count ||
+        !isfinite(lower) || !isfinite(upper) || !(lower < upper))
+        return LIS_KRYLOV_BAD_ARGUMENT;
+    if (inertia(ctx, n, lower, &neg_lo, &zero_lo) ||
+        inertia(ctx, n, upper, &neg_hi, &zero_hi))
+        return LIS_KRYLOV_CALLBACK_ERROR;
+    if (neg_lo < 0 || neg_lo > n || neg_hi < 0 || neg_hi > n ||
+        zero_lo < 0 || zero_lo > n - neg_lo ||
+        zero_hi < 0 || zero_hi > n - neg_hi ||
+        neg_hi < neg_lo)
+        return LIS_KRYLOV_BREAKDOWN;
+    if (zero_lo || zero_hi) return LIS_KRYLOV_SINGULAR_SHIFT;
+    *count = neg_hi - neg_lo;
+    return LIS_KRYLOV_SUCCESS;
+}
+
+/* An independently counted symmetric window with a midpoint shift.
+ * For SPD B, transformed eigenvalues inside the symmetric open interval
+ * outrank those outside by magnitude. All requested pairs must converge
+ * and lie strictly inside the window before success can be claimed. */
+int lis_krylov_solve_interval64(const lis_krylov_problem64 *p,
+                              const lis_krylov_options *options,
+                              lis_krylov_inertia_callback64 inertia,
+                              double lower, double upper,
+                              double *values, double *vectors,
+                              double *residuals, lis_krylov_stats *stats,
+                              int64_t *expected_count)
+{
+    lis_krylov_options o;
+    double center;
+    int64_t count = 0;
+    int rc, i;
+    if (stats) memset(stats, 0, sizeof(*stats));
+    if (expected_count) *expected_count = 0;
+    if (!p || !options || !inertia || !stats || !expected_count ||
+        !values || !vectors || !residuals ||
+        p->transform != LIS_KRYLOV_SHIFT_INVERT_B ||
+        options->allow_semidefinite_metric ||
+        !isfinite(lower) || !isfinite(upper) || !(lower < upper))
+        return LIS_KRYLOV_BAD_ARGUMENT;
+    center = lower + 0.5 * (upper - lower);
+    if (!isfinite(center) || p->sigma != center)
+        return LIS_KRYLOV_BAD_ARGUMENT;
+    rc = lis_krylov_count_interval64(p->n, p->ctx, inertia,
+                                   lower, upper, &count);
+    if (rc != LIS_KRYLOV_SUCCESS) return rc;
+    *expected_count = count;
+    if (!count) return LIS_KRYLOV_SUCCESS;
+    if (options->nev < count || count >= p->n ||
+        (options->ncv && options->ncv <= count))
+        return LIS_KRYLOV_BAD_ARGUMENT;
+    o = *options;
+    o.nev = (int)count;
+    o.which = "LM";
+    rc = lis_krylov_symmetric_ex64(p,&o,NULL,NULL,values,vectors,residuals,stats,NULL);
+    if (rc != LIS_KRYLOV_SUCCESS) return rc;
+    if (stats->nreturned != count || stats->nconv != count)
+        return LIS_KRYLOV_NO_CONVERGENCE;
+    for (i = 0; i < count; ++i)
+        if (!(values[i] > lower && values[i] < upper))
+            return LIS_KRYLOV_NO_CONVERGENCE;
+    return LIS_KRYLOV_SUCCESS;
+}
+
+
 /* Callback accounting is local to a synchronous solve; the original
  * workspace does not retain callback/context state across calls. */
 typedef struct {
-    const lis_krylov_problem *original;
+    const lis_krylov_problem64 *original;
     const lis_krylov_budget *limit;
     lis_krylov_budget_stats *used;
 } krylov_budget_context;
@@ -1660,8 +1731,8 @@ void lis_krylov_budget_default(lis_krylov_budget *budget)
 }
 
 static int krylov_budget_call(krylov_budget_context *ctx,
-    lis_krylov_matvec cb,uint64_t *count,uint64_t limit,
-    int n,const double *x,double *y)
+    lis_krylov_matvec64 cb,uint64_t *count,uint64_t limit,
+    int64_t n,const double *x,double *y)
 {
     if (ctx->used->total >= (uint64_t)(INT_MAX/2) ||
         (ctx->limit->max_total && ctx->used->total >= ctx->limit->max_total) ||
@@ -1673,31 +1744,31 @@ static int krylov_budget_call(krylov_budget_context *ctx,
     ++ctx->used->total;
     return cb(ctx->original->ctx,n,x,y);
 }
-static int krylov_budget_a(void *opaque,int n,const double *x,double *y)
+static int krylov_budget_a(void *opaque,int64_t n,const double *x,double *y)
 {
     krylov_budget_context *ctx=(krylov_budget_context*)opaque;
     return krylov_budget_call(ctx,ctx->original->apply_a,
         &ctx->used->apply_a,ctx->limit->max_apply_a,n,x,y);
 }
-static int krylov_budget_b(void *opaque,int n,const double *x,double *y)
+static int krylov_budget_b(void *opaque,int64_t n,const double *x,double *y)
 {
     krylov_budget_context *ctx=(krylov_budget_context*)opaque;
     return krylov_budget_call(ctx,ctx->original->apply_b,
         &ctx->used->apply_b,ctx->limit->max_apply_b,n,x,y);
 }
-static int krylov_budget_solve(void *opaque,int n,const double *x,double *y)
+static int krylov_budget_solve(void *opaque,int64_t n,const double *x,double *y)
 {
     krylov_budget_context *ctx=(krylov_budget_context*)opaque;
     return krylov_budget_call(ctx,ctx->original->solve,
         &ctx->used->solve,ctx->limit->max_solve,n,x,y);
 }
-int lis_krylov_symmetric_budgeted(const lis_krylov_problem *p,
+int lis_krylov_symmetric_budgeted64(const lis_krylov_problem64 *p,
     const lis_krylov_options *o,const lis_krylov_ext_options *ext,
     lis_krylov_workspace *workspace,const lis_krylov_budget *budget,
     double *values,double *vectors,double *residuals,lis_krylov_stats *stats,
     lis_krylov_ext_stats *ext_stats,lis_krylov_budget_stats *used)
 {
-    lis_krylov_problem wrapped;
+    lis_krylov_problem64 wrapped;
     krylov_budget_context ctx;
     int rc;
     if (stats) memset(stats,0,sizeof(*stats));
@@ -1712,13 +1783,30 @@ int lis_krylov_symmetric_budgeted(const lis_krylov_problem *p,
     wrapped.apply_a=p->apply_a?krylov_budget_a:NULL;
     wrapped.apply_b=p->apply_b?krylov_budget_b:NULL;
     wrapped.solve=p->solve?krylov_budget_solve:NULL;
-    rc=lis_krylov_symmetric_ex(&wrapped,o,ext,workspace,values,vectors,
+    rc=lis_krylov_symmetric_ex64(&wrapped,o,ext,workspace,values,vectors,
                               residuals,stats,ext_stats);
     if (used->exhausted) {
         if (stats) stats->nreturned=stats->nconv=0;
         return LIS_KRYLOV_BUDGET_EXHAUSTED;
     }
     return rc;
+}
+int lis_krylov_symmetric_budgeted(const lis_krylov_problem *p,
+    const lis_krylov_options *o,const lis_krylov_ext_options *ext,
+    lis_krylov_workspace *workspace,const lis_krylov_budget *budget,
+    double *values,double *vectors,double *residuals,lis_krylov_stats *stats,
+    lis_krylov_ext_stats *ext_stats,lis_krylov_budget_stats *used)
+{
+    lis_krylov_problem64 q;
+    if(!p || p->n>INT_MAX/8)
+    {
+        if(stats)memset(stats,0,sizeof(*stats));
+        if(used)memset(used,0,sizeof(*used));
+        return LIS_KRYLOV_BAD_ARGUMENT;
+    }
+    legacy_problem64(p,&q);
+    return lis_krylov_symmetric_budgeted64(&q,o,ext,workspace,budget,values,
+               vectors,residuals,stats,ext_stats,used);
 }
 int lis_krylov_select_converged(int nreturned,const double *values,
     const double *residuals,double lower,double upper,double tolerance,

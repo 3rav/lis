@@ -127,6 +127,16 @@ int lis_krylov_solve_interval(const lis_krylov_problem *problem,
                               double *residuals, lis_krylov_stats *stats,
                               int *expected_count);
 
+/* Inertia counting can exceed the projected solver's int capacity. */
+typedef int (*lis_krylov_inertia_callback64)(void *ctx,int64_t n,double shift,
+                                            int64_t *negative,int64_t *zero);
+int lis_krylov_count_interval64(int64_t n,void *ctx,
+    lis_krylov_inertia_callback64 inertia,double lower,double upper,int64_t *count);
+int lis_krylov_solve_interval64(const lis_krylov_problem64 *problem,
+    const lis_krylov_options *options,lis_krylov_inertia_callback64 inertia,
+    double lower,double upper,double *values,double *vectors,double *residuals,
+    lis_krylov_stats *stats,int64_t *expected_count);
+
 void lis_krylov_options_default(lis_krylov_options *options);
 
 /* Experimental, versioned extension API.
@@ -230,6 +240,13 @@ int lis_krylov_symmetric_budgeted(
     const lis_krylov_budget *budget,
     double *values,double *vectors,double *residuals,
     lis_krylov_stats *stats,lis_krylov_ext_stats *ext_stats,
+    lis_krylov_budget_stats *budget_stats);
+
+int lis_krylov_symmetric_budgeted64(
+    const lis_krylov_problem64 *problem,const lis_krylov_options *options,
+    const lis_krylov_ext_options *ext_options,lis_krylov_workspace *workspace,
+    const lis_krylov_budget *budget,double *values,double *vectors,
+    double *residuals,lis_krylov_stats *stats,lis_krylov_ext_stats *ext_stats,
     lis_krylov_budget_stats *budget_stats);
 
 /* Select indices of finite returned pairs in an open interval whose

@@ -24,6 +24,15 @@ static int apply_diagonal64(void *ctx,int64_t n,const double *x,double *y)
     return 0;
 }
 
+/* Synthetic inertia metadata exercises >32-bit counts without allocation. */
+static int inertia64(void *ctx,int64_t n,double shift,int64_t *negative,int64_t *zero)
+{
+    (void)ctx;
+    *negative=shift>0?n:0;
+    *zero=0;
+    return 0;
+}
+
 static int fail_callback(void *ctx,int n,const double *x,double *y)
 {
     (void)ctx;(void)n;(void)x;(void)y;
@@ -139,6 +148,20 @@ int main(void)
                                    residuals,&stats,&extra);
         lis_krylov_workspace_destroy(w);w=NULL;
         if(rc || stats.nconv!=2)return 1;
+        {
+            lis_krylov_budget budget;
+            lis_krylov_budget_stats used;
+            int64_t count=0;
+            lis_krylov_budget_default(&budget);
+            budget.max_apply_a=1;
+            rc=lis_krylov_symmetric_budgeted64(&p64,&options,&ext,NULL,&budget,
+                        values,vectors,residuals,&stats,&extra,&used);
+            if(rc!=LIS_KRYLOV_BUDGET_EXHAUSTED || used.apply_a!=1 ||
+               stats.nreturned)return 1;
+            rc=lis_krylov_count_interval64(INT64_C(5000000000),NULL,inertia64,
+                                           -1,1,&count);
+            if(rc || count!=INT64_C(5000000000))return 1;
+        }
         p64.n=INT64_MAX;
         rc=lis_krylov_workspace_create64(&p64,&options,&ext,&w);
         if(rc!=LIS_KRYLOV_BAD_ARGUMENT || w)return 1;
