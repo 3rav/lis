@@ -99,7 +99,7 @@ jobs:
             index_flags="--enable-longlong"
           fi
           autoreconf -fiv
-          ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg ${index_flags}
+          ./configure --enable-test --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg --enable-oom-tests ${index_flags}
           make -C src -j2
           export LD_LIBRARY_PATH="$PWD/src/.libs:${LD_LIBRARY_PATH:-}"
           make -C test testusereigencgcr testusereigeninverse testusereigenpower testusereigenprojection testusereigenrqiguard testusereigenstatus

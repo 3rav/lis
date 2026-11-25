@@ -1157,11 +1157,11 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 {
 	LIS_Comm comm;   
 	LIS_INT	nesolver,niesolver,nigesolver,emaxiter; 
-	LIS_SCALAR *evalue;
-	LIS_VECTOR *evector;
-	LIS_REAL *resid;
-	LIS_REAL *rhistory;
-	LIS_INT	*iter,*iter2;
+	LIS_SCALAR *evalue=NULL;
+	LIS_VECTOR *evector=NULL;
+	LIS_REAL *resid=NULL;
+	LIS_REAL *rhistory=NULL;
+	LIS_INT	*iter=NULL,*iter2=NULL;
 	LIS_INT	err;
 	LIS_INT output;
 	LIS_INT i;
@@ -1169,10 +1169,10 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 	double time;
 	LIS_SCALAR oshift,ishift;
 	LIS_INT	estorage,eblock;
-	LIS_MATRIX A0;
+	LIS_MATRIX A0=NULL;
 	LIS_INT eprecision;
 	LIS_INT rval;
-	LIS_VECTOR xx;
+	LIS_VECTOR xx=NULL;
 
 	LIS_DEBUG_FUNC_IN;
 
@@ -1448,49 +1448,20 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 	}
 	/* end parameter check */
 
-	/* create eigenvalue array */
-	if( esolver->evalue ) lis_free(esolver->evalue);
+	/* Stage result storage before retiring the previous result. On OOM,
+	 * no partially allocated array may be published or leaked. */
 	evalue = (LIS_SCALAR *)lis_malloc((ss+2)*sizeof(LIS_SCALAR),"lis_esolve::evalue");
-	if( evalue==NULL )
-	{
-		LIS_SETERR_MEM((ss+2)*sizeof(LIS_SCALAR));
-		esolver->retcode = err;
-		return err;
-	}
+	if( evalue==NULL ) goto result_oom;
 	for(i=0;i<ss+2;i++) evalue[i] = (LIS_SCALAR)NAN;
 	evalue[0] = 1.0;
 	evalue[ss-1] = 1.0;
 
-	/* create residual norm array */
-	if( esolver->resid ) lis_free(esolver->resid);
 	resid = (LIS_REAL *)lis_malloc((ss+2)*sizeof(LIS_REAL),"lis_esolve::resid");
-	if( resid==NULL )
-	{
-		LIS_SETERR_MEM((ss+2)*sizeof(LIS_SCALAR));
-		esolver->retcode = err;
-		return err;
-	}
-
-	/* create number of iterations array */
-	if( esolver->iter ) lis_free(esolver->iter);
-	iter = (LIS_INT *)lis_malloc((ss+2)*sizeof(LIS_SCALAR),"lis_esolve::iter");
-	if( iter==NULL )
-	{
-		LIS_SETERR_MEM((ss+2)*sizeof(LIS_SCALAR));
-		esolver->retcode = err;
-		return err;
-	}
-
-	/* create quad precision number of iterations array */
-	if( esolver->iter2 ) lis_free(esolver->iter2);
-	iter2 = (LIS_INT *)lis_malloc((ss+2)*sizeof(LIS_SCALAR),"lis_esolve::iter2");
-	if( iter2==NULL )
-	{
-		LIS_SETERR_MEM((ss+2)*sizeof(LIS_SCALAR));
-		esolver->retcode = err;
-		return err;
-	}
-
+	if( resid==NULL ) goto result_oom;
+	iter = (LIS_INT *)lis_malloc((ss+2)*sizeof(LIS_INT),"lis_esolve::iter");
+	if( iter==NULL ) goto result_oom;
+	iter2 = (LIS_INT *)lis_malloc((ss+2)*sizeof(LIS_INT),"lis_esolve::iter2");
+	if( iter2==NULL ) goto result_oom;
 	for(i=0;i<ss+2;i++)
 	{
 		resid[i] = NAN;
@@ -1511,11 +1482,7 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 			err = lis_vector_duplicateex(LIS_PRECISION_QUAD,A,&xx);
 		}
 	#endif
-	if( err )
-	{
-		esolver->retcode = err;
-		return err;
-	}
+	if( err ) goto result_failure;
 	if( esolver->options[LIS_EOPTIONS_INITGUESS_ONES] )
 	{
 	  if( output ) lis_printf(comm,"initial vector x      : all components set to 1\n");
@@ -1549,7 +1516,40 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 		#endif
 	}
 
-	/* create eigenvector array */
+	/* Stage eigenvectors and residual history as well. */
+	evector = (LIS_VECTOR *)lis_malloc((ss+2)*sizeof(LIS_VECTOR),"lis_esolve::evector");
+	if( evector==NULL ) goto result_oom;
+	memset(evector,0,(ss+2)*sizeof(LIS_VECTOR));
+	rhistory = (LIS_REAL *)lis_malloc((emaxiter+2)*sizeof(LIS_REAL),"lis_esolve::rhistory");
+	if( rhistory==NULL ) goto result_oom;
+
+	/* convert matrix */
+	if( estorage>0 && A->matrix_type!=estorage )
+	{
+		err = lis_matrix_duplicate(A,&A0);
+		if( err ) goto result_failure;
+		lis_matrix_set_blocksize(A0,eblock,eblock,NULL,NULL);
+		lis_matrix_set_type(A0,estorage);
+		err = lis_matrix_convert(A,A0);
+		if( err ) goto result_failure;
+		lis_matrix_storage_destroy(A);
+		lis_matrix_DLU_destroy(A);
+		lis_matrix_diag_destroy(A->WD);
+		if( A->l2g_map ) lis_free( A->l2g_map );
+		if( A->commtable ) lis_commtable_destroy( A->commtable );
+		if( A->ranges ) lis_free( A->ranges );
+		err = lis_matrix_copy_struct(A0,A);
+		if( err ) goto result_failure;
+		lis_free(A0);
+		A0 = NULL;
+	}
+
+	/* All staged allocations succeeded. Retire the previous result now. */
+	if( esolver->evalue ) lis_free(esolver->evalue);
+	if( esolver->resid ) lis_free(esolver->resid);
+	if( esolver->iter ) lis_free(esolver->iter);
+	if( esolver->iter2 ) lis_free(esolver->iter2);
+	if( esolver->rhistory ) lis_free(esolver->rhistory);
 	if( esolver->evector )
 	{
 	        /*
@@ -1569,47 +1569,6 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 	        esolver->evector = NULL;
 	        esolver->evector_owned_count = 0;
 	}
-	evector = (LIS_VECTOR *)lis_malloc((ss+2)*sizeof(LIS_VECTOR),"lis_esolve::evector");
-	if( evector==NULL )
-	{
-		LIS_SETERR_MEM((ss+2)*sizeof(LIS_VECTOR));
-		esolver->retcode = err;
-		return err;
-	}
-
-	    memset(evector,0,(ss+2)*sizeof(LIS_VECTOR));
-
-/* create residual history array */
-	if( esolver->rhistory ) lis_free(esolver->rhistory);
-	rhistory = (LIS_REAL *)lis_malloc((emaxiter+2)*sizeof(LIS_REAL),"lis_esolve::rhistory");
-	if( rhistory==NULL )
-	{
-		LIS_SETERR_MEM((emaxiter+2)*sizeof(LIS_SCALAR));
-		lis_vector_destroy(xx);
-		esolver->retcode = err;
-		return err;
-	}
-
-	/* convert matrix */
-	if( estorage>0 && A->matrix_type!=estorage )
-	{
-		err = lis_matrix_duplicate(A,&A0);
-		if( err ) return err;
-		lis_matrix_set_blocksize(A0,eblock,eblock,NULL,NULL);
-		lis_matrix_set_type(A0,estorage);
-		err = lis_matrix_convert(A,A0);
-		if( err ) return err;
-		lis_matrix_storage_destroy(A);
-		lis_matrix_DLU_destroy(A);
-		lis_matrix_diag_destroy(A->WD);
-		if( A->l2g_map ) lis_free( A->l2g_map );
-		if( A->commtable ) lis_commtable_destroy( A->commtable );
-		if( A->ranges ) lis_free( A->ranges );
-		err = lis_matrix_copy_struct(A0,A);
-		if( err ) return err;
-		lis_free(A0);
-	}
-
 	esolver->A        = A;
 	esolver->B        = B;
 	esolver->evalue   = evalue;
@@ -1774,6 +1733,23 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_SUCCESS;
+
+result_oom:
+	LIS_SETERR(LIS_OUT_OF_MEMORY,"eigensolver result allocation failed\n");
+	err = LIS_OUT_OF_MEMORY;
+result_failure:
+	if(A0) lis_matrix_destroy(A0);
+	if(xx) lis_vector_destroy(xx);
+	if(evalue) lis_free(evalue);
+	if(resid) lis_free(resid);
+	if(iter) lis_free(iter);
+	if(iter2) lis_free(iter2);
+	if(evector) lis_free(evector);
+	if(rhistory) lis_free(rhistory);
+	esolver->retcode = err;
+	if(evalue0) *evalue0 = (LIS_SCALAR)NAN;
+	LIS_DEBUG_FUNC_OUT;
+	return err;
 }
 
 #undef __FUNC__

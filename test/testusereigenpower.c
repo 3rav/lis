@@ -2,6 +2,9 @@
 #include "lis_config.h"
 #endif
 #include "lis.h"
+#ifdef LIS_TEST_OOM
+#include "lis_system.h"
+#endif
 #include <math.h>
 #include <stdio.h>
 
@@ -145,6 +148,48 @@ done:
     if(A)lis_matrix_destroy(A);
     return failed;
 }
+
+#ifdef LIS_TEST_OOM
+/* Four result arrays, the initial vector descriptor and values, then
+ * eigenvector slots and residual history. Fail each staged allocation
+ * while a previous successful result is still owned by this solver. */
+static int sweep_result_oom(void)
+{
+    SWEEP_CTX c={0,0,LIS_ERR_ILL_ARG};
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR x=NULL;
+    LIS_ESOLVER e=NULL;
+    LIS_INT status,err;
+    LIS_SCALAR value=0;
+    size_t k=0,before,live=lis_test_oom_live();
+    int failed=1;
+    if(lis_matrix_create(LIS_COMM_WORLD,&A) || lis_matrix_set_size(A,0,4) ||
+       lis_matrix_set_user(A,&c,sweep_apply,sweep_apply) ||
+       lis_vector_duplicate(A,&x) || lis_esolver_create(&e) ||
+       lis_esolver_set_option("-e pi -etol 1e-10 -emaxiter 200 -eprint none",e) ||
+       sweep_healthy(A,x,e,&c))goto done;
+    for(k=1;k<=8;k++){
+        before=lis_test_oom_live();
+        c.calls=0; value=0;
+        lis_test_oom_begin(k);
+        err=lis_esolve(A,x,&value,e);
+        lis_test_oom_end();
+        if(err!=LIS_OUT_OF_MEMORY || lis_esolver_get_status(e,&status) ||
+           status!=LIS_OUT_OF_MEMORY || !isnan((double)value) ||
+           c.calls!=0 || lis_test_oom_live()!=before ||
+           sweep_healthy(A,x,e,&c))goto done;
+    }
+    failed=0;
+done:
+    lis_test_oom_end();
+    if(e)lis_esolver_destroy(e);
+    if(x)lis_vector_destroy(x);
+    if(A)lis_matrix_destroy(A);
+    if(lis_test_oom_live()!=live)failed=1;
+    if(failed)fprintf(stderr,"USER eigen result OOM failed at %zu\n",k);
+    return failed;
+}
+#endif
 #endif
 int main(int argc,char **argv)
 {
@@ -163,6 +208,9 @@ int main(int argc,char **argv)
     failed|=run(0,0,0);
     failed|=run(1,0,0);
     failed|=sweep();
+#ifdef LIS_TEST_OOM
+    failed|=sweep_result_oom();
+#endif
     lis_finalize();
     printf("USER_EIGEN_POWER %s\n",failed?"FAILED":"PASSED");
     return failed?1:0;
