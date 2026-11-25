@@ -5,6 +5,8 @@
 #ifndef LIS_KRYLOV_H
 #define LIS_KRYLOV_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -75,7 +77,8 @@ enum {
     LIS_KRYLOV_BREAKDOWN = 4,
     LIS_KRYLOV_NO_CONVERGENCE = 5,
     LIS_KRYLOV_INEXACT_SOLVE = 6,
-    LIS_KRYLOV_SINGULAR_SHIFT = 7
+    LIS_KRYLOV_SINGULAR_SHIFT = 7,
+    LIS_KRYLOV_BUDGET_EXHAUSTED = 8
 };
 
 /* Callback returning inertia of A - shift B from a symmetric indefinite
@@ -173,6 +176,44 @@ int lis_krylov_symmetric_ex(const lis_krylov_problem *problem,
                             double *eigenvalues, double *eigenvectors,
                             double *residuals, lis_krylov_stats *stats,
                             lis_krylov_ext_stats *ext_stats);
+
+
+/* Optional hard limits on actual application callback invocations.
+ * Zero means no user limit; a conservative total ceiling of INT_MAX/2
+ * also protects legacy signed statistics. Limits count attempted calls
+ * (including failed callbacks), not internal algebra or iterations.
+ * On exhaustion no eigenpairs are published (nreturned=nconv=0).
+ * A genuine application failure remains CALLBACK_ERROR.
+ * Struct layout is new; existing options/statistics are unchanged.
+ */
+#define LIS_KRYLOV_BUDGET_VERSION 1u
+typedef struct lis_krylov_budget {
+    unsigned int struct_size,version;
+    uint64_t max_apply_a,max_apply_b,max_solve,max_total;
+} lis_krylov_budget;
+typedef struct lis_krylov_budget_stats {
+    uint64_t apply_a,apply_b,solve,total;
+    int exhausted;
+} lis_krylov_budget_stats;
+void lis_krylov_budget_default(lis_krylov_budget *budget);
+int lis_krylov_symmetric_budgeted(
+    const lis_krylov_problem *problem,
+    const lis_krylov_options *options,
+    const lis_krylov_ext_options *ext_options,
+    lis_krylov_workspace *workspace,
+    const lis_krylov_budget *budget,
+    double *values,double *vectors,double *residuals,
+    lis_krylov_stats *stats,lis_krylov_ext_stats *ext_stats,
+    lis_krylov_budget_stats *budget_stats);
+
+/* Select indices of finite returned pairs in an open interval whose
+ * reported residual is nonnegative and <= tolerance. Preserve input
+ * order; never claim spectral completeness. Caller supplies capacity
+ * >= nreturned. +/- infinity is permitted as an interval boundary.
+ */
+int lis_krylov_select_converged(int nreturned,const double *values,
+    const double *residuals,double lower,double upper,double tolerance,
+    int *indices,int capacity,int *count);
 
 
 /* Return the leading nreturned approximate eigenpairs, ordered by 'which'.
