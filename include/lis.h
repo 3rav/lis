@@ -1164,6 +1164,11 @@ struct LIS_SOLVER_STRUCT
 	/* Independent interpolation modes, appended to preserve existing offsets. */
 	LIS_VECTOR *amg_coarse_basis;
 	LIS_INT amg_coarse_basis_dim;
+	/* Configuration snapshot of the hierarchy construction controls. */
+	LIS_INT sequence_precon_mfamg_block_size;
+	LIS_INT sequence_precon_mfamg_fine_agg_factor;
+	LIS_INT sequence_precon_mfamg_vcycle_smooth_steps;
+	LIS_INT sequence_precon_mfamg_deep_sibling_merge;
 };
 typedef struct LIS_SOLVER_STRUCT *LIS_SOLVER;
 
