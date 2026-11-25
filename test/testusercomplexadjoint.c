@@ -125,6 +125,63 @@ done:
     if(A)lis_matrix_destroy(A);
     return failed;
 }
+
+/* A larger sparse operator exercises repeated per-thread row-buffer reuse.
+ * The callback reads immutable data only; the expected result is evaluated
+ * directly from the stencil, independently of row packing. */
+#define USER_STRESS_N 257
+static LIS_INT stress_row(void *raw,LIS_INT i,LIS_INT *nnz,LIS_INT *cols,LIS_SCALAR *vals)
+{
+    (void)raw;
+    if(!nnz || i<0 || i>=USER_STRESS_N)return LIS_ERR_ILL_ARG;
+    if(!cols && !vals){*nnz=4;return LIS_SUCCESS;}
+    if(!cols || !vals || *nnz<4)return LIS_ERR_ILL_ARG;
+    cols[0]=(i+1)%USER_STRESS_N; vals[0]=1+2*I;
+    cols[1]=i; vals[1]=2+I;
+    cols[2]=(i+USER_STRESS_N-1)%USER_STRESS_N; vals[2]=-1+I;
+    cols[3]=i; vals[3]=2+I;
+    *nnz=4;
+    return LIS_SUCCESS;
+}
+static int stress(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR x=NULL,y=NULL,h=NULL;
+    LIS_INT i,repeat,threadsafe;
+    int failed=1;
+    if(lis_matrix_create(LIS_COMM_WORLD,&A) ||
+       lis_matrix_set_size(A,0,USER_STRESS_N) ||
+       lis_matrix_set_user(A,NULL,NULL,NULL) ||
+       lis_matrix_set_user_row(A,stress_row) ||
+       lis_vector_duplicate(A,&x) || lis_vector_duplicate(A,&y) ||
+       lis_vector_duplicate(A,&h))goto done;
+    for(i=0;i<USER_STRESS_N;i++)
+        x->value[i]=(1.0+i%13)+(double)(i%7-3)*I;
+    for(threadsafe=0;threadsafe<=1;threadsafe++){
+        if(lis_matrix_set_user_row_thread_safe(A,threadsafe))goto done;
+        for(repeat=0;repeat<16;repeat++){
+            if(lis_matvec(A,x,y) || lis_matvech(A,x,h))goto done;
+            for(i=0;i<USER_STRESS_N;i++){
+                LIS_INT prev=(i+USER_STRESS_N-1)%USER_STRESS_N;
+                LIS_INT next=(i+1)%USER_STRESS_N;
+                LIS_SCALAR ex=(4+2*I)*x->value[i]+(1+2*I)*x->value[next]+(-1+I)*x->value[prev];
+                LIS_SCALAR eh=(4-2*I)*x->value[i]+(1-2*I)*x->value[prev]+(-1-I)*x->value[next];
+                if(!close_scalar(y->value[i],ex) || !close_scalar(h->value[i],eh)){
+                    fprintf(stderr,"USER stress mismatch row=%d repeat=%d opt-in=%d\n",
+                            (int)i,(int)repeat,(int)threadsafe);
+                    goto done;
+                }
+            }
+        }
+    }
+    failed=0;
+done:
+    if(h)lis_vector_destroy(h);
+    if(y)lis_vector_destroy(y);
+    if(x)lis_vector_destroy(x);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
 #endif
 int main(int argc,char **argv)
 {
@@ -132,6 +189,7 @@ int main(int argc,char **argv)
     int failed;
     if(lis_initialize(&argc,&argv))return 1;
     failed=exercise();
+    failed|=stress();
     lis_finalize();
     printf("USER_COMPLEX_ADJOINT %s\n",failed?"FAILED":"PASSED");
     return failed?1:0;
