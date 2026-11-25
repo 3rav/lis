@@ -19,10 +19,10 @@
 #include "lis.h"
 #include "lis_matrix_split_view.h"
 #include "lis_matrix_materialize.h"
+#include <stdio.h> /* FILE is used by the unmodified CalculiX header. */
 #include "CalculiX.h"
 #include <math.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 #define CCX_N 4
