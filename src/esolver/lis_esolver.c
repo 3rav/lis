@@ -1677,7 +1677,14 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 
 	if( err )
 	  {
-	    if ( output ) lis_printf(comm,"eigensolver status    : %s(code=%D)\n\n",lis_ereturncode[err],err);
+	    if( output )
+	    {
+	      /* Application callbacks may return errors outside the built-in table. */
+	      const char *name = (err>=LIS_SUCCESS &&
+	          err<(LIS_INT)(sizeof(lis_ereturncode)/sizeof(lis_ereturncode[0])))
+	          ? lis_ereturncode[err] : "LIS_CALLBACK_ERROR";
+	      lis_printf(comm,"eigensolver status    : %s(code=%D)\n\n",name,err);
+	    }
 	  }
 	else
 	  {
