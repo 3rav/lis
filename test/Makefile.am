@@ -431,3 +431,9 @@ testcondense_lis_LDADD = $(LDADD) -lm
 TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
 TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
 EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+
+# TFQMR USER callback errors.
+test_PROGRAMS += testusertfqmrcallback
+testusertfqmrcallback_SOURCES = testusertfqmrcallback.c
+testusertfqmrcallback_LDADD = $(LDADD) -lm
+TESTS += testusertfqmrcallback$(EXEEXT)
