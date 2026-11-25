@@ -1,0 +1,40 @@
+name: Offline LIS source bundle
+on:
+  push:
+    branches:
+      - bench-source-export-20261125
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export pinned source trees
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/lis-source-export
+          while read -r label sha; do
+            git cat-file -e "$sha^{commit}"
+            git archive --format=tar.gz --prefix="lis-$label/" --output="/tmp/lis-source-export/lis-$label.tar.gz" "$sha"
+          done <<'REFS'
+          base ad5e40808a568216f051e3690dd278ff06be43a9
+          pr187 e811e2f3c7a8a382dd97a0c7cd983220ac47d2a0
+          pr188 e0ef4ba82c52e0959172987166d71a1747941601
+          pr189 1b69d07b09413ee53f2a082089169703badd577b
+          pr190 44cf04b09dbaffb8591624f8f48419d19b737575
+          pr191 117c12d81a0eb4d3bc2939d89d7617f934cdad92
+          REFS
+          cd /tmp/lis-source-export
+          sha256sum *.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lis-pinned-source-trees
+          path: /tmp/lis-source-export/
+          retention-days: 7
+          if-no-files-found: error
