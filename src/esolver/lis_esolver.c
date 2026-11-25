@@ -1081,6 +1081,18 @@ LIS_INT lis_esolver_get_subspace_retry(
         return LIS_SUCCESS;
 }
 
+/* USER can return the same numeric status as the eigensolver. Walk
+ * composed operators to retain the ordinary native-matrix retry policy. */
+static LIS_INT
+lis_esolver_has_user_operand(LIS_MATRIX A)
+{
+        if( A==NULL ) return LIS_FALSE;
+        if( A->matrix_type==LIS_MATRIX_USER ) return LIS_TRUE;
+        if( A->matrix_type!=LIS_MATRIX_OPERATOR ) return LIS_FALSE;
+        return lis_esolver_has_user_operand(A->operator_A) ||
+               lis_esolver_has_user_operand(A->operator_B);
+}
+
 static LIS_INT
 lis_esolver_subspace_retry_supported(LIS_INT nesolver)
 {
@@ -1825,6 +1837,18 @@ LIS_INT lis_gesolve(
                 if( esolver->retcode!=LIS_MAXITER ||
                     attempt>=esolver->subspace_retry_max ||
                     A==NULL || current_ss>=A->gn )
+                {
+                        break;
+                }
+
+                /* Callback failure paths explicitly invalidate slot zero.
+                 * Do not interpret that invalid result as a request to grow
+                 * the subspace merely because its status is LIS_MAXITER.
+                 * Native matrices retain their previous retry policy. */
+                if( (lis_esolver_has_user_operand(A) ||
+                     lis_esolver_has_user_operand(B)) &&
+                    esolver->resid!=NULL &&
+                    isnan((double)esolver->resid[0]) )
                 {
                         break;
                 }
