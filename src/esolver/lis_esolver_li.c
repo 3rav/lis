@@ -2789,7 +2789,7 @@ LIS_INT lis_eli(LIS_ESOLVER esolver)
   LIS_SCALAR dot;
   LIS_VECTOR *v,r;
   LIS_SCALAR *t,*tq,*tr,evalue,evalue0;
-  LIS_SOLVER solver;
+  LIS_SOLVER solver=NULL;
   LIS_ESOLVER esolver2;
   char esolvername[128],solvername[128],preconname[128];
   LIS_INT nsol,precon_type;
@@ -2816,6 +2816,7 @@ LIS_INT lis_eli(LIS_ESOLVER esolver)
   t = (LIS_SCALAR *)lis_malloc(ss*ss*sizeof(LIS_SCALAR), "lis_eli::t");
   tq = (LIS_SCALAR *)lis_malloc(ss*ss*sizeof(LIS_SCALAR), "lis_eli::tq");
   tr = (LIS_SCALAR *)lis_malloc(ss*ss*sizeof(LIS_SCALAR), "lis_eli::tr");
+  if(!t || !tq || !tr) { err=LIS_OUT_OF_MEMORY; goto callback_failure; }
   
   A = esolver->A;
   r = esolver->work[0];
@@ -2824,10 +2825,12 @@ LIS_INT lis_eli(LIS_ESOLVER esolver)
   lis_vector_set_all(1.0,r);
   lis_vector_nrm2(r, &nrm2);
 
-  lis_solver_create(&solver);
-  lis_solver_set_option("-i bicg -p none",solver);
+  err = lis_solver_create(&solver);
+  if(err) goto callback_failure;
+  err = lis_solver_set_option("-i bicg -p none",solver);
+  if(err) goto callback_failure;
   err = lis_solver_set_optionC(solver);
-  CHKERR(err);
+  if(err) goto callback_failure;
   lis_solver_get_solver(solver, &nsol);
   lis_solver_get_precon(solver, &precon_type);
   lis_solver_get_solvername(nsol, solvername);
@@ -3021,10 +3024,10 @@ callback_failure:
   esolver->iter[0] = 0;
   esolver->resid[0] = NAN;
   esolver->evalue[0] = (LIS_SCALAR)NAN;
-  lis_solver_destroy(solver);
-  lis_free(t);
-  lis_free(tq);
-  lis_free(tr);
+  if(solver) lis_solver_destroy(solver);
+  if(t) lis_free(t);
+  if(tq) lis_free(tq);
+  if(tr) lis_free(tr);
   LIS_DEBUG_FUNC_OUT;
   return err;
 }
@@ -7803,8 +7806,8 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
   LIS_SCALAR beta,dot;
   LIS_VECTOR q,r,*w,*v;
   LIS_SCALAR *t,*tq,*tr,evalue,evalue0;
-  LIS_SOLVER solver;
-  LIS_PRECON precon;
+  LIS_SOLVER solver=NULL;
+  LIS_PRECON precon=NULL;
   LIS_ESOLVER esolver2;
   char esolvername[128],solvername[128],preconname[128];
   LIS_INT nsol,precon_type;
@@ -7824,6 +7827,7 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
   t = (LIS_SCALAR *)lis_malloc(ss*ss*sizeof(LIS_SCALAR), "lis_egli::t");
   tq = (LIS_SCALAR *)lis_malloc(ss*ss*sizeof(LIS_SCALAR), "lis_egli::tq");
   tr = (LIS_SCALAR *)lis_malloc(ss*ss*sizeof(LIS_SCALAR), "lis_egli::tr");
+  if(!t || !tq || !tr) { err=LIS_OUT_OF_MEMORY; goto callback_failure; }
   
   A = esolver->A;
   B = esolver->B;
@@ -7836,10 +7840,12 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
   lis_vector_set_all(1.0,q);
 
   /* create linear solver */
-  lis_solver_create(&solver);
-  lis_solver_set_option("-i bicg -p none",solver);
+  err = lis_solver_create(&solver);
+  if(err) goto callback_failure;
+  err = lis_solver_set_option("-i bicg -p none",solver);
+  if(err) goto callback_failure;
   err = lis_solver_set_optionC(solver);
-  CHKERR(err);
+  if(err) goto callback_failure;
   lis_solver_get_solver(solver, &nsol);
   lis_solver_get_precon(solver, &precon_type);
   lis_solver_get_solvername(nsol, solvername);
@@ -7855,12 +7861,7 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
   /* create preconditioner */
   solver->A = B;
   err = lis_precon_create(solver, &precon);
-  if( err )
-    {
-      lis_solver_work_destroy(solver);
-      solver->retcode = err;
-      return err;
-    }
+  if(err) { precon=NULL; goto callback_failure; }
 
   for (i=0;i<ss*ss;i++) t[i] = 0.0;
 
@@ -8053,11 +8054,11 @@ callback_failure:
   esolver->iter[0] = 0;
   esolver->resid[0] = NAN;
   esolver->evalue[0] = (LIS_SCALAR)NAN;
-  lis_precon_destroy(precon);
-  lis_solver_destroy(solver);
-  lis_free(t);
-  lis_free(tq);
-  lis_free(tr);
+  if(precon) lis_precon_destroy(precon);
+  if(solver) lis_solver_destroy(solver);
+  if(t) lis_free(t);
+  if(tq) lis_free(tq);
+  if(tr) lis_free(tr);
   LIS_DEBUG_FUNC_OUT;
   return err;
 }

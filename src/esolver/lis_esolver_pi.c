@@ -410,11 +410,11 @@ LIS_INT lis_egpi(LIS_ESOLVER esolver)
   LIS_INT iter,iter2,output;
   LIS_SCALAR oshift,ishift;
   LIS_REAL nrm2,resid,cert_resid;
-  LIS_SOLVER solver;
+  LIS_SOLVER solver=NULL;
   double time,itime,ptime,p_c_time,p_i_time;
 
   LIS_INT err;
-  LIS_PRECON precon;
+  LIS_PRECON precon=NULL;
   LIS_INT nsol, precon_type;
   char solvername[128], preconname[128];
 
@@ -454,10 +454,30 @@ LIS_INT lis_egpi(LIS_ESOLVER esolver)
 #endif
     }
   
-  lis_solver_create(&solver);
-  lis_solver_set_option("-i bicg -p none",solver);
+  err = lis_solver_create(&solver);
+  if(err)
+    {
+      if(solver) lis_solver_destroy(solver);
+      if(Aop) lis_matrix_destroy(Aop);
+      LIS_DEBUG_FUNC_OUT;
+      return err;
+    }
+  err = lis_solver_set_option("-i bicg -p none",solver);
+  if(err)
+    {
+      if(solver) lis_solver_destroy(solver);
+      if(Aop) lis_matrix_destroy(Aop);
+      LIS_DEBUG_FUNC_OUT;
+      return err;
+    }
   err = lis_solver_set_optionC(solver);
-  CHKERR(err);
+  if(err)
+    {
+      if(solver) lis_solver_destroy(solver);
+      if(Aop) lis_matrix_destroy(Aop);
+      LIS_DEBUG_FUNC_OUT;
+      return err;
+    }
   lis_solver_get_solver(solver, &nsol);
   lis_solver_get_precon(solver, &precon_type);
   lis_solver_get_solvername(nsol, solvername);

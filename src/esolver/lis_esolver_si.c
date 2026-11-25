@@ -800,8 +800,8 @@ LIS_INT lis_esi(LIS_ESOLVER esolver)
   LIS_REAL nrm2,resid,cert_resid;
   LIS_SCALAR dot;
   LIS_VECTOR *v,r,q;
-  LIS_SOLVER solver;
-  LIS_PRECON precon;
+  LIS_SOLVER solver=NULL;
+  LIS_PRECON precon=NULL;
   double time,itime,ptime,p_c_time,p_i_time;
   double etime0,etime;
   LIS_INT err,final_status;
@@ -869,8 +869,22 @@ LIS_INT lis_esi(LIS_ESOLVER esolver)
     {
     case LIS_ESOLVER_II:
 
-      lis_solver_create(&solver);
-      lis_solver_set_option("-i bicg -p none",solver);
+      err = lis_solver_create(&solver);
+      if(err)
+      {
+        if(solver) lis_solver_destroy(solver);
+        if(oshift!=0.0) lis_matrix_shift_diagonal(A,-oshift);
+        LIS_DEBUG_FUNC_OUT;
+        return err;
+      }
+      err = lis_solver_set_option("-i bicg -p none",solver);
+      if(err)
+      {
+        if(solver) lis_solver_destroy(solver);
+        if(oshift!=0.0) lis_matrix_shift_diagonal(A,-oshift);
+        LIS_DEBUG_FUNC_OUT;
+        return err;
+      }
       err = lis_solver_set_optionC(solver);
       if( err )
         {
@@ -1261,8 +1275,8 @@ LIS_INT lis_egsi(LIS_ESOLVER esolver)
   LIS_REAL nrm2,resid,cert_resid;
   LIS_SCALAR dot;
   LIS_VECTOR *v,w,y,q;
-  LIS_SOLVER solver;
-  LIS_PRECON precon;
+  LIS_SOLVER solver=NULL;
+  LIS_PRECON precon=NULL;
   double time,itime,ptime,p_c_time,p_i_time;
   double etime0,etime;  
   LIS_INT err,final_status;
@@ -1328,8 +1342,22 @@ LIS_INT lis_egsi(LIS_ESOLVER esolver)
   lis_esolver_get_esolvername(nigesolver, esolvername);
   if( output ) lis_printf(comm,"inner eigensolver     : %s\n", esolvername);
 
-  lis_solver_create(&solver);
-  lis_solver_set_option("-i bicg -p none",solver);
+  err = lis_solver_create(&solver);
+  if(err)
+  {
+    if(solver) lis_solver_destroy(solver);
+    if(oshift!=0.0) lis_matrix_shift_matrix(A,B,-oshift);
+    LIS_DEBUG_FUNC_OUT;
+    return err;
+  }
+  err = lis_solver_set_option("-i bicg -p none",solver);
+  if(err)
+  {
+    if(solver) lis_solver_destroy(solver);
+    if(oshift!=0.0) lis_matrix_shift_matrix(A,B,-oshift);
+    LIS_DEBUG_FUNC_OUT;
+    return err;
+  }
   err = lis_solver_set_optionC(solver);
   if( err )
     {
