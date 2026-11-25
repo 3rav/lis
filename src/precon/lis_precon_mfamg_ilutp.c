@@ -283,9 +283,13 @@ lis_psolve_mfamg_ilutp(LIS_SOLVER solver,LIS_VECTOR b,LIS_VECTOR x)
        state->rhs==NULL || state->ax==NULL || state->correction==NULL)
         return LIS_ERR_ILL_ARG;
 
-    /* In contact Newton iterations matrix values may change in place. Never
-     * reuse preconditioners built against a different matrix generation. */
-    if(solver->A!=state->matrix)
+    /* The setup matrix is P. The physical A may differ only when this
+     * object is the sequence-owned preconditioner explicitly built on P.
+     * For standalone/caller-owned applications retain the old identity
+     * check. In either case verify the generation of P, not A. */
+    if(solver->A!=state->matrix &&
+       !(solver->sequence_precon==solver->precon &&
+         solver->sequence_precon_matrix==state->matrix))
     {
         LIS_SETERR(LIS_ERR_ILL_ARG,
                    "MFAMG_ILUTP operator no longer matches setup matrix\n");
@@ -309,7 +313,7 @@ lis_psolve_mfamg_ilutp(LIS_SOLVER solver,LIS_VECTOR b,LIS_VECTOR x)
     err=lis_psolve_mfamg(state->mfamg,state->rhs,x);
     if(err) return err;
 
-    err=lis_matvec(solver->A,x,state->ax);
+    err=lis_matvec(state->matrix,x,state->ax);
     if(err) return err;
     err=lis_vector_axpy((LIS_SCALAR)-1.0,state->ax,state->rhs);
     if(err) return err;
