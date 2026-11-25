@@ -488,13 +488,17 @@ int main(int argc,char **argv)
             LIS_MATRIX_POLICY_CACHED_CSR,LIS_MATRIX_MATERIALIZE_REBUILD,
             "paired-to-single"))goto done;
 #if !defined(_COMPLEX) && !defined(USE_COMPLEX) && !defined(_LONG__DOUBLE)
-        /* Both factorizations consume the independently cached P.
+        /* All factorizations consume the independently cached P.
          * Force a fresh physical solve, not an already exact warm start. */
-        for(LIS_INT pivoted=0;pivoted<=1;pivoted++)
+        for(LIS_INT profile=0;profile<4;profile++)
         {
             char plain[]="-i fgmres -p ilut -scale none -restart 10 -maxiter 80 -tol 1e-11";
             char pivot[]="-i fgmres -p ilut -ilutp 1 -ilutp_threshold 0.5 -scale none -restart 10 -maxiter 80 -tol 1e-11";
-            err=lis_solver_set_option_replace(pivoted?pivot:plain,solver);
+            char ras[]="-i fgmres -p ilut -ilutp 1 -ilutp_threshold 0.5 -ilut_ras_overlap 1 -ilut_ras_domains 2 -scale none -restart 10 -maxiter 80 -tol 1e-11";
+            char schur[]="-i fgmres -p ilut -ilutp 1 -ilutp_threshold 0.5 -ilut_ras_overlap 1 -ilut_ras_domains 2 -ilut_schur 1 -scale none -restart 10 -maxiter 80 -tol 1e-11";
+            char *profiles[]={plain,pivot,ras,schur};
+            const char *names[]={"ILUT","ILUTP","RAS_ILUTP","RAS_SCHUR"};
+            err=lis_solver_set_option_replace(profiles[profile],solver);
             if(err || lis_solver_set_num_threads(solver,1) ||
                lis_vector_set_all((LIS_SCALAR)0,x))goto done;
             err=lis_matrix_auto_session_solve_with_precon_matrix(
@@ -513,7 +517,20 @@ int main(int argc,char **argv)
             if(err || pa!=LIS_MATRIX_MATERIALIZE_REUSE ||
                solver->sequence_precon!=kept || test_solution(x,truth))
                 goto done;
-            printf("PAIRED_AUTO_%s PASS\n",pivoted?"ILUTP":"ILUT");
+            if(profile>=2)
+            {
+                ctx2.scale+=(LIS_REAL)0.25;
+                err=lis_matrix_mark_values_changed(B);if(err)goto done;
+                ctx2.assert_reset_before_row=LIS_TRUE;
+                if(lis_vector_set_all((LIS_SCALAR)0,x))goto done;
+                err=lis_matrix_auto_session_solve_with_precon_matrix(
+                    session,A,B,b,x,NULL,NULL,NULL,&pa);
+                if(err || ctx2.assert_reset_before_row ||
+                   pa!=LIS_MATRIX_MATERIALIZE_VALUES ||
+                   lis_solver_get_status(solver,&status) ||
+                   status!=LIS_SUCCESS || test_solution(x,truth))goto done;
+            }
+            printf("PAIRED_AUTO_%s PASS\n",names[profile]);
         }
 #endif
     }

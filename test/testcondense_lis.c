@@ -306,15 +306,27 @@ static int check_paired_schur_profile(LIS_MATRIX S,LIS_VECTOR g,
         goto done;
     if(uses_contact(profile) &&
        lis_solver_set_mfamg_contact_partition(solver,NP,labels))goto done;
-    for(pass=0;pass<2;pass++)
+    for(pass=0;pass<4;pass++)
     {
+        /* Second pair of solves tests independent P with local RAS
+         * factors. Standalone MFAMG has no ILUT child. */
+        if(pass==2)
+        {
+            if(strcmp(profile,"ilutp") &&
+               strcmp(profile,"mfamg_ilutp") &&
+               strcmp(profile,"ca-mfamg_ilutp"))break;
+            if(lis_solver_set_option(
+                "-ilut_ras_overlap 1 -ilut_ras_domains 2",solver))
+                goto done;
+            kept=NULL;
+        }
         if(lis_vector_set_all((LIS_SCALAR)0,x) ||
            lis_matrix_auto_session_solve_with_precon_matrix(
                 session,S,P,g,x,NULL,NULL,&pp,&pa) ||
            pp!=LIS_MATRIX_POLICY_DIRECT || pa!=LIS_MATRIX_POLICY_ACTION_DIRECT ||
            lis_solver_get_status(solver,&status) || status!=LIS_SUCCESS ||
            !solver->sequence_precon || solver->sequence_precon_matrix!=P ||
-           (pass && solver->sequence_precon!=kept) ||
+           (kept && solver->sequence_precon!=kept) ||
            lis_matvec(S,x,r) || lis_vector_axpy((LIS_SCALAR)-1,g,r) ||
            lis_vector_nrm2(r,&nr) || lis_vector_nrm2(g,&nb) ||
            !(nb>0) || !(nr/nb<1e-7))goto done;
