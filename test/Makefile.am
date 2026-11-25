@@ -431,3 +431,9 @@ testcondense_lis_LDADD = $(LDADD) -lm
 TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
 TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
 EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+
+# IDR1 and IDR(s) USER callback regression.
+test_PROGRAMS += testuseridrcallback
+testuseridrcallback_SOURCES = testuseridrcallback.c
+testuseridrcallback_LDADD = $(LDADD) -lm
+TESTS += testuseridrcallback$(EXEEXT)
