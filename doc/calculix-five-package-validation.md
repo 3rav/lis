@@ -1,6 +1,6 @@
 # CalculiX-facing LIS: five-package validation guide
 
-This branch is a combined validation snapshot, not an additional upstream proposal. Its source and regression files match experimental integration head 5b6c0c4a32c04f24ab297cd968eff236b888bd56 byte-for-byte; it also preserves the existing three USER regression workflows from fork #169 (upstream #256–259). The only added file relative to the combined five packages is this guide. No workflow definition is changed relative to #169.
+This branch is a combined validation snapshot, not an additional upstream proposal. Its source and regression files are derived from experimental integration head 5b6c0c4a32c04f24ab297cd968eff236b888bd56 plus review follow-up commits; it also preserves the existing three USER regression workflows from fork #169 (upstream #256–259). The only added file relative to the combined five packages is this guide. No workflow definition is changed relative to #169.
 
 ## Review and publication order
 
@@ -46,3 +46,7 @@ Use identical CCX 2.24 sources and compiler flags, model, load increments, threa
 For each model compare physical residual, displacement/stress or eigenpair result, convergence status, Newton iterations, linear iterations, preconditioner rebuild count, elapsed time and peak resident memory. Test static, unconstrained rigid-body modes, multiple bodies, contact, frequency, buckling, dynamics, condensed DOFs, 64-bit and error paths. Use at least three repeat runs after a warm-up for timing; report median and range, and do not compare runs with different convergence tolerances.
 
 Current evidence: source-tree equality was checked for the five packages. Selected adapter logic was tested locally with UBSan and mocks (12 bodies/72 candidate modes). This is not a full CCX build, native LIS numerical test, MPI run, sanitizer suite or benchmark. The local checkout could not access GitHub DNS. Final CI of all five packages and real CCX benchmarks remain required.
+
+## Review follow-up (Claude and Gemini)
+
+The consolidated packages now include explicit AMG child-basis semantics, partial-allocation cleanup, Schur NUMERIC warm-start retention and exact-nullspace rebind requirements, MPI negative-error reduction and null-communicator validation, conservative eigen iteration availability and additional Krylov64/shift-invert tests. These fixes have been committed but are not yet certified by CI. The earlier baseline residual policy, callback/OOM paths, installed configuration isolation, public report versioning, and CI path/skip audits remain open. No new workflow or PR has been introduced.
