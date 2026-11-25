@@ -2853,11 +2853,13 @@ LIS_INT lis_eli(LIS_ESOLVER esolver)
       /* r = r - beta(j-1) * v(j-1) */
       if (j==1) {
 	lis_vector_scale(1.0/nrm2, v[j]);
-	lis_matvec(A, v[j], r);
+	err = lis_matvec(A, v[j], r);
+	if(err) goto callback_failure;
       }
       else {
 	lis_vector_scale(1.0/t[(j-2)*ss+j-1], v[j]);
-	lis_matvec(A, v[j], r);
+	err = lis_matvec(A, v[j], r);
+	if(err) goto callback_failure;
 	lis_vector_axpy(-t[(j-2)*ss+j-1], v[j-1], r); 
       }
 
@@ -3014,6 +3016,17 @@ LIS_INT lis_eli(LIS_ESOLVER esolver)
   LIS_DEBUG_FUNC_OUT;
   esolver->retcode = final_status;
   return final_status;
+callback_failure:
+  esolver->retcode = err;
+  esolver->iter[0] = 0;
+  esolver->resid[0] = NAN;
+  esolver->evalue[0] = (LIS_SCALAR)NAN;
+  lis_solver_destroy(solver);
+  lis_free(t);
+  lis_free(tq);
+  lis_free(tr);
+  LIS_DEBUG_FUNC_OUT;
+  return err;
 }
 
 /***************************************
@@ -7862,14 +7875,16 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
       /* r = r - beta(j-1) * w(j-1) */
       
       if (j==1) {
- 	lis_matvec(B, q, r);
+ 	err = lis_matvec(B, q, r);
+ 	if(err) goto callback_failure;
 	lis_vector_dot(q, r, &beta);
 	beta = sqrt(fabs(beta));
 	lis_vector_copy(r, w[j]);
 	lis_vector_copy(q, v[j]);	
 	lis_vector_scale(1.0/beta, w[j]);
 	lis_vector_scale(1.0/beta, v[j]);	
-	lis_matvec(A, v[j], r);
+	err = lis_matvec(A, v[j], r);
+	if(err) goto callback_failure;
 	lis_vector_axpy(-beta, w[j-1], r); 	
       }
       else {
@@ -7877,7 +7892,8 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
 	lis_vector_copy(q, v[j]);	
 	lis_vector_scale(1.0/t[(j-2)*ss+j-1], w[j]);	
 	lis_vector_scale(1.0/t[(j-2)*ss+j-1], v[j]);
-	lis_matvec(A, v[j], r);
+	err = lis_matvec(A, v[j], r);
+	if(err) goto callback_failure;
 	lis_vector_axpy(-t[(j-2)*ss+j-1], w[j-1], r); 
       }
 
@@ -7903,13 +7919,15 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
 
       /* solve B * q = r */
       err = lis_solve_kernel(B, r, q, solver, precon);
-      if( err )
-	{
-	  lis_solver_work_destroy(solver);	  
-	  solver->retcode = err;
-	  lis_precon_destroy(precon);
-	  return err;
-	}
+      if(!err)
+    {
+      lis_solver_get_status(solver,&err);
+      /* Preserve the legacy numerical-status policy for built-in operators. */
+      if( B->matrix_type!=LIS_MATRIX_USER && B->matrix_type!=LIS_MATRIX_OPERATOR &&
+          solver->options[LIS_OPTIONS_PRECON]<LIS_PRECON_TYPE_USERDEF &&
+          (err==LIS_MAXITER || err==LIS_BREAKDOWN) ) err = LIS_SUCCESS;
+    }
+      if(err) goto callback_failure;
 
       /* beta(j) = |<q,r>|^1/2 */
       lis_vector_dot(q, r, &beta);
@@ -8030,6 +8048,18 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
 
   LIS_DEBUG_FUNC_OUT;
   return LIS_SUCCESS;
+callback_failure:
+  esolver->retcode = err;
+  esolver->iter[0] = 0;
+  esolver->resid[0] = NAN;
+  esolver->evalue[0] = (LIS_SCALAR)NAN;
+  lis_precon_destroy(precon);
+  lis_solver_destroy(solver);
+  lis_free(t);
+  lis_free(tq);
+  lis_free(tr);
+  LIS_DEBUG_FUNC_OUT;
+  return err;
 }
 
 

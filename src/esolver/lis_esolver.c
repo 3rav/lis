@@ -294,7 +294,7 @@ LIS_INT lis_esolver_inner_solve_certify(
         if( err )
         {
                 LIS_DEBUG_FUNC_OUT;
-                return status;
+                return err;
         }
 
         if( !isfinite((double)residual_norm) ||
@@ -1318,6 +1318,15 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 		return LIS_ERR_ILL_ARG;
 	}
 
+	/* RQI changes the shift even when the requested initial shift is zero.
+	 * USER operators cannot be shifted in place. */
+	if( A->matrix_type==LIS_MATRIX_USER && nesolver==LIS_ESOLVER_RQI )
+	{
+		LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+		           "Rayleigh quotient iteration requires matrix shifts for LIS_MATRIX_USER\n");
+		return LIS_ERR_NOT_IMPLEMENTED;
+	}
+
 	if( B!=NULL &&
 	    (A->matrix_type==LIS_MATRIX_USER || B->matrix_type==LIS_MATRIX_USER) &&
 	    nesolver==LIS_ESOLVER_GRQI )
@@ -1411,6 +1420,7 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 		esolver->retcode = err;
 		return err;
 	}
+	for(i=0;i<ss+2;i++) evalue[i] = (LIS_SCALAR)NAN;
 	evalue[0] = 1.0;
 	evalue[ss-1] = 1.0;
 
@@ -1442,6 +1452,13 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 		LIS_SETERR_MEM((ss+2)*sizeof(LIS_SCALAR));
 		esolver->retcode = err;
 		return err;
+	}
+
+	for(i=0;i<ss+2;i++)
+	{
+		resid[i] = NAN;
+		iter[i] = 0;
+		iter2[i] = 0;
 	}
 
 	/* create initial vector */
@@ -1670,6 +1687,19 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 	#endif
 	esolver->retcode = err;
 
+	/* On a hard failure no uncomputed result slot is valid. Preserve the
+	 * numerical nonconvergence/partial-result convention. */
+	if( err!=LIS_SUCCESS && err!=LIS_MAXITER && err!=LIS_BREAKDOWN )
+	{
+		for(i=0;i<ss+2;i++)
+		{
+			esolver->evalue[i] = (LIS_SCALAR)NAN;
+			esolver->resid[i] = NAN;
+			if(i!=0) esolver->iter[i] = 0;
+			esolver->iter2[i] = 0;
+		}
+	}
+
 	*evalue0 = esolver->evalue[0];
 	lis_vector_copy(esolver->x, x);
 
@@ -1677,7 +1707,14 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 
 	if( err )
 	  {
-	    if ( output ) lis_printf(comm,"eigensolver status    : %s(code=%D)\n\n",lis_ereturncode[err],err);
+	    if( output )
+	    {
+	      /* Application callbacks may return errors outside the built-in table. */
+	      const char *name = (err>=LIS_SUCCESS &&
+	          err<(LIS_INT)(sizeof(lis_ereturncode)/sizeof(lis_ereturncode[0])))
+	          ? lis_ereturncode[err] : "LIS_CALLBACK_ERROR";
+	      lis_printf(comm,"eigensolver status    : %s(code=%D)\n\n",name,err);
+	    }
 	  }
 	else
 	  {
