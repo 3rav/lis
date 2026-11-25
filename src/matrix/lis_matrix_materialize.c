@@ -1293,9 +1293,21 @@ lis_matrix_auto_session_solve_with_precon_matrix(
         if(solver->precon_half_mode!=LIS_PRECON_HALF_OFF ||
            (precon_source->matrix_type==LIS_MATRIX_CSR && precon_source->is_splited))
             return LIS_ERR_NOT_IMPLEMENTED;
-        if((kind==LIS_PRECON_TYPE_ILUT || kind==LIS_PRECON_TYPE_MFAMG_ILUTP) &&
-           (threads!=1 || solver->ilut_ras_overlap>=0 || solver->ilut_schur))
-            return LIS_ERR_NOT_IMPLEMENTED;
+        if(kind==LIS_PRECON_TYPE_ILUT || kind==LIS_PRECON_TYPE_MFAMG_ILUTP)
+        {
+            if(solver->ilut_ras_overlap<0)
+            {
+                if(threads!=1 || solver->ilut_schur)
+                    return LIS_ERR_NOT_IMPLEMENTED;
+            }
+            else if(solver->ilut_ras_overlap>2 ||
+                    solver->ilut_ras_domains<2 || solver->ilut_ras_domains>16 ||
+                    solver->ilut_ras_domains>precon_source->n)
+                return LIS_ERR_ILL_ARG;
+            /* The native composite explicitly excludes Schur inside RAS. */
+            if(kind==LIS_PRECON_TYPE_MFAMG_ILUTP && solver->ilut_schur)
+                return LIS_ERR_NOT_IMPLEMENTED;
+        }
         if(kind==LIS_PRECON_TYPE_MFAMG_ILUTP && method!=LIS_SOLVER_FGMRES)
             return LIS_ERR_NOT_IMPLEMENTED;
         if((kind==LIS_PRECON_TYPE_MFAMG || kind==LIS_PRECON_TYPE_MFAMG_ILUTP) &&
