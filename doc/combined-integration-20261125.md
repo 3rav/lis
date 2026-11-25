@@ -6,7 +6,7 @@ This isolated draft combines source and regression changes from upstream #259 (i
 
 ## Build contract
 
-Run `autoreconf -fiv` before configure: the merged test/Makefile.am is authoritative; generated test/Makefile.in intentionally remains at the base version in this experimental snapshot until it can be regenerated and checked with Automake. Do not distribute this snapshot as a ready-to-configure release tarball. No proposed workflow additions from the component PRs are included; existing base CI workflows are untouched. For extended regressions, use the existing manual/develop workflow or run tests directly in a fresh local build.
+Run `autoreconf -fiv` before configure. The tracked test/Makefile.in has been synchronized using the identical regeneration diff from both native CI runners (run 45659176313); the new commit still requires the CI equality check. No proposed workflow additions from the component PRs are included; existing base CI workflows are untouched. For extended regressions, use the existing manual/develop workflow or run tests directly in a fresh local build.
 
 Suggested smoke build: `autoreconf -fiv && ./configure --enable-test --disable-fortran --disable-f90 && make -j2 && make check`. Repeat with OpenMP, 64-bit LIS_INT and sanitizer/OOM builds as appropriate using the existing project options. The native Krylov API remains int-indexed. No combined build result is asserted by this snapshot commit.
 
