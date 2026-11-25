@@ -17,6 +17,10 @@ typedef struct {
  * Native numeric statuses are recorded separately from certified acceptance.
  * API/argument failures are not retried. Recreate after a hard solve error. */
 LIS_INT lis_anchor_pilot_create(LIS_MATRIX P, lis_anchor_pilot **out);
+/* Memory-constrained variant: retire the anchor before a fresh fallback,
+ * and rebuild it lazily on the next solve. Never holds two factors.
+ * This trades extra anchor setups for lower peak memory. */
+LIS_INT lis_anchor_pilot_create_low_memory(LIS_MATRIX P, lis_anchor_pilot **out);
 LIS_INT lis_anchor_pilot_solve(lis_anchor_pilot *ctx, LIS_MATRIX A,
     LIS_VECTOR b, LIS_VECTOR x, lis_anchor_pilot_report *report);
 /* Matched fresh-factorization reference, same options and certification. */

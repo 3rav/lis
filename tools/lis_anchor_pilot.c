@@ -14,7 +14,7 @@ struct lis_anchor_pilot {
     LIS_SOLVER solver;
     LIS_PRECON factor;
     LIS_UNSIGNED_INT structure, values;
-    int valid;
+    int valid, low_memory;
 };
 
 static void init_report(lis_anchor_pilot_report *r)
@@ -27,6 +27,8 @@ static void init_report(lis_anchor_pilot_report *r)
 #if defined(USE_MPI) || defined(_COMPLEX) || defined(USE_COMPLEX) || defined(_LONG__DOUBLE) || defined(USE_QUAD_PRECISION)
 LIS_INT lis_anchor_pilot_create(LIS_MATRIX P,lis_anchor_pilot **out)
 { (void)P; if(out)*out=NULL; return LIS_ERR_NOT_IMPLEMENTED; }
+LIS_INT lis_anchor_pilot_create_low_memory(LIS_MATRIX P,lis_anchor_pilot **out)
+{ return lis_anchor_pilot_create(P,out); }
 LIS_INT lis_anchor_pilot_solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR x,lis_anchor_pilot_report *r)
 { (void)ctx;(void)A;(void)b;(void)x;if(r)init_report(r);return LIS_ERR_NOT_IMPLEMENTED; }
 LIS_INT lis_anchor_fresh_solve(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR x,lis_anchor_pilot_report *r)
@@ -62,6 +64,7 @@ static LIS_INT make_solver(LIS_SOLVER *s)
 static void unbind(LIS_SOLVER s,LIS_MATRIX P)
 {
     /* The caller can release A, b and x after the synchronous operation. */
+    if(!s)return;
     s->A=P;s->b=NULL;s->x=NULL;s->xx=NULL;
     (void)lis_solver_set_monitor(s,NULL,NULL);
 }
@@ -118,7 +121,7 @@ static LIS_INT fresh_attempt(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR work,LIS_VECTO
     if(s)lis_solver_destroy(s);
     return rc;
 }
-LIS_INT lis_anchor_pilot_create(LIS_MATRIX P,lis_anchor_pilot **out)
+static LIS_INT create(LIS_MATRIX P,lis_anchor_pilot **out,int low_memory)
 {
     lis_anchor_pilot *ctx;lis_anchor_pilot_report r;LIS_INT rc;
     if(!out)return LIS_ERR_ILL_ARG;
@@ -129,11 +132,20 @@ LIS_INT lis_anchor_pilot_create(LIS_MATRIX P,lis_anchor_pilot **out)
     rc=factor(P,&ctx->solver,&ctx->factor,&r);
     if(!rc)rc=lis_matrix_get_generation(P,&ctx->structure,&ctx->values);
     if(rc){lis_anchor_pilot_destroy(ctx);return rc;}
-    ctx->valid=1;*out=ctx;return LIS_SUCCESS;
+    ctx->valid=1;ctx->low_memory=low_memory;*out=ctx;return LIS_SUCCESS;
+}
+LIS_INT lis_anchor_pilot_create(LIS_MATRIX P,lis_anchor_pilot **out)
+{ return create(P,out,0); }
+LIS_INT lis_anchor_pilot_create_low_memory(LIS_MATRIX P,lis_anchor_pilot **out)
+{ return create(P,out,1); }
+static void retire_anchor(lis_anchor_pilot *ctx)
+{
+    if(ctx->solver)lis_solver_destroy(ctx->solver);
+    ctx->solver=NULL;ctx->factor=NULL;
 }
 void lis_anchor_pilot_destroy(lis_anchor_pilot *ctx)
 {
-    if(ctx){if(ctx->solver)lis_solver_destroy(ctx->solver);free(ctx);}
+    if(ctx){retire_anchor(ctx);free(ctx);}
 }
 static LIS_INT solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR x,lis_anchor_pilot_report *r)
 {
@@ -152,6 +164,12 @@ static LIS_INT solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR 
     }
     if((rc=lis_vector_duplicate(A,&work)) || (rc=lis_vector_duplicate(A,&residual)))goto done;
     if(ctx){
+        /* A memory-constrained fallback retired the original factor.
+         * Generations were checked above, before any lazy reconstruction. */
+        if(!ctx->solver){
+            rc=factor(ctx->P,&ctx->solver,&ctx->factor,r);
+            if(rc){retire_anchor(ctx);ctx->valid=0;goto done;}
+        }
         if((rc=lis_solver_set_monitor(ctx->solver,monitor,&h)))goto done;
         rc=attempt(A,b,work,residual,ctx->solver,ctx->factor,20,1,&r->pilot_iterations,r);
         unbind(ctx->solver,ctx->P);
@@ -165,7 +183,11 @@ static LIS_INT solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR 
                 if(rc){ctx->valid=0;goto done;}
             }
         }
-        if(!r->accepted){r->fallback=1;rc=fresh_attempt(A,b,work,residual,r);}
+        if(!r->accepted){
+            r->fallback=1;
+            if(ctx->low_memory)retire_anchor(ctx);
+            rc=fresh_attempt(A,b,work,residual,r);
+        }
     }else rc=fresh_attempt(A,b,work,residual,r);
     if(!rc && r->accepted)rc=lis_vector_copy(work,x);
     else if(!rc)rc=r->raw_status==LIS_SUCCESS?LIS_BREAKDOWN:r->raw_status;

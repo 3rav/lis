@@ -34,6 +34,14 @@ int main(int argc,char **argv)
     if(lis_anchor_fresh_solve(B,b,x,&report)||!report.accepted||report.factorizations!=1)goto done;
     /* Fresh fallback did not replace the anchor. */
     if(lis_anchor_pilot_solve(ctx,P,b,x,&report)||!report.accepted||report.factorizations||report.fallback)goto done;
+    lis_anchor_pilot_destroy(ctx);ctx=NULL;
+    if(lis_anchor_pilot_create_low_memory(P,&ctx))goto done;
+    if(lis_anchor_pilot_solve(ctx,B,b,x,&report)||!report.accepted||!report.fallback||report.factorizations!=1)goto done;
+    /* The next call reconstructs the original anchor exactly once. */
+    if(lis_anchor_pilot_solve(ctx,P,b,x,&report)||!report.accepted||report.fallback||report.factorizations!=1)goto done;
+    if(lis_anchor_pilot_solve(ctx,P,b,x,&report)||!report.accepted||report.factorizations)goto done;
+    /* Also test invalidation while the anchor has no live factor. */
+    if(lis_anchor_pilot_solve(ctx,B,b,x,&report)||!report.accepted||!report.fallback||report.factorizations!=1)goto done;
     if(lis_vector_set_all(7,x)||lis_matrix_mark_values_changed(P))goto done;
     if(lis_anchor_pilot_solve(ctx,A,b,x,&report)!=LIS_ERR_ILL_ARG||report.accepted)goto done;
     for(i=0;i<x->n;i++)if(x->value[i]!=7)goto done;

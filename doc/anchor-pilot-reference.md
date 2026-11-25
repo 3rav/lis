@@ -44,3 +44,17 @@ On 15 private CalculiX contact systems (60,265 DOFs; 12 distinct matrices), an e
 ## Matched reference-driver smoke benchmark
 
 The new executable was compiled against the parent of this package (`18219f23`), real-double serial/OpenMP, one active thread, `-O2 -DNDEBUG`. On original snapshots 01 and 15, using the same input files, profile, executable and physical acceptance rule in both modes, fresh mode accepted 2/2 with two factorizations in 21.883959 s; pilot mode accepted 2/2 with one factorization in 12.885392 s (41.12% lower time, 1.70x observed ratio). Snapshot 15 used the continuation path, achieved relative residual 8.843346254176e-14, and required no new factorization. Fresh mode achieved 1.512875194850e-13 on that snapshot. These are sequential single measurements in a shared environment, excluding input loading; this pair was selected because previous experiments showed reuse potential. They are not an independent full-series validation.
+
+## Optional low-memory policy
+
+Use `lis_anchor_pilot_create_low_memory(P, &ctx)` instead of `lis_anchor_pilot_create` or select `pilot-low-memory` in the benchmark. The default retains the original anchor across fallback. The optional mode destroys the anchor solver and factor before building a temporary fresh factorization; the original immutable P is still borrowed. On the next call it checks the original P generations before rebuilding its factor lazily. Reported factor counts and setup time include lazy reconstruction. The numerical policy, physical acceptance, output ownership and hard-error handling remain unchanged. The application must keep P alive and immutable even while its factor is absent. This is a trade-off, not a hard memory cap: allocator retention, matrix storage and temporary factorization workspace also contribute to RSS.
+
+A selected four-step contact sequence (original snapshots 01, 02, 04, 15) was run with the same executable, profile, parent build `18219f23`, one OpenMP thread per process and three separate CPU-affinity cores concurrently in a shared environment. All processes exited 0 and accepted 4/4 solutions with max relative residual below 1e-8. Input loading is excluded from total setup+solve time.
+
+| Mode | Factorizations | Total (s) | Peak RSS (KiB) |
+|---|---:|---:|---:|
+| Fresh | 4 | 77.754183 | 595092 |
+| Pilot | 2 | 60.951973 | 979212 |
+| Pilot low-memory | 3 | 70.584457 | 637724 |
+
+The low-memory mode reduced peak RSS by 34.87% versus the retained-anchor pilot and reduced total time by 9.22% versus fresh. The extra anchor reconstruction made it slower than the normal pilot. The two pilot modes returned identical printed physical residuals. This is one selected subsequence, not a full-series or independently replicated result. The regression additionally exercises lazy reconstruction, subsequent reuse, and invalidation while no factor is live. No new installed API or library ABI changes.

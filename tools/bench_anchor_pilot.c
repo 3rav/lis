@@ -33,19 +33,20 @@ int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL,P=NULL;LIS_VECTOR b=NULL,x=NULL;
     lis_anchor_pilot *ctx=NULL;lis_anchor_pilot_report r;
-    LIS_INT rc=0;int i,pilot,accepted=0,creates=0,steps;
+    LIS_INT rc=0;int i,pilot,low_memory,accepted=0,creates=0,steps;
     double total=0,setup=0;
-    if(argc<4 || (argc%2) || (strcmp(argv[1],"fresh") && strcmp(argv[1],"pilot"))){
-        fprintf(stderr,"usage: %s fresh|pilot A1.mtx b1.mtx [A2.mtx b2.mtx ...]\n",argv[0]);return 2;
+    if(argc<4 || (argc%2) || (strcmp(argv[1],"fresh") && strcmp(argv[1],"pilot") && strcmp(argv[1],"pilot-low-memory"))){
+        fprintf(stderr,"usage: %s fresh|pilot|pilot-low-memory A1.mtx b1.mtx [A2.mtx b2.mtx ...]\n",argv[0]);return 2;
     }
-    pilot=!strcmp(argv[1],"pilot");steps=(argc-2)/2;
+    low_memory=!strcmp(argv[1],"pilot-low-memory");
+    pilot=low_memory||!strcmp(argv[1],"pilot");steps=(argc-2)/2;
     if(lis_initialize(&argc,&argv))return 1;
     for(i=2;i<argc;i+=2){
         double start,initial=0,elapsed;int first=pilot&&!ctx;
         if((rc=load_matrix(argv[i],&A)) || (rc=lis_vector_duplicate(A,&b)) ||
            (rc=lis_vector_duplicate(A,&x)) || (rc=load_rhs(argv[i+1],b)))goto done;
         start=lis_wtime();
-        if(first){P=A;if((rc=lis_anchor_pilot_create(P,&ctx)))goto done;initial=lis_wtime()-start;}
+        if(first){P=A;if((rc=low_memory?lis_anchor_pilot_create_low_memory(P,&ctx):lis_anchor_pilot_create(P,&ctx)))goto done;initial=lis_wtime()-start;}
         rc=pilot?lis_anchor_pilot_solve(ctx,A,b,x,&r):lis_anchor_fresh_solve(A,b,x,&r);
         elapsed=lis_wtime()-start;
         accepted+=r.accepted;creates+=r.factorizations+first;total+=elapsed;setup+=r.setup_seconds+initial;
