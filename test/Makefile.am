@@ -431,3 +431,9 @@ testcondense_lis_LDADD = $(LDADD) -lm
 TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
 TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
 EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+
+# Generalized inverse iteration USER callback failure regression.
+test_PROGRAMS += testusereigeninverse
+testusereigeninverse_SOURCES = testusereigeninverse.c
+testusereigeninverse_LDADD = $(LDADD) -lm
+TESTS += testusereigeninverse$(EXEEXT)

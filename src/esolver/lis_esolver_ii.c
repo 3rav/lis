@@ -893,12 +893,24 @@ LIS_INT lis_egii(LIS_ESOLVER esolver)
        */
       if( transform == LIS_EIGEN_TRANSFORM_BUCKLING )
       {
-	lis_matvec(esolver->A, v, w);
+	err = lis_matvec(esolver->A, v, w);
       }
       else
       {
-	lis_matvec(B, v, w);
+	err = lis_matvec(B, v, w);
       }
+      if( err )
+        {
+          esolver->retcode = err;
+          esolver->iter[0] = iter-1;
+          esolver->resid[0] = NAN;
+          esolver->evalue[0] = (LIS_SCALAR)NAN;
+          lis_precon_destroy(precon);
+          lis_solver_destroy(solver);
+          if( Aop ) lis_matrix_destroy(Aop);
+          LIS_DEBUG_FUNC_OUT;
+          return err;
+        }
 
       /* v = v / <w,v>^1/2, w = w / <w,v>^1/2 */
       lis_vector_dot(w, v, &eta);
@@ -941,9 +953,13 @@ LIS_INT lis_egii(LIS_ESOLVER esolver)
       if( err )
         {
           esolver->retcode = err;
+          esolver->iter[0] = iter-1;
+          esolver->resid[0] = NAN;
+          esolver->evalue[0] = (LIS_SCALAR)NAN;
           lis_precon_destroy(precon);
           lis_solver_destroy(solver);
           if( Aop ) lis_matrix_destroy(Aop);
+          LIS_DEBUG_FUNC_OUT;
           return err;
         }
       lis_solver_get_iter(solver,&iter2);
@@ -1019,6 +1035,9 @@ LIS_INT lis_egii(LIS_ESOLVER esolver)
           if( err )
             {
               esolver->retcode = err;
+              esolver->iter[0] = iter-1;
+              esolver->resid[0] = NAN;
+              esolver->evalue[0] = (LIS_SCALAR)NAN;
               lis_precon_destroy(precon);
               lis_solver_destroy(solver);
               if( Aop ) lis_matrix_destroy(Aop);
