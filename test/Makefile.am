@@ -345,6 +345,9 @@ testoomiluc_SOURCES = testoomiluc.c
 testoomsnapshot_SOURCES = testoomsnapshot.c
 testoomrco_SOURCES = testoomrco.c
 testcsrtransposeoom_SOURCES = testcsrtransposeoom.c
+check_PROGRAMS += testuserrowoom
+TESTS += testuserrowoom$(EXEEXT)
+testuserrowoom_SOURCES = testuserrowoom.c
 if ENABLE_MPI
 check_PROGRAMS += testoommpiscale
 TESTS += testoommpiscale$(EXEEXT)
