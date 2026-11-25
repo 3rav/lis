@@ -5871,6 +5871,63 @@ done:
     return failed;
 }
 
+/* Same matrix generation and options[] are not sufficient for MFAMG:
+ * these four hierarchy controls are separately parsed solver fields. */
+static int check_mfamg_sequence_configuration(void)
+{
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR z=NULL;
+    LIS_SOLVER s=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_INT i;
+    char *updates[]={
+        "-mfamg_block_size 2",
+        "-mfamg_fine_agg_factor 2",
+        "-mfamg_vcycle_smooth_steps 2",
+        "-mfamg_deep_sibling_merge 1"
+    };
+    int failed=1;
+
+    if(create_csr(&A) || lis_vector_duplicate(A,&z) ||
+       lis_solver_create(&s) ||
+       lis_vector_set_all((LIS_SCALAR)1,z) ||
+       lis_solver_set_option("-i gmres -p mfamg -scale none -print none",s) ||
+       lis_solver_set_near_nullspace(s,1,&z) ||
+       lis_solver_sequence_prepare_precon(A,s,&pc) || !pc)
+        goto done;
+    for(i=0;i<4;i++)
+    {
+        if(lis_solver_set_option(updates[i],s) ||
+           lis_solver_sequence_prepare_precon(A,s,&pc) || !pc ||
+           s->sequence_precon_mfamg_block_size!=s->mfamg_block_size ||
+           s->sequence_precon_mfamg_fine_agg_factor!=s->mfamg_fine_agg_factor ||
+           s->sequence_precon_mfamg_vcycle_smooth_steps!=s->mfamg_vcycle_smooth_steps ||
+           s->sequence_precon_mfamg_deep_sibling_merge!=s->mfamg_deep_sibling_merge)
+            goto done;
+    }
+    /* Replace the legacy basis without changing its dimension. */
+    if(lis_vector_set_all((LIS_SCALAR)2,z) ||
+       lis_solver_set_near_nullspace(s,1,&z) ||
+       s->sequence_precon!=NULL ||
+       lis_solver_sequence_prepare_precon(A,s,&pc) || !pc ||
+       lis_solver_clear_near_nullspace(s) ||
+       s->sequence_precon!=NULL)
+        goto done;
+    /* A new explicit basis can subsequently rebuild the hierarchy. */
+    if(lis_solver_set_amg_coarse_basis(s,1,&z) ||
+       lis_solver_sequence_prepare_precon(A,s,&pc) || !pc ||
+       lis_solver_clear_amg_coarse_basis(s) ||
+       s->sequence_precon!=NULL)
+        goto done;
+    failed=0;
+done:
+    if(s) lis_solver_destroy(s);
+    if(z) lis_vector_destroy(z);
+    if(A) lis_matrix_destroy(A);
+    printf("MFAMG_SEQUENCE_CONFIGURATION %s\n",failed?"FAILED":"PASSED");
+    return failed;
+}
+
 static int
 run_serial(void)
 {
@@ -5898,6 +5955,7 @@ run_serial(void)
     failed = 0;
 
     failed |= check_independent_amg_basis();
+    failed |= check_mfamg_sequence_configuration();
     failed |=
         check_mfamg_multivector_basis_foundation();
 

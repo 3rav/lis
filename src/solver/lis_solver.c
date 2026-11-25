@@ -317,6 +317,10 @@ LIS_INT lis_solver_init(LIS_SOLVER solver)
 	solver->mfamg_contact_partition = NULL;
 	solver->mfamg_contact_partition_n = 0;
 	solver->sequence_precon_mfamg_contact_aware = 0;
+	solver->sequence_precon_mfamg_block_size = 1;
+	solver->sequence_precon_mfamg_fine_agg_factor = 0;
+	solver->sequence_precon_mfamg_vcycle_smooth_steps = 1;
+	solver->sequence_precon_mfamg_deep_sibling_merge = 0;
 	solver->near_nullspace_coarse = NULL;
 	solver->recycle_u = NULL;
 	solver->recycle_zu = NULL;
@@ -2024,7 +2028,7 @@ lis_solver_project_nullspace(
 #define __FUNC__ "lis_solver_clear_near_nullspace"
 LIS_INT lis_solver_clear_near_nullspace(LIS_SOLVER solver)
 {
-	LIS_INT i;
+	LIS_INT i,err;
 
 	LIS_DEBUG_FUNC_IN;
 
@@ -2037,6 +2041,15 @@ LIS_INT lis_solver_clear_near_nullspace(LIS_SOLVER solver)
 		return LIS_ERR_ILL_ARG;
 	}
 
+	/* A sequence-owned MFAMG hierarchy may still contain interpolation
+	 * derived from the old legacy basis. Retire reusable state before
+	 * releasing it, including when a previously absent basis is installed.
+	 * Do not destroy caller-owned preconditioners. */
+	if(solver->sequence_precon!=NULL)
+	{
+		err=lis_solver_reset_sequence(solver);
+		if(err) return err;
+	}
 	lis_solver_near_nullspace_coarse_destroy(solver);
 
 	if( solver->near_nullspace )
@@ -2791,7 +2804,11 @@ static LIS_INT lis_solver_sequence_precon_config_matches(
 		return LIS_FALSE;
 
 	if(solver->sequence_precon_mfamg_contact_aware!=
-	   solver->mfamg_contact_aware)
+	   solver->mfamg_contact_aware ||
+	   solver->sequence_precon_mfamg_block_size!=solver->mfamg_block_size ||
+	   solver->sequence_precon_mfamg_fine_agg_factor!=solver->mfamg_fine_agg_factor ||
+	   solver->sequence_precon_mfamg_vcycle_smooth_steps!=solver->mfamg_vcycle_smooth_steps ||
+	   solver->sequence_precon_mfamg_deep_sibling_merge!=solver->mfamg_deep_sibling_merge)
 		return LIS_FALSE;
 
 	if( solver->sequence_precon_half_mode!=
@@ -2818,6 +2835,10 @@ static void lis_solver_sequence_precon_snapshot(
 
 	solver->sequence_precon_mfamg_contact_aware =
 		solver->mfamg_contact_aware;
+	solver->sequence_precon_mfamg_block_size=solver->mfamg_block_size;
+	solver->sequence_precon_mfamg_fine_agg_factor=solver->mfamg_fine_agg_factor;
+	solver->sequence_precon_mfamg_vcycle_smooth_steps=solver->mfamg_vcycle_smooth_steps;
+	solver->sequence_precon_mfamg_deep_sibling_merge=solver->mfamg_deep_sibling_merge;
 	solver->sequence_precon_half_mode =
 		solver->precon_half_mode;
 	solver->sequence_precon_ilut_rcm = solver->ilut_rcm;
