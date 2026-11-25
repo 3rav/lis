@@ -176,6 +176,22 @@ LIS_INT lis_matrix_auto_session_solve_with_precon_matrix(
     LIS_INT *policy, LIS_INT *action,
     LIS_INT *precon_policy, LIS_INT *precon_action);
 
+/* Experimental collective native-CSR A/P path. All MPI_COMM_WORLD ranks
+ * must call in the same order, with assembled matrices and identical
+ * solver configuration. A, P, b and x must have congruent world
+ * communicators and the same distribution. Real double, GMRES/FGMRES,
+ * Jacobi, default precision, no scaling, no nullspaces, no half storage.
+ * Use a dedicated session; reset it before releasing any borrowed object.
+ * Local preflight errors and generation changes are reduced collectively.
+ * The underlying native MPI solver's failure contract still applies:
+ * this does not add collective recovery for arbitrary internal allocation
+ * failures or MPI failures. USER/OPERATOR materialization is not supported.
+ * Non-MPI builds return LIS_ERR_NOT_IMPLEMENTED.
+ */
+LIS_INT lis_matrix_auto_session_solve_distributed_csr(
+    LIS_MATRIX_AUTO_SESSION session,LIS_MATRIX source,LIS_MATRIX precon_source,
+    LIS_VECTOR b,LIS_VECTOR x);
+
 LIS_INT lis_matrix_auto_session_reset(
     LIS_MATRIX_AUTO_SESSION session);
 
