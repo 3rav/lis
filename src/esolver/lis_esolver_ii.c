@@ -183,6 +183,10 @@ lis_eii_solve_with_recovery(
                 return status;
         }
 
+        /* Do not perturb a shell with an unsupported in-place shift. */
+        if(A->matrix_type==LIS_MATRIX_USER || A->matrix_type==LIS_MATRIX_OPERATOR)
+                return status;
+
         perturbation =
                 lis_esolver_shift_perturbation(
                         base_shift);
@@ -380,6 +384,19 @@ lis_egii_solve_with_recovery(
                  * and solver-work lifetime strictly inside the operator
                  * lifetime.
                  */
+                if(lis_callback_scope_status())
+                {
+                        if(*precon)
+                        {
+                                if(solver->precon==*precon) solver->precon=NULL;
+                                lis_precon_destroy(*precon);
+                                *precon=NULL;
+                        }
+                        lis_solver_work_destroy(solver);
+                        solver->A=base_operator;
+                        lis_matrix_destroy(trial_operator);
+                        return status;
+                }
                 err = lis_esolver_rebuild_precon(
                         base_operator,
                         solver,

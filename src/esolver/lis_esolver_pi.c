@@ -584,7 +584,8 @@ LIS_INT lis_egpi(LIS_ESOLVER esolver)
     {
       lis_solver_get_status(solver,&err);
       /* Preserve the legacy numerical-status policy for built-in operators. */
-      if( B->matrix_type!=LIS_MATRIX_USER && B->matrix_type!=LIS_MATRIX_OPERATOR &&
+      if(lis_callback_scope_status()) err=lis_callback_scope_status();
+      else if( B->matrix_type!=LIS_MATRIX_USER && B->matrix_type!=LIS_MATRIX_OPERATOR &&
           solver->options[LIS_OPTIONS_PRECON]<LIS_PRECON_TYPE_USERDEF &&
           (err==LIS_MAXITER || err==LIS_BREAKDOWN) ) err = LIS_SUCCESS;
     }

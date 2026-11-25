@@ -2946,7 +2946,12 @@ LIS_INT lis_eli(LIS_ESOLVER esolver)
     {
       lis_vector_duplicate(A, &esolver->evector[i]); 
       esolver2->ishift = esolver->evalue[i];
-      lis_esolve(A, esolver->evector[i], &evalue, esolver2);
+      err = lis_esolve(A, esolver->evector[i], &evalue, esolver2);
+      if(!err && lis_callback_scope_status()) err=lis_callback_scope_status();
+      if(!err && esolver2->retcode!=LIS_SUCCESS &&
+         esolver2->retcode!=LIS_MAXITER && esolver2->retcode!=LIS_BREAKDOWN)
+          err=esolver2->retcode;
+      if(err) { lis_esolver_destroy(esolver2); goto callback_failure; }
       lis_esolver_work_destroy(esolver2); 
       esolver->evalue[i] = evalue;
       esolver->iter[i] = esolver2->iter[0];
@@ -4192,6 +4197,11 @@ if( resid>tol )
 			}
 
 			refine_status = esolver2->retcode;
+                        if(lis_callback_scope_status())
+                        {
+                                err=lis_callback_scope_status();
+                                goto cleanup;
+                        }
 
 			if( (refine_status==LIS_SUCCESS ||
 			     refine_status==LIS_MAXITER) &&
@@ -7924,7 +7934,8 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
     {
       lis_solver_get_status(solver,&err);
       /* Preserve the legacy numerical-status policy for built-in operators. */
-      if( B->matrix_type!=LIS_MATRIX_USER && B->matrix_type!=LIS_MATRIX_OPERATOR &&
+      if(lis_callback_scope_status()) err=lis_callback_scope_status();
+      else if( B->matrix_type!=LIS_MATRIX_USER && B->matrix_type!=LIS_MATRIX_OPERATOR &&
           solver->options[LIS_OPTIONS_PRECON]<LIS_PRECON_TYPE_USERDEF &&
           (err==LIS_MAXITER || err==LIS_BREAKDOWN) ) err = LIS_SUCCESS;
     }
@@ -7994,7 +8005,12 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
     {
       lis_vector_duplicate(A, &esolver->evector[i]); 
       esolver2->ishift = esolver->evalue[i];
-      lis_gesolve(A, B, esolver->evector[i], &evalue, esolver2);
+      err = lis_gesolve(A, B, esolver->evector[i], &evalue, esolver2);
+      if(!err && lis_callback_scope_status()) err=lis_callback_scope_status();
+      if(!err && esolver2->retcode!=LIS_SUCCESS &&
+         esolver2->retcode!=LIS_MAXITER && esolver2->retcode!=LIS_BREAKDOWN)
+          err=esolver2->retcode;
+      if(err) { lis_esolver_destroy(esolver2); goto callback_failure; }
       lis_esolver_work_destroy(esolver2); 
       esolver->evalue[i] = evalue;
       esolver->iter[i] = esolver2->iter[0];      

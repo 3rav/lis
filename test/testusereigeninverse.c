@@ -1,7 +1,7 @@
 #ifdef HAVE_CONFIG_H
 #include "lis_config.h"
 #endif
-#include "lis.h"
+#include "lislib.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -77,6 +77,57 @@ done:
     if(A)lis_matrix_destroy(A);
     return failed;
 }
+
+static LIS_INT varied_apply(void *ptr,const LIS_SCALAR *x,LIS_SCALAR *y)
+{
+    CTX *c=(CTX *)ptr;
+    LIS_INT i;
+    ++c->calls;
+    if(c->fail && c->calls==c->fail)return c->code;
+    for(i=0;i<c->n;i++)y[i]=(i+1.0)*x[i];
+    return LIS_SUCCESS;
+}
+static int origin(void)
+{
+    CTX c={4,0,0,0,LIS_MAXITER};
+    LIS_CALLBACK_SCOPE scope;
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR b=NULL,x=NULL;
+    LIS_SOLVER solver=NULL;
+    LIS_PRECON pc=NULL;
+    LIS_INT status;
+    int failed=1,active=0;
+    if(create(&c,&A) || lis_matrix_set_user(A,&c,varied_apply,varied_apply) ||
+       lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x) ||
+       lis_vector_set_all(1.0,b) || lis_solver_create(&solver) ||
+       lis_solver_set_option("-i cg -p none -maxiter 1 -tol 1e-14",solver))goto done;
+    solver->A=A;
+    if(lis_precon_create(solver,&pc)) { pc=NULL; goto done; }
+    lis_callback_scope_begin(&scope); active=1;
+    if(!lis_callback_scope_active()) { failed=0; goto done; }
+    status=lis_esolver_inner_solve_attempt(A,b,x,solver,pc);
+    if(status!=LIS_MAXITER || lis_callback_scope_status() ||
+       !lis_esolver_inner_solve_can_retry(A,NULL,solver,status))goto done;
+    lis_callback_scope_end(&scope); active=0;
+    c.calls=0; c.fail=1;
+    lis_vector_set_all(0.0,x);
+    lis_callback_scope_begin(&scope); active=1;
+    status=lis_esolver_inner_solve_attempt(A,b,x,solver,pc);
+    if(status!=LIS_MAXITER || lis_callback_scope_status()!=status ||
+       lis_esolver_inner_solve_can_retry(A,NULL,solver,status) || c.calls!=1)goto done;
+    lis_callback_scope_end(&scope); active=0;
+    if(lis_callback_scope_active() || lis_callback_scope_status())goto done;
+    failed=0;
+done:
+    if(active)lis_callback_scope_end(&scope);
+    if(pc)lis_precon_destroy(pc);
+    if(solver)lis_solver_destroy(solver);
+    if(x)lis_vector_destroy(x);
+    if(b)lis_vector_destroy(b);
+    if(A)lis_matrix_destroy(A);
+    if(failed)fprintf(stderr,"USER eigen callback origin regression failed\n");
+    return failed;
+}
 #endif
 int main(int argc,char **argv)
 {
@@ -94,6 +145,7 @@ int main(int argc,char **argv)
     /* A is first applied by the inner shift-invert solve. */
     failed|=run(0,1,0,LIS_MAXITER);
     failed|=run(0,1,0,LIS_BREAKDOWN);
+    failed|=origin();
     lis_finalize();
     printf("USER_EIGEN_INVERSE %s\n",failed?"FAILED":"PASSED");
     return failed?1:0;

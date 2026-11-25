@@ -209,8 +209,10 @@ LIS_INT lis_esolver_inner_solve_attempt(
 
         solver->retcode = LIS_SUCCESS;
 
+        if(lis_callback_scope_status()) return lis_callback_scope_status();
         err = lis_solve_kernel(
                 A,b,x,solver,precon);
+        if(lis_callback_scope_status()) err=lis_callback_scope_status();
         if( err )
         {
                 solver->retcode = err;
@@ -243,9 +245,8 @@ LIS_INT lis_esolver_inner_solve_retryable(
 
 static LIS_INT lis_esolver_has_user_operand(LIS_MATRIX A);
 
-/* A numeric code alone cannot distinguish application failure from
- * numerical nonconvergence. Until origin is tracked, fail closed for
- * callback-capable inner solves; preserve native-matrix recovery. */
+/* Use the recorded callback origin when supported. Keep the older
+ * fail-closed policy outside a serial scoped solve. */
 LIS_INT lis_esolver_inner_solve_can_retry(
         LIS_MATRIX A,
         LIS_MATRIX B,
@@ -255,6 +256,8 @@ LIS_INT lis_esolver_inner_solve_can_retry(
         LIS_INT pc;
         if( !lis_esolver_inner_solve_retryable(status) || solver==NULL )
                 return LIS_FALSE;
+        if( lis_callback_scope_active() )
+                return lis_callback_scope_status()==LIS_SUCCESS;
         if( lis_esolver_has_user_operand(A) ||
             lis_esolver_has_user_operand(B) )
                 return LIS_FALSE;
@@ -1681,11 +1684,13 @@ static LIS_INT lis_gesolve_once(LIS_MATRIX A, LIS_MATRIX B, LIS_VECTOR x, LIS_SC
 			err = lis_esolver_execute_switch[nesolver](esolver);
 		}
 	#endif
+	if(lis_callback_scope_status()) err=lis_callback_scope_status();
 	esolver->retcode = err;
 
-	/* On a hard failure no uncomputed result slot is valid. Preserve the
-	 * numerical nonconvergence/partial-result convention. */
-	if( err!=LIS_SUCCESS && err!=LIS_MAXITER && err!=LIS_BREAKDOWN )
+	/* A callback failure invalidates all results, even if its code is
+	 * MAXITER or BREAKDOWN. Preserve numerical partial-result conventions. */
+	if( lis_callback_scope_status() ||
+	    (err!=LIS_SUCCESS && err!=LIS_MAXITER && err!=LIS_BREAKDOWN) )
 	{
 		for(i=0;i<ss+2;i++)
 		{
@@ -1763,6 +1768,7 @@ LIS_INT lis_gesolve(
 {
         LIS_INT err,current_ss,next_ss,nesolver,attempt;
         LIS_INT original_ss,result;
+        LIS_CALLBACK_SCOPE callback_scope;
         LIS_REAL grown;
         double total_time;
 #ifdef USE_MPI
@@ -1777,6 +1783,7 @@ LIS_INT lis_gesolve(
                 return LIS_ERR_ILL_ARG;
         }
 
+        lis_callback_scope_begin(&callback_scope);
         original_ss = esolver->options[LIS_EOPTIONS_SUBSPACE];
         result = LIS_SUCCESS;
         total_time = 0.0;
@@ -1846,10 +1853,12 @@ LIS_INT lis_gesolve(
                  * Do not interpret that invalid result as a request to grow
                  * the subspace merely because its status is LIS_MAXITER.
                  * Native matrices retain their previous retry policy. */
-                if( (lis_esolver_has_user_operand(A) ||
-                     lis_esolver_has_user_operand(B)) &&
-                    esolver->resid!=NULL &&
-                    isnan((double)esolver->resid[0]) )
+                if( lis_callback_scope_status() ||
+                    (!lis_callback_scope_active() &&
+                     (lis_esolver_has_user_operand(A) ||
+                      lis_esolver_has_user_operand(B)) &&
+                     esolver->resid!=NULL &&
+                     isnan((double)esolver->resid[0])) )
                 {
                         break;
                 }
@@ -1908,6 +1917,7 @@ LIS_INT lis_gesolve(
          */
         esolver->options[LIS_EOPTIONS_SUBSPACE] = original_ss;
         esolver->time = total_time;
+        lis_callback_scope_end(&callback_scope);
 
         LIS_DEBUG_FUNC_OUT;
         return result;

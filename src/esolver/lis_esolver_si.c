@@ -235,6 +235,10 @@ lis_esi_solve_with_recovery(
                 return status;
         }
 
+        /* Do not perturb a shell with an unsupported in-place shift. */
+        if(A->matrix_type==LIS_MATRIX_USER || A->matrix_type==LIS_MATRIX_OPERATOR)
+                return status;
+
         perturbation =
                 lis_esolver_shift_perturbation(
                         base_shift);
@@ -363,6 +367,11 @@ lis_egsi_solve_with_recovery(
         {
                 return status;
         }
+
+        /* Do not perturb a shell with an unsupported in-place shift. */
+        if(A->matrix_type==LIS_MATRIX_USER || A->matrix_type==LIS_MATRIX_OPERATOR ||
+           B->matrix_type==LIS_MATRIX_USER || B->matrix_type==LIS_MATRIX_OPERATOR)
+                return status;
 
         perturbation =
                 lis_esolver_shift_perturbation(

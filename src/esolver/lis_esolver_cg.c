@@ -238,7 +238,8 @@ LIS_INT lis_ecg(LIS_ESOLVER esolver)
     {
       lis_solver_get_status(solver,&err);
       /* Preserve the legacy numerical-status policy for built-in operators. */
-      if( A->matrix_type!=LIS_MATRIX_USER && A->matrix_type!=LIS_MATRIX_OPERATOR &&
+      if(lis_callback_scope_status()) err=lis_callback_scope_status();
+      else if( A->matrix_type!=LIS_MATRIX_USER && A->matrix_type!=LIS_MATRIX_OPERATOR &&
           solver->options[LIS_OPTIONS_PRECON]<LIS_PRECON_TYPE_USERDEF &&
           (err==LIS_MAXITER || err==LIS_BREAKDOWN) ) err = LIS_SUCCESS;
     }
@@ -685,7 +686,8 @@ LIS_INT lis_egcg(LIS_ESOLVER esolver)
     {
       lis_solver_get_status(solver,&err);
       /* Preserve the legacy numerical-status policy for built-in operators. */
-      if( A->matrix_type!=LIS_MATRIX_USER && A->matrix_type!=LIS_MATRIX_OPERATOR &&
+      if(lis_callback_scope_status()) err=lis_callback_scope_status();
+      else if( A->matrix_type!=LIS_MATRIX_USER && A->matrix_type!=LIS_MATRIX_OPERATOR &&
           solver->options[LIS_OPTIONS_PRECON]<LIS_PRECON_TYPE_USERDEF &&
           (err==LIS_MAXITER || err==LIS_BREAKDOWN) ) err = LIS_SUCCESS;
     }
@@ -1148,7 +1150,8 @@ LIS_INT lis_ecr(LIS_ESOLVER esolver)
     {
       lis_solver_get_status(solver,&err);
       /* Preserve the legacy numerical-status policy for built-in operators. */
-      if( A->matrix_type!=LIS_MATRIX_USER && A->matrix_type!=LIS_MATRIX_OPERATOR &&
+      if(lis_callback_scope_status()) err=lis_callback_scope_status();
+      else if( A->matrix_type!=LIS_MATRIX_USER && A->matrix_type!=LIS_MATRIX_OPERATOR &&
           solver->options[LIS_OPTIONS_PRECON]<LIS_PRECON_TYPE_USERDEF &&
           (err==LIS_MAXITER || err==LIS_BREAKDOWN) ) err = LIS_SUCCESS;
     }
@@ -1572,7 +1575,8 @@ LIS_INT lis_egcr(LIS_ESOLVER esolver)
     {
       lis_solver_get_status(solver,&err);
       /* Preserve the legacy numerical-status policy for built-in operators. */
-      if( A->matrix_type!=LIS_MATRIX_USER && A->matrix_type!=LIS_MATRIX_OPERATOR &&
+      if(lis_callback_scope_status()) err=lis_callback_scope_status();
+      else if( A->matrix_type!=LIS_MATRIX_USER && A->matrix_type!=LIS_MATRIX_OPERATOR &&
           solver->options[LIS_OPTIONS_PRECON]<LIS_PRECON_TYPE_USERDEF &&
           (err==LIS_MAXITER || err==LIS_BREAKDOWN) ) err = LIS_SUCCESS;
     }
