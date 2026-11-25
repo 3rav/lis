@@ -191,7 +191,17 @@ LIS_INT lis_epi(LIS_ESOLVER esolver)
       lis_vector_scale(1.0/nrm2, v);
 
       /* y = A * v */
-      lis_matvec(A,v,y);
+      err = lis_matvec(A,v,y);
+      if( err )
+        {
+          esolver->retcode = err;
+          esolver->iter[0] = iter-1;
+          esolver->resid[0] = NAN;
+          esolver->evalue[0] = (LIS_SCALAR)NAN;
+          if( oshift != 0.0 ) lis_matrix_shift_diagonal(A, -oshift);
+          LIS_DEBUG_FUNC_OUT;
+          return err;
+        }
 
       /* theta = <v,y> */
       lis_vector_dot(v, y, &theta);
@@ -249,6 +259,9 @@ LIS_INT lis_epi(LIS_ESOLVER esolver)
           if( err )
             {
               esolver->retcode = err;
+              esolver->iter[0] = iter-1;
+              esolver->resid[0] = NAN;
+              esolver->evalue[0] = (LIS_SCALAR)NAN;
               if( oshift != 0.0 )
                 lis_matrix_shift_diagonal(A, -oshift);
               LIS_DEBUG_FUNC_OUT;
@@ -499,7 +512,19 @@ LIS_INT lis_egpi(LIS_ESOLVER esolver)
       lis_vector_scale(1.0/nrm2, v);
 
       /* w = A * v */
-      lis_matvec(A, v, w);
+      err = lis_matvec(A, v, w);
+      if( err )
+        {
+          esolver->retcode = err;
+          esolver->iter[0] = iter-1;
+          esolver->resid[0] = NAN;
+          esolver->evalue[0] = (LIS_SCALAR)NAN;
+          lis_precon_destroy(precon);
+          lis_solver_destroy(solver);
+          if( Aop ) lis_matrix_destroy(Aop);
+          LIS_DEBUG_FUNC_OUT;
+          return err;
+        }
 
       /* v = v / <v,w>^1/2, w = w / <v,w>^1/2 */
       lis_vector_dot(v, w, &eta);
@@ -535,13 +560,17 @@ LIS_INT lis_egpi(LIS_ESOLVER esolver)
 
       /* y = B^-1 * w */
       err = lis_solve_kernel(B, w, y, solver, precon);
+      if( !err ) lis_solver_get_status(solver,&err);
       if( err )
         {
-          lis_solver_work_destroy(solver);
-          solver->retcode = err;
+          esolver->retcode = err;
+          esolver->iter[0] = iter-1;
+          esolver->resid[0] = NAN;
+          esolver->evalue[0] = (LIS_SCALAR)NAN;
           lis_precon_destroy(precon);
           lis_solver_destroy(solver);
           if( Aop ) lis_matrix_destroy(Aop);
+          LIS_DEBUG_FUNC_OUT;
           return err;
         }
       lis_solver_get_iter(solver, &iter2);
@@ -596,6 +625,9 @@ LIS_INT lis_egpi(LIS_ESOLVER esolver)
           if( err )
             {
               esolver->retcode = err;
+              esolver->iter[0] = iter-1;
+              esolver->resid[0] = NAN;
+              esolver->evalue[0] = (LIS_SCALAR)NAN;
               lis_precon_destroy(precon);
               lis_solver_destroy(solver);
               if( Aop ) lis_matrix_destroy(Aop);
