@@ -431,3 +431,63 @@ testcondense_lis_LDADD = $(LDADD) -lm
 TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
 TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
 EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+
+# BiCGSTAB(l) initial iterate reconstruction regression.
+test_PROGRAMS += testbicgstablinit
+testbicgstablinit_SOURCES = testbicgstablinit.c
+testbicgstablinit_LDADD = $(LDADD) -lm
+TESTS += testbicgstablinit$(EXEEXT)
+
+# TFQMR USER callback errors.
+test_PROGRAMS += testusertfqmrcallback
+testusertfqmrcallback_SOURCES = testusertfqmrcallback.c
+testusertfqmrcallback_LDADD = $(LDADD) -lm
+TESTS += testusertfqmrcallback$(EXEEXT)
+
+# GMRES and FGMRES USER callback failure regression.
+test_PROGRAMS += testusergmreserrors
+testusergmreserrors_SOURCES = testusergmreserrors.c
+testusergmreserrors_LDADD = $(LDADD) -lm
+TESTS += testusergmreserrors$(EXEEXT)
+
+# Orthomin USER callback failure regression.
+test_PROGRAMS += testuserorthominerrors
+testuserorthominerrors_SOURCES = testuserorthominerrors.c
+testuserorthominerrors_LDADD = $(LDADD) -lm
+TESTS += testuserorthominerrors$(EXEEXT)
+
+# GPBiCG and GPBiCR USER callback regression.
+test_PROGRAMS += testusergpbic
+testusergpbic_SOURCES = testusergpbic.c
+testusergpbic_LDADD = $(LDADD) -lm
+TESTS += testusergpbic$(EXEEXT)
+
+# CRS and BiCRSTAB USER callback regression.
+test_PROGRAMS += testusercrserrors
+testusercrserrors_SOURCES = testusercrserrors.c
+testusercrserrors_LDADD = $(LDADD) -lm
+TESTS += testusercrserrors$(EXEEXT)
+
+# CR, COCG and COCR USER callback regression.
+test_PROGRAMS += testusercrcomplex
+testusercrcomplex_SOURCES = testusercrcomplex.c
+testusercrcomplex_LDADD = $(LDADD) -lm
+TESTS += testusercrcomplex$(EXEEXT)
+
+# BiCGSTAB(l) USER callback regression.
+test_PROGRAMS += testuserbicgstabl
+testuserbicgstabl_SOURCES = testuserbicgstabl.c
+testuserbicgstabl_LDADD = $(LDADD) -lm
+TESTS += testuserbicgstabl$(EXEEXT)
+
+# IDR1 and IDR(s) USER callback regression.
+test_PROGRAMS += testuseridrcallback
+testuseridrcallback_SOURCES = testuseridrcallback.c
+testuseridrcallback_LDADD = $(LDADD) -lm
+TESTS += testuseridrcallback$(EXEEXT)
+
+# FGCRO-DR USER callback failure regression.
+test_PROGRAMS += testuserfgcrodrerrors
+testuserfgcrodrerrors_SOURCES = testuserfgcrodrerrors.c
+testuserfgcrodrerrors_LDADD = $(LDADD) -lm
+TESTS += testuserfgcrodrerrors$(EXEEXT)

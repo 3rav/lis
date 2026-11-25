@@ -230,7 +230,7 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 	LIS_SCALAR M,m,c;
 	LIS_REAL bnrm2,nrm2,tol;
 	LIS_INT i,s;
-	LIS_INT iter,maxiter,n,output,conv;
+	LIS_INT err,iter,maxiter,n,output,conv;
 	double time,ptime,tim;
         unsigned long init[4]={0x123, 0x234, 0x345, 0x456}, length=4;
 
@@ -246,6 +246,7 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 	conv    = solver->options[LIS_OPTIONS_CONV_COND];
 	s       = 1;
 	ptime   = 0.0;
+	iter    = 0;
 
 	r       = solver->work[0];
 	t       = solver->work[1];
@@ -258,10 +259,17 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 	/* Initial Residual */
 	if( lis_solver_get_initial_residual(solver,NULL,NULL,r,&bnrm2) )
 	{
+		if(solver->retcode!=LIS_SUCCESS)
+		{
+			solver->resid = NAN;
+			LIS_DEBUG_FUNC_OUT;
+			return solver->retcode;
+		}
 		LIS_DEBUG_FUNC_OUT;
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
+	lis_solver_get_residual[conv](r,solver,&nrm2);
 
 	init_by_array(init, length);
 		for(i=0;i<n;i++)
@@ -275,15 +283,18 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 
 		#ifdef PRE_RIGHT
 			time = lis_wtime();
-			lis_psolve(solver, r, dX[0]);
+			err=lis_psolve(solver, r, dX[0]);
 			ptime += lis_wtime()-time;
-			lis_matvec(A,dX[0],dR[0]);
+			if(err) goto callback_failure;
+			err=lis_matvec(A,dX[0],dR[0]);
+			if(err) goto callback_failure;
 		#else
 		#ifdef PRE_BOTH
 			time = lis_wtime();
 			lis_psolve_right(solver, r, t);
 			ptime += lis_wtime()-time;
-			lis_matvec(A,t,av);
+			err=lis_matvec(A,t,av);
+			if(err) goto callback_failure;
 			lis_vector_print(av);
 			time = lis_wtime();
 			lis_psolve_left(solver, av, v);
@@ -347,15 +358,18 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 
 			#ifdef PRE_RIGHT
 				time = lis_wtime();
-				lis_psolve(solver, v, av);
+				err=lis_psolve(solver, v, av);
 				ptime += lis_wtime()-time;
-				lis_matvec(A,av,t);
+				if(err) goto callback_failure;
+				err=lis_matvec(A,av,t);
+				if(err) goto callback_failure;
 			#else
 			#ifdef PRE_BOTH
 				time = lis_wtime();
 				lis_psolve_right(solver, v, t);
 				ptime += lis_wtime()-time;
-				lis_matvec(A,t,av);
+				err=lis_matvec(A,t,av);
+				if(err) goto callback_failure;
 				time = lis_wtime();
 				lis_psolve_left(solver, av, t);
 				ptime += lis_wtime()-time;
@@ -453,8 +467,9 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 
 			#ifdef PRE_RIGHT
 				time = lis_wtime();
-				lis_psolve(solver, v, av);
+				err=lis_psolve(solver, v, av);
 				ptime += lis_wtime()-time;
+				if(err) goto callback_failure;
 			#endif
 
 			#if 0
@@ -473,7 +488,8 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 				}
 			#endif
 
-			lis_matvec(A,dX[0],dR[0]);
+			err=lis_matvec(A,dX[0],dR[0]);
+			if(err) goto callback_failure;
 			lis_vector_scale(-1.0,dR[0]);
 
 		lis_vector_axpy(1.0,dR[0],r);
@@ -519,6 +535,14 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 	solver->resid     = nrm2;
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_MAXITER;
+
+callback_failure:
+	solver->retcode=err;
+	solver->iter=iter;
+	solver->ptime=ptime;
+	solver->resid=nrm2;
+	LIS_DEBUG_FUNC_OUT;
+	return err;
 }
 
 #undef __FUNC__
@@ -533,7 +557,7 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 	LIS_SCALAR *M,*m,*c,*MM;
 	LIS_REAL bnrm2,nrm2,tol,min_nrm2;
 	LIS_INT i,j,k,s,oldest;
-	LIS_INT iter,maxiter,n,output,conv,maxiter_noimp,noimp_count;
+	LIS_INT err,iter,maxiter,n,output,conv,maxiter_noimp,noimp_count;
 	double time,ptime,tim;
         unsigned long init[4]={0x123, 0x234, 0x345, 0x456}, length=4;
 
@@ -552,6 +576,7 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 	noimp_count   = 0;
 	min_nrm2      = LIS_SCALAR_MAX;
 	ptime   = 0.0;
+	iter    = 0;
 
 	r       = solver->work[0];
 	t       = solver->work[1];
@@ -566,6 +591,12 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 	M = (LIS_SCALAR *)lis_malloc(s*s*sizeof(LIS_SCALAR), "lis_idrs::M");
 	MM = (LIS_SCALAR *)lis_malloc(s*s*sizeof(LIS_SCALAR),
 "lis_idrs::M");
+	if(m==NULL || c==NULL || M==NULL || MM==NULL)
+	{
+		lis_free2(4,m,c,M,MM);
+		LIS_SETERR_MEM(sizeof(LIS_SCALAR));
+		return LIS_ERR_OUT_OF_MEMORY;
+	}
 
 
 
@@ -573,10 +604,17 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 	if( lis_solver_get_initial_residual(solver,NULL,NULL,r,&bnrm2) )
 	{
 		lis_free2(4,m,c,M,MM);
+		if(solver->retcode!=LIS_SUCCESS)
+		{
+			solver->resid = NAN;
+			LIS_DEBUG_FUNC_OUT;
+			return solver->retcode;
+		}
 		LIS_DEBUG_FUNC_OUT;
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
+	lis_solver_get_residual[conv](r,solver,&nrm2);
 
 	init_by_array(init, length);
 	for(k=0;k<s;k++)
@@ -590,11 +628,14 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 
 	for( k=0; k<s; k++ )
 	{
+		iter=k+1;
 		#ifdef PRE_RIGHT
 			time = lis_wtime();
-			lis_psolve(solver, r, dX[k]);
+			err=lis_psolve(solver, r, dX[k]);
 			ptime += lis_wtime()-time;
-			lis_matvec(A,dX[k],dR[k]);
+			if(err) goto callback_failure;
+			err=lis_matvec(A,dX[k],dR[k]);
+			if(err) goto callback_failure;
 		#endif
 
 		lis_vector_dot(dR[k],dR[k],&h);
@@ -660,9 +701,11 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 		{
 			#ifdef PRE_RIGHT
 				time = lis_wtime();
-				lis_psolve(solver, v, av);
+				err=lis_psolve(solver, v, av);
 				ptime += lis_wtime()-time;
-				lis_matvec(A,av,t);
+				if(err) goto callback_failure;
+				err=lis_matvec(A,av,t);
+				if(err) goto callback_failure;
 			#endif
 
 			lis_vector_dot(t,t,&h);
@@ -706,8 +749,9 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 		{
 			#ifdef PRE_RIGHT
 				time = lis_wtime();
-				lis_psolve(solver, v, av);
+				err=lis_psolve(solver, v, av);
 				ptime += lis_wtime()-time;
+				if(err) goto callback_failure;
 			#endif
 
 			#if 0
@@ -729,7 +773,8 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 				}
 			#endif
 
-			lis_matvec(A,dX[oldest],dR[oldest]);
+			err=lis_matvec(A,dX[oldest],dR[oldest]);
+			if(err) goto callback_failure;
 			lis_vector_scale(-1.0,dR[oldest]);
 		}
 
@@ -776,6 +821,7 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 				solver->iter = iter;
 				solver->resid = nrm2;
 				solver->ptime = ptime;
+				lis_free2(4,m,c,M,MM);
 				LIS_DEBUG_FUNC_OUT;
 				return LIS_MAXITER;
 			}
@@ -801,5 +847,14 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 	solver->resid     = nrm2;
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_MAXITER;
+
+callback_failure:
+	solver->retcode=err;
+	solver->iter=iter;
+	solver->ptime=ptime;
+	solver->resid=nrm2;
+	lis_free2(4,m,c,M,MM);
+	LIS_DEBUG_FUNC_OUT;
+	return err;
 }
 
