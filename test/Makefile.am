@@ -431,3 +431,9 @@ testcondense_lis_LDADD = $(LDADD) -lm
 TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
 TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
 EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+
+# GMRES and FGMRES USER callback failure regression.
+test_PROGRAMS += testusergmreserrors
+testusergmreserrors_SOURCES = testusergmreserrors.c
+testusergmreserrors_LDADD = $(LDADD) -lm
+TESTS += testusergmreserrors$(EXEEXT)
