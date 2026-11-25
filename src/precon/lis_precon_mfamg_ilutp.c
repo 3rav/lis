@@ -128,7 +128,7 @@ lis_mfamg_ilutp_create_child(LIS_SOLVER outer, LIS_INT kind,
          * Global ILUTP (overlap=-1) retains the original serial policy. */
         child->ilut_ras_overlap=outer->ilut_ras_overlap;
         child->ilut_ras_domains=outer->ilut_ras_domains;
-        child->ilut_schur=0;
+        child->ilut_schur=outer->ilut_schur;
     }
 
     /* Metadata setters invalidate retained sequence state, including A.
@@ -204,10 +204,12 @@ lis_precon_create_mfamg_ilutp(LIS_SOLVER solver,LIS_PRECON precon)
                    "MFAMG_ILUTP requires 0 < ilutp_threshold <= 1\n");
         return LIS_ERR_ILL_ARG;
     }
-    if(solver->ilut_schur)
+    /* The ILUTP child owns its optional approximate interface Schur
+     * correction, applied to the residual remaining after MFAMG. */
+    if(solver->ilut_schur && solver->ilut_ras_overlap<0)
     {
         LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
-                   "MFAMG_ILUTP does not support a Schur correction inside RAS\n");
+                   "MFAMG_ILUTP Schur correction requires explicit RAS\n");
         return LIS_ERR_NOT_IMPLEMENTED;
     }
     if(solver->ilut_ras_overlap>=0)
