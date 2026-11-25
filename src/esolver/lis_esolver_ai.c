@@ -229,7 +229,8 @@ LIS_INT lis_eai(LIS_ESOLVER esolver)
       j = j+1;
 
       /* w = A * v(j) */
-      lis_matvec(A, v[j], w);
+      err = lis_matvec(A, v[j], w);
+      if(err) goto callback_failure;
 
       /*
        * Modified Gram-Schmidt orthogonalization.
@@ -473,6 +474,17 @@ LIS_INT lis_eai(LIS_ESOLVER esolver)
   LIS_DEBUG_FUNC_OUT;
   esolver->retcode = final_status;
   return final_status;
+callback_failure:
+  esolver->retcode = err;
+  esolver->iter[0] = 0;
+  esolver->resid[0] = NAN;
+  esolver->evalue[0] = (LIS_SCALAR)NAN;
+  lis_solver_destroy(solver);
+  lis_free(h);
+  lis_free(hq);
+  lis_free(hr);
+  LIS_DEBUG_FUNC_OUT;
+  return err;
 } 
 
 /***************************************
@@ -666,17 +678,13 @@ LIS_INT lis_egai(LIS_ESOLVER esolver)
       j = j+1;
 
       /* w = A * v(j) */
-      lis_matvec(A, v[j], w);
+      err = lis_matvec(A, v[j], w);
+      if(err) goto callback_failure;
 
       /* w = B^-1 * w */
       err = lis_solve_kernel(B, w, y, solver, precon);
-      if( err )
-	{
-	  lis_solver_work_destroy(solver);	  
-	  solver->retcode = err;
-	  lis_precon_destroy(precon);
-	  return err;
-	}
+      if(!err) lis_solver_get_status(solver,&err);
+      if(err) goto callback_failure;
       lis_solver_get_iter(solver, &iter2);
       lis_vector_copy(y, w);
       
@@ -928,5 +936,17 @@ LIS_INT lis_egai(LIS_ESOLVER esolver)
   LIS_DEBUG_FUNC_OUT;
   esolver->retcode = final_status;
   return final_status;
+callback_failure:
+  esolver->retcode = err;
+  esolver->iter[0] = 0;
+  esolver->resid[0] = NAN;
+  esolver->evalue[0] = (LIS_SCALAR)NAN;
+  lis_precon_destroy(precon);
+  lis_solver_destroy(solver);
+  lis_free(h);
+  lis_free(hq);
+  lis_free(hr);
+  LIS_DEBUG_FUNC_OUT;
+  return err;
 } 
 
