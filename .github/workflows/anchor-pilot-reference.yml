@@ -1,0 +1,52 @@
+name: Anchor pilot reference regression
+on:
+  pull_request:
+    paths:
+      - 'tools/*anchor_pilot*'
+      - 'doc/anchor-pilot-reference.md'
+      - '.github/workflows/anchor-pilot-reference.yml'
+      - 'src/solver/**'
+      - 'src/precon/**'
+      - 'src/matrix/**'
+      - 'src/vector/**'
+      - 'include/**'
+      - 'configure.ac'
+  push:
+    branches:
+      - experiment/retained-anchor-pilot-20261125
+    paths:
+      - 'tools/*anchor_pilot*'
+      - 'doc/anchor-pilot-reference.md'
+      - '.github/workflows/anchor-pilot-reference.yml'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [release, asan-ubsan]
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool
+      - name: Build native LIS and reference regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags='-O2 -DNDEBUG'
+          if [ '${{ matrix.profile }}' = asan-ubsan ]; then
+            flags='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all'
+          fi
+          ./configure --disable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg --disable-test --disable-shared --enable-static CFLAGS="$flags" LDFLAGS="$flags"
+          make -j2
+          cc $flags -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/test_anchor_pilot.c src/.libs/liblis.a -lm -o test-anchor-pilot
+          cc $flags -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/bench_anchor_pilot.c src/.libs/liblis.a -lm -o bench-anchor-pilot
+          ./test-anchor-pilot | tee anchor-pilot.log
+          grep -Fx 'ANCHOR_PILOT_REGRESSION=PASS' anchor-pilot.log
