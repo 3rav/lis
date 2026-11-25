@@ -431,3 +431,9 @@ testcondense_lis_LDADD = $(LDADD) -lm
 TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
 TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
 EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+
+# GPBiCG and GPBiCR USER callback regression.
+test_PROGRAMS += testusergpbic
+testusergpbic_SOURCES = testusergpbic.c
+testusergpbic_LDADD = $(LDADD) -lm
+TESTS += testusergpbic$(EXEEXT)
