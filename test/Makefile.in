@@ -198,7 +198,14 @@ F77LINK = $(LIBTOOL) $(AM_V_lt) --tag=F77 $(AM_LIBTOOLFLAGS) \
 @ENABLE_OOM_TESTS_TRUE@	testoomrco$(EXEEXT) \
 @ENABLE_OOM_TESTS_TRUE@	testcsrtransposeoom$(EXEEXT) \
 @ENABLE_OOM_TESTS_TRUE@	testuserrowoom$(EXEEXT) $(am__EXEEXT_1)
-@ENABLE_OOM_TESTS_TRUE@am__append_6 = testoomalloc$(EXEEXT) testoomilu$(EXEEXT) testoomdiag$(EXEEXT) testoomiluc$(EXEEXT) testoomsnapshot$(EXEEXT) testoomrco$(EXEEXT) testcsrtransposeoom$(EXEEXT) testuserrowoom$(EXEEXT)
+@ENABLE_OOM_TESTS_TRUE@am__append_6 = testoomalloc$(EXEEXT) \
+@ENABLE_OOM_TESTS_TRUE@	testoomilu$(EXEEXT) \
+@ENABLE_OOM_TESTS_TRUE@	testoomdiag$(EXEEXT) \
+@ENABLE_OOM_TESTS_TRUE@	testoomiluc$(EXEEXT) \
+@ENABLE_OOM_TESTS_TRUE@	testoomsnapshot$(EXEEXT) \
+@ENABLE_OOM_TESTS_TRUE@	testoomrco$(EXEEXT) \
+@ENABLE_OOM_TESTS_TRUE@	testcsrtransposeoom$(EXEEXT) \
+@ENABLE_OOM_TESTS_TRUE@	testuserrowoom$(EXEEXT)
 @ENABLE_MPI_TRUE@@ENABLE_OOM_TESTS_TRUE@am__append_7 = testoommpiscale
 @ENABLE_MPI_TRUE@@ENABLE_OOM_TESTS_TRUE@am__append_8 = testoommpiscale$(EXEEXT)
 subdir = test
