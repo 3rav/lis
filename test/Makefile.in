@@ -982,8 +982,10 @@ testusereigeninverse_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am_testusereigenpower_OBJECTS = testusereigenpower.$(OBJEXT)
 testusereigenpower_OBJECTS = $(am_testusereigenpower_OBJECTS)
 testusereigenpower_DEPENDENCIES = $(am__DEPENDENCIES_1)
-am_testusereigenprojection_OBJECTS = testusereigenprojection.$(OBJEXT)
-testusereigenprojection_OBJECTS = $(am_testusereigenprojection_OBJECTS)
+am_testusereigenprojection_OBJECTS =  \
+	testusereigenprojection.$(OBJEXT)
+testusereigenprojection_OBJECTS =  \
+	$(am_testusereigenprojection_OBJECTS)
 testusereigenprojection_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am_testusereigenrqiguard_OBJECTS = testusereigenrqiguard.$(OBJEXT)
 testusereigenrqiguard_OBJECTS = $(am_testusereigenrqiguard_OBJECTS)
