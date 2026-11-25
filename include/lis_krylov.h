@@ -40,6 +40,19 @@ typedef struct {
     lis_krylov_matvec solve;
 } lis_krylov_problem;
 
+/* 64-bit physical vector dimensions; the projected subspace dimensions
+ * (nev/ncv) remain int. All vectors are contiguous real double, local.
+ * Existing int-indexed entry points and layouts remain unchanged. */
+typedef int (*lis_krylov_matvec64)(void *ctx,int64_t n,
+                                  const double *x,double *y);
+typedef struct {
+    int64_t n;
+    int transform;
+    double sigma;
+    void *ctx;
+    lis_krylov_matvec64 apply_a,apply_b,solve;
+} lis_krylov_problem64;
+
 typedef struct {
     int nev;                       /* requested eigenpairs, 1 <= nev < n */
     int ncv;                       /* 0: choose min(n,3*nev+8); else >nev */
@@ -177,6 +190,19 @@ int lis_krylov_symmetric_ex(const lis_krylov_problem *problem,
                             double *residuals, lis_krylov_stats *stats,
                             lis_krylov_ext_stats *ext_stats);
 
+
+/* Same numerical core with 64-bit physical indexing and checked
+ * allocation products. Existing options and statistics are reused;
+ * cumulative int counters saturate at INT_MAX rather than overflowing.
+ * Workspace is compatible across entry points if its shape matches.
+ * This API does not provide MPI-distributed vector operations. */
+int lis_krylov_workspace_create64(const lis_krylov_problem64 *problem,
+    const lis_krylov_options *options,const lis_krylov_ext_options *ext_options,
+    lis_krylov_workspace **workspace);
+int lis_krylov_symmetric_ex64(const lis_krylov_problem64 *problem,
+    const lis_krylov_options *options,const lis_krylov_ext_options *ext_options,
+    lis_krylov_workspace *workspace,double *eigenvalues,double *eigenvectors,
+    double *residuals,lis_krylov_stats *stats,lis_krylov_ext_stats *ext_stats);
 
 /* Optional hard limits on actual application callback invocations.
  * Zero means no user limit; a conservative total ceiling of INT_MAX/2

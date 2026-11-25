@@ -16,6 +16,14 @@ static int apply_diagonal(void *ctx, int n, const double *x, double *y)
     return 0;
 }
 
+static int apply_diagonal64(void *ctx,int64_t n,const double *x,double *y)
+{
+    int64_t i;
+    (void)ctx;
+    for(i=0;i<n;++i)y[i]=(double)(i+1)*x[i];
+    return 0;
+}
+
 static int fail_callback(void *ctx,int n,const double *x,double *y)
 {
     (void)ctx;(void)n;(void)x;(void)y;
@@ -109,6 +117,35 @@ int main(void)
         rc=lis_krylov_select_converged(5,v,r,1,6,1e-8,idx,1,&count);
         if(rc!=LIS_KRYLOV_BAD_ARGUMENT || count!=-1) return 1;
         puts("PASS callback budget and converged pair selection");
+    }
+
+    {
+        lis_krylov_problem64 p64={0};
+        double reference[2];
+        lis_krylov_ext_options_default(&ext);
+        lis_krylov_ext_stats_default(&extra);
+        p64.n=p.n;p64.apply_a=apply_diagonal64;
+        rc=lis_krylov_symmetric(&p,&options,reference,vectors,residuals,&stats);
+        if(rc!=LIS_KRYLOV_SUCCESS)return 1;
+        rc=lis_krylov_workspace_create64(&p64,&options,&ext,&w);
+        if(rc || !w)return 1;
+        rc=lis_krylov_symmetric_ex64(&p64,&options,&ext,w,values,vectors,
+                                     residuals,&stats,&extra);
+        if(rc || stats.nconv!=2 ||
+           fabs(values[0]-reference[0])>1e-10 ||
+           fabs(values[1]-reference[1])>1e-10)return 1;
+        /* Same allocation works with the original callback ABI. */
+        rc=lis_krylov_symmetric_ex(&p,&options,&ext,w,values,vectors,
+                                   residuals,&stats,&extra);
+        lis_krylov_workspace_destroy(w);w=NULL;
+        if(rc || stats.nconv!=2)return 1;
+        p64.n=INT64_MAX;
+        rc=lis_krylov_workspace_create64(&p64,&options,&ext,&w);
+        if(rc!=LIS_KRYLOV_BAD_ARGUMENT || w)return 1;
+        rc=lis_krylov_symmetric_ex64(&p64,&options,&ext,NULL,values,vectors,
+                                     residuals,&stats,&extra);
+        if(rc!=LIS_KRYLOV_BAD_ARGUMENT || stats.nreturned)return 1;
+        puts("PASS 64-bit vector API parity and overflow rejection");
     }
 
     /* On ILP32, n * ncv = 2^34 and n * (ncv/2) = 2^33.
