@@ -957,7 +957,8 @@ LIS_INT lis_esi(LIS_ESOLVER esolver)
 	    case LIS_ESOLVER_PI:
 
 	      /* R = A * V */
-	      lis_matvec(A,v[j],r); 
+	      err = lis_matvec(A,v[j],r);
+	      if(err) goto callback_failure;
 
 	      break;
 
@@ -1145,6 +1146,16 @@ LIS_INT lis_esi(LIS_ESOLVER esolver)
   LIS_DEBUG_FUNC_OUT;
   esolver->retcode = final_status;
   return final_status;
+callback_failure:
+  esolver->retcode = err;
+  esolver->iter[0] = 0;
+  esolver->resid[0] = NAN;
+  esolver->evalue[0] = (LIS_SCALAR)NAN;
+  if(oshift!=0.0) lis_matrix_shift_diagonal(A,-oshift);
+  if(niesolver==LIS_ESOLVER_II)
+    { lis_precon_destroy(precon); lis_solver_destroy(solver); }
+  LIS_DEBUG_FUNC_OUT;
+  return err;
 }
 
 /***************************************
@@ -1411,7 +1422,8 @@ LIS_INT lis_egsi(LIS_ESOLVER esolver)
 	    case LIS_ESOLVER_GPI:
 
 	      /* y = A * v */	      
-	      lis_matvec(A, v[j], w); 
+	      err = lis_matvec(A, v[j], w);
+	      if(err) goto callback_failure;
 
 	      /* v = v / <v,w>^1/2, w = w / <v,w>^1/2 */	      
 	      lis_vector_dot(v[j], w, &eta);
@@ -1466,7 +1478,8 @@ LIS_INT lis_egsi(LIS_ESOLVER esolver)
 	    case LIS_ESOLVER_GII:
 
 	      /* w = B * v */
-	      lis_matvec(B, v[j], w);
+	      err = lis_matvec(B, v[j], w);
+	      if(err) goto callback_failure;
 	      
 	      /* v = v / <v,w>^1/2, w = w / <v,w>^1/2 */
 	      lis_vector_dot(v[j], w, &eta);
@@ -1677,4 +1690,14 @@ LIS_INT lis_egsi(LIS_ESOLVER esolver)
   LIS_DEBUG_FUNC_OUT;
   esolver->retcode = final_status;
   return final_status;
+callback_failure:
+  esolver->retcode = err;
+  esolver->iter[0] = 0;
+  esolver->resid[0] = NAN;
+  esolver->evalue[0] = (LIS_SCALAR)NAN;
+  if(oshift!=0.0) lis_matrix_shift_matrix(A,B,-oshift);
+  lis_precon_destroy(precon);
+  lis_solver_destroy(solver);
+  LIS_DEBUG_FUNC_OUT;
+  return err;
 }

@@ -345,6 +345,9 @@ testoomiluc_SOURCES = testoomiluc.c
 testoomsnapshot_SOURCES = testoomsnapshot.c
 testoomrco_SOURCES = testoomrco.c
 testcsrtransposeoom_SOURCES = testcsrtransposeoom.c
+check_PROGRAMS += testuserrowoom
+TESTS += testuserrowoom$(EXEEXT)
+testuserrowoom_SOURCES = testuserrowoom.c
 if ENABLE_MPI
 check_PROGRAMS += testoommpiscale
 TESTS += testoommpiscale$(EXEEXT)
@@ -431,3 +434,111 @@ testcondense_lis_LDADD = $(LDADD) -lm
 TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
 TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
 EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+
+# BiCGSTAB(l) initial iterate reconstruction regression.
+test_PROGRAMS += testbicgstablinit
+testbicgstablinit_SOURCES = testbicgstablinit.c
+testbicgstablinit_LDADD = $(LDADD) -lm
+TESTS += testbicgstablinit$(EXEEXT)
+
+# TFQMR USER callback errors.
+test_PROGRAMS += testusertfqmrcallback
+testusertfqmrcallback_SOURCES = testusertfqmrcallback.c
+testusertfqmrcallback_LDADD = $(LDADD) -lm
+TESTS += testusertfqmrcallback$(EXEEXT)
+
+# GMRES and FGMRES USER callback failure regression.
+test_PROGRAMS += testusergmreserrors
+testusergmreserrors_SOURCES = testusergmreserrors.c
+testusergmreserrors_LDADD = $(LDADD) -lm
+TESTS += testusergmreserrors$(EXEEXT)
+
+# Orthomin USER callback failure regression.
+test_PROGRAMS += testuserorthominerrors
+testuserorthominerrors_SOURCES = testuserorthominerrors.c
+testuserorthominerrors_LDADD = $(LDADD) -lm
+TESTS += testuserorthominerrors$(EXEEXT)
+
+# GPBiCG and GPBiCR USER callback regression.
+test_PROGRAMS += testusergpbic
+testusergpbic_SOURCES = testusergpbic.c
+testusergpbic_LDADD = $(LDADD) -lm
+TESTS += testusergpbic$(EXEEXT)
+
+# CRS and BiCRSTAB USER callback regression.
+test_PROGRAMS += testusercrserrors
+testusercrserrors_SOURCES = testusercrserrors.c
+testusercrserrors_LDADD = $(LDADD) -lm
+TESTS += testusercrserrors$(EXEEXT)
+
+# CR, COCG and COCR USER callback regression.
+test_PROGRAMS += testusercrcomplex
+testusercrcomplex_SOURCES = testusercrcomplex.c
+testusercrcomplex_LDADD = $(LDADD) -lm
+TESTS += testusercrcomplex$(EXEEXT)
+
+# BiCGSTAB(l) USER callback regression.
+test_PROGRAMS += testuserbicgstabl
+testuserbicgstabl_SOURCES = testuserbicgstabl.c
+testuserbicgstabl_LDADD = $(LDADD) -lm
+TESTS += testuserbicgstabl$(EXEEXT)
+
+# IDR1 and IDR(s) USER callback regression.
+test_PROGRAMS += testuseridrcallback
+testuseridrcallback_SOURCES = testuseridrcallback.c
+testuseridrcallback_LDADD = $(LDADD) -lm
+TESTS += testuseridrcallback$(EXEEXT)
+
+# FGCRO-DR USER callback failure regression.
+test_PROGRAMS += testuserfgcrodrerrors
+testuserfgcrodrerrors_SOURCES = testuserfgcrodrerrors.c
+testuserfgcrodrerrors_LDADD = $(LDADD) -lm
+TESTS += testuserfgcrodrerrors$(EXEEXT)
+
+# Power iteration USER callback failure regression.
+test_PROGRAMS += testusereigenpower
+testusereigenpower_SOURCES = testusereigenpower.c
+testusereigenpower_LDADD = $(LDADD) -lm
+TESTS += testusereigenpower$(EXEEXT)
+
+# Complex USER forward/adjoint regression.
+test_PROGRAMS += testusercomplexadjoint
+testusercomplexadjoint_SOURCES = testusercomplexadjoint.c
+testusercomplexadjoint_LDADD = $(LDADD) -lm
+TESTS += testusercomplexadjoint$(EXEEXT)
+
+# Generalized inverse iteration USER callback failure regression.
+test_PROGRAMS += testusereigeninverse
+testusereigeninverse_SOURCES = testusereigeninverse.c
+testusereigeninverse_LDADD = $(LDADD) -lm
+TESTS += testusereigeninverse$(EXEEXT)
+
+# USER eigen CG/CR callback failure regression.
+test_PROGRAMS += testusereigencgcr
+testusereigencgcr_SOURCES = testusereigencgcr.c
+testusereigencgcr_LDADD = $(LDADD) -lm
+TESTS += testusereigencgcr$(EXEEXT)
+
+# USER projected eigensolver callback regression.
+test_PROGRAMS += testusereigenprojection
+testusereigenprojection_SOURCES = testusereigenprojection.c
+testusereigenprojection_LDADD = $(LDADD) -lm
+TESTS += testusereigenprojection$(EXEEXT)
+
+# USER Rayleigh quotient capability guard regression.
+test_PROGRAMS += testusereigenrqiguard
+testusereigenrqiguard_SOURCES = testusereigenrqiguard.c
+testusereigenrqiguard_LDADD = $(LDADD) -lm
+TESTS += testusereigenrqiguard$(EXEEXT)
+
+# USER eigensolver callback status logging regression.
+test_PROGRAMS += testusereigenstatus
+testusereigenstatus_SOURCES = testusereigenstatus.c
+testusereigenstatus_LDADD = $(LDADD) -lm
+TESTS += testusereigenstatus$(EXEEXT)
+
+# USER GCRO-DR callback diagnostics regression.
+test_PROGRAMS += testusergcrodrerrors
+testusergcrodrerrors_SOURCES = testusergcrodrerrors.c
+testusergcrodrerrors_LDADD = $(LDADD) -lm
+TESTS += testusergcrodrerrors$(EXEEXT)

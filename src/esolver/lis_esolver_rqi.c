@@ -386,6 +386,7 @@ LIS_INT lis_erqi(LIS_ESOLVER esolver)
       return err;
     }
 
+  iter=0;
   /* v = v / ||v||_2 */
   lis_vector_nrm2(v, &nrm2);
   if( !lis_esolver_is_valid_norm(nrm2) )
@@ -401,7 +402,8 @@ LIS_INT lis_erqi(LIS_ESOLVER esolver)
   lis_vector_scale(1.0/nrm2, v);
 
   /* rho = <v,A*v> / <v,v> */
-  lis_matvec(A, v, y);
+  err = lis_matvec(A, v, y);
+  if(err) goto callback_failure;
   lis_vector_dot(v, y, &rho);
   
   iter=0;
@@ -559,6 +561,15 @@ LIS_INT lis_erqi(LIS_ESOLVER esolver)
   lis_solver_destroy(solver); 
   LIS_DEBUG_FUNC_OUT;
   return LIS_MAXITER;
+callback_failure:
+  esolver->retcode = err;
+  esolver->iter[0] = iter>0 ? iter-1 : 0;
+  esolver->resid[0] = NAN;
+  esolver->evalue[0] = (LIS_SCALAR)NAN;
+  lis_precon_destroy(precon);
+  lis_solver_destroy(solver);
+  LIS_DEBUG_FUNC_OUT;
+  return err;
 }
 
 /*******************************************
@@ -700,6 +711,7 @@ LIS_INT lis_egrqi(LIS_ESOLVER esolver)
       return err;
     }
 
+  iter=0;
   /* v = v / ||v||_2 */
   lis_vector_nrm2(v, &nrm2);
   if( !lis_esolver_is_valid_norm(nrm2) )
@@ -715,10 +727,12 @@ LIS_INT lis_egrqi(LIS_ESOLVER esolver)
   lis_vector_scale(1.0/nrm2, v);
 
   /* w = B * v */
-  lis_matvec(B, v, w);
+  err = lis_matvec(B, v, w);
+  if(err) goto callback_failure;
 
   /* rho = <B*v,A*v> / <B*v,B*v> */
-  lis_matvec(A, v, y);
+  err = lis_matvec(A, v, y);
+  if(err) goto callback_failure;
   lis_vector_dot(w, y, &rho);
   lis_vector_dot(w, w, &dotww);
 
@@ -781,7 +795,8 @@ LIS_INT lis_egrqi(LIS_ESOLVER esolver)
         }
 
       /* w = B * y */
-      lis_matvec(B, y, w);
+      err = lis_matvec(B, y, w);
+      if(err) goto callback_failure;
 
       /* eta = <w, y>^1/2 */
       lis_vector_dot(w, y, &eta);
@@ -869,7 +884,8 @@ LIS_INT lis_egrqi(LIS_ESOLVER esolver)
           if( tol < resid )
             {
               /* Restore the live B*v state before another iteration. */
-              lis_matvec(B, v, w);
+              err = lis_matvec(B, v, w);
+              if(err) goto callback_failure;
             }
         }
 
@@ -931,5 +947,14 @@ LIS_INT lis_egrqi(LIS_ESOLVER esolver)
   lis_solver_destroy(solver); 
   LIS_DEBUG_FUNC_OUT;
   return LIS_MAXITER;
+callback_failure:
+  esolver->retcode = err;
+  esolver->iter[0] = iter>0 ? iter-1 : 0;
+  esolver->resid[0] = NAN;
+  esolver->evalue[0] = (LIS_SCALAR)NAN;
+  lis_precon_destroy(precon);
+  lis_solver_destroy(solver);
+  LIS_DEBUG_FUNC_OUT;
+  return err;
 }
 
