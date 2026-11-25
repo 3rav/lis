@@ -89,8 +89,8 @@ lis_mfamg_ilutp_create_child(LIS_SOLVER outer, LIS_INT kind,
     if(kind==LIS_PRECON_TYPE_MFAMG)
     {
         err=lis_solver_set_near_nullspace(child,
-                                         outer->near_nullspace_dim,
-                                         outer->near_nullspace);
+                                         lis_solver_amg_basis_dim(outer),
+                                         lis_solver_amg_basis_vectors(outer));
         if(err) goto fail;
 
         /* CA-MFAMG is a property of the MFAMG child, not the ILUTP child.
@@ -228,10 +228,10 @@ lis_precon_create_mfamg_ilutp(LIS_SOLVER solver,LIS_PRECON precon)
                    "MFAMG_ILUTP RAS domains require an enabled RAS overlap\n");
         return LIS_ERR_ILL_ARG;
     }
-    if(solver->near_nullspace_dim<1 || solver->near_nullspace==NULL)
+    if(lis_solver_amg_basis_dim(solver)<1 || lis_solver_amg_basis_vectors(solver)==NULL)
     {
         LIS_SETERR(LIS_ERR_ILL_ARG,
-                   "MFAMG_ILUTP requires supplied near-nullspace vectors\n");
+                   "MFAMG_ILUTP requires supplied interpolation basis vectors\n");
         return LIS_ERR_ILL_ARG;
     }
 
