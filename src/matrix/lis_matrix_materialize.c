@@ -14,6 +14,10 @@
 #include <stdint.h>
 #include <limits.h>
 #include <string.h>
+#include <math.h>
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -1368,6 +1372,149 @@ fail:
     session->source=NULL;
     session->precon_source=NULL;
     return err ? err : reset_err;
+}
+
+#ifdef USE_MPI
+static int paired_world_comm(LIS_Comm comm)
+{
+    int relation;
+    return MPI_Comm_compare(comm,MPI_COMM_WORLD,&relation)==MPI_SUCCESS &&
+           (relation==MPI_IDENT || relation==MPI_CONGRUENT);
+}
+static int paired_collective_error(int local)
+{
+    int global=0;
+    if(MPI_Allreduce(&local,&global,1,MPI_INT,MPI_MAX,MPI_COMM_WORLD)
+       !=MPI_SUCCESS)return LIS_ERR_ILL_ARG;
+    return global;
+}
+#endif
+
+#undef __FUNC__
+#define __FUNC__ "lis_matrix_auto_session_solve_distributed_csr"
+LIS_INT lis_matrix_auto_session_solve_distributed_csr(
+    LIS_MATRIX_AUTO_SESSION session,LIS_MATRIX A,LIS_MATRIX P,
+    LIS_VECTOR b,LIS_VECTOR x)
+{
+#if !defined(USE_MPI) || defined(_COMPLEX) || defined(USE_COMPLEX) || defined(_LONG__DOUBLE)
+    (void)session;(void)A;(void)P;(void)b;(void)x;
+    return LIS_ERR_NOT_IMPLEMENTED;
+#else
+    LIS_SOLVER s=session?session->solver:NULL;
+    LIS_INT i,k,method,err;
+    LIS_INT options[LIS_OPTIONS_LEN],controls[5];
+    LIS_SCALAR params[LIS_PARAMS_LEN];
+    uint64_t as=0,av=0,ps=0,pv=0;
+    int bad=0,changed=0,any_changed=0;
+    int size=0;
+    double d;
+    if(MPI_Comm_size(MPI_COMM_WORLD,&size)!=MPI_SUCCESS)
+        return LIS_ERR_ILL_ARG;
+    /* Do not dereference a locally invalid argument before the collective. */
+    if(!s || !A || !P || !b || !x)bad=LIS_ERR_ILL_ARG;
+    else if(A->matrix_type!=LIS_MATRIX_CSR || P->matrix_type!=LIS_MATRIX_CSR ||
+            A->is_splited || P->is_splited || A->is_scaled || P->is_scaled ||
+            s->options[LIS_OPTIONS_PRECON]!=LIS_PRECON_TYPE_JACOBI ||
+            s->options[LIS_OPTIONS_SCALE]!=LIS_SCALE_NONE ||
+            s->options[LIS_OPTIONS_PRECISION]!=LIS_PRECISION_DEFAULT ||
+            s->options[LIS_OPTIONS_STORAGE]!=0 ||
+            s->options[LIS_OPTIONS_ADDS] || s->options[LIS_OPTIONS_USE_AT] ||
+            s->precon_half_mode!=LIS_PRECON_HALF_OFF ||
+            s->nullspace_dim || s->left_nullspace_dim ||
+            s->near_nullspace_dim || s->amg_coarse_basis_dim ||
+            s->mfamg_contact_partition_n ||
+            s->sequence_policy!=LIS_SEQUENCE_POLICY_AUTO ||
+            s->sequence_precon_refresh_policy!=LIS_SEQUENCE_PRECON_REFRESH_SAFE)
+        bad=LIS_ERR_NOT_IMPLEMENTED;
+    else if(!paired_world_comm(A->comm) || !paired_world_comm(P->comm) ||
+            !paired_world_comm(b->comm) || !paired_world_comm(x->comm) ||
+            A->nprocs!=size || P->nprocs!=size || b->nprocs!=size || x->nprocs!=size ||
+            A->gn<=0 || A->n<=0 || A->n!=P->n || A->gn!=P->gn ||
+            A->is!=P->is || A->ie!=P->ie ||
+            b->label!=LIS_LABEL_VECTOR || x->label!=LIS_LABEL_VECTOR ||
+            b->precision!=LIS_PRECISION_DEFAULT || x->precision!=LIS_PRECISION_DEFAULT ||
+            b->n!=A->n || x->n!=A->n || b->gn!=A->gn || x->gn!=A->gn ||
+            b->is!=A->is || x->is!=A->is || b->ie!=A->ie || x->ie!=A->ie ||
+            !A->ptr || !A->index || !A->value || !P->ptr || !P->index ||
+            !P->value || !b->value || !x->value || b==x)
+        bad=LIS_ERR_ILL_ARG;
+    if(!bad)
+    {
+        method=s->options[LIS_OPTIONS_SOLVER];
+        if(method!=LIS_SOLVER_GMRES && method!=LIS_SOLVER_FGMRES)
+            bad=LIS_ERR_NOT_IMPLEMENTED;
+        /* Jacobi must not create infinities on a subset of ranks. */
+        for(i=0;!bad && i<P->n;i++)
+        {
+            d=0;
+            for(k=P->ptr[i];k<P->ptr[i+1];k++)
+                if(P->index[k]==i){d=(double)P->value[k];break;}
+            if(!isfinite(d) || d==0 || !isfinite(1.0/d))
+                bad=LIS_ERR_ILL_ARG;
+        }
+    }
+    bad=paired_collective_error(bad);
+    if(bad)return bad;
+
+    /* Identical solver controls ensure all ranks take the same Krylov
+     * path. Compare numeric params using their native MPI datatype. */
+    memcpy(options,s->options,sizeof(options));
+    memcpy(params,s->params,sizeof(params));
+    controls[0]=s->sequence_policy;
+    controls[1]=s->sequence_precon_refresh_policy;
+    controls[2]=s->sequence_precon_max_age;
+    controls[3]=s->num_threads;
+    controls[4]=s->setup;
+    if(MPI_Bcast(options,LIS_OPTIONS_LEN,LIS_MPI_INT,0,MPI_COMM_WORLD)!=MPI_SUCCESS ||
+       MPI_Bcast(params,LIS_PARAMS_LEN,LIS_MPI_SCALAR,0,MPI_COMM_WORLD)!=MPI_SUCCESS ||
+       MPI_Bcast(controls,5,LIS_MPI_INT,0,MPI_COMM_WORLD)!=MPI_SUCCESS)
+        return LIS_ERR_ILL_ARG;
+    if(memcmp(options,s->options,sizeof(options)) ||
+       memcmp(params,s->params,sizeof(params)) ||
+       controls[0]!=s->sequence_policy ||
+       controls[1]!=s->sequence_precon_refresh_policy ||
+       controls[2]!=s->sequence_precon_max_age ||
+       controls[3]!=s->num_threads || controls[4]!=s->setup || s->setup)
+        bad=LIS_ERR_ILL_ARG;
+    err=lis_matrix_materialize_source_stamp(A,&as,&av,0);
+    if(!err)err=lis_matrix_materialize_source_stamp(P,&ps,&pv,0);
+    if(err)bad=(int)err;
+    bad=paired_collective_error(bad);
+    if(bad)return bad;
+
+    changed=!session->paired || !session->has_selection ||
+        session->source!=A || session->precon_source!=P ||
+        session->structure_stamp!=as || session->value_stamp!=av ||
+        session->precon_structure_stamp!=ps || session->precon_value_stamp!=pv ||
+        !s->sequence_precon || s->sequence_precon_matrix!=P;
+    if(MPI_Allreduce(&changed,&any_changed,1,MPI_INT,MPI_MAX,MPI_COMM_WORLD)
+        !=MPI_SUCCESS)return LIS_ERR_ILL_ARG;
+    if(any_changed)
+    {
+        err=lis_matrix_auto_session_reset(session);
+        bad=paired_collective_error((int)err);
+        if(bad)return bad;
+    }
+
+    /* Native MPI solve: no callback or row materialization introduced.
+     * Internal MPI/OOM recovery is intentionally not claimed here. */
+    err=lis_solve_sequence_with_precon_matrix(A,P,b,x,s);
+    bad=paired_collective_error((int)err);
+    if(bad)
+    {
+        (void)lis_matrix_auto_session_reset(session);
+        return bad;
+    }
+    session->paired=LIS_TRUE;
+    session->source=A;
+    session->precon_source=P;
+    session->structure_stamp=as;session->value_stamp=av;
+    session->precon_structure_stamp=ps;session->precon_value_stamp=pv;
+    session->selected_policy=LIS_MATRIX_POLICY_DIRECT;
+    session->selected_csr_epoch=0;session->precon_csr_epoch=0;
+    session->has_selection=LIS_TRUE;
+    return LIS_SUCCESS;
+#endif
 }
 
 #undef __FUNC__
