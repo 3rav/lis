@@ -155,8 +155,8 @@ LIS_INT lis_matrix_auto_session_solve(
  * inputs this path supports single-process, unscaled, default precision
  * GMRES/FGMRES with Jacobi, ILUT or MFAMG; MFAMG_ILUTP requires FGMRES.
  * Global ILUT/ILUTP requires one active worker; explicit RAS supports
- * domain-parallel local factors and, for standalone ILUT, its approximate
- * interface Schur correction. MFAMG_ILUTP permits RAS but not Schur.
+ * domain-parallel local factors and their approximate interface Schur
+ * correction, including the ILUTP child of MFAMG_ILUTP.
  * Existing native RAS overlap/domain/interface limits apply.
  * These paths exclude half storage. MFAMG-based profiles require
  * an explicit AMG coarse basis; mathematical nullspaces are not supported

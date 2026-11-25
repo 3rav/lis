@@ -1304,9 +1304,6 @@ lis_matrix_auto_session_solve_with_precon_matrix(
                     solver->ilut_ras_domains<2 || solver->ilut_ras_domains>16 ||
                     solver->ilut_ras_domains>precon_source->n)
                 return LIS_ERR_ILL_ARG;
-            /* The native composite explicitly excludes Schur inside RAS. */
-            if(kind==LIS_PRECON_TYPE_MFAMG_ILUTP && solver->ilut_schur)
-                return LIS_ERR_NOT_IMPLEMENTED;
         }
         if(kind==LIS_PRECON_TYPE_MFAMG_ILUTP && method!=LIS_SOLVER_FGMRES)
             return LIS_ERR_NOT_IMPLEMENTED;

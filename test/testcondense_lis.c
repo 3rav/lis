@@ -306,7 +306,7 @@ static int check_paired_schur_profile(LIS_MATRIX S,LIS_VECTOR g,
         goto done;
     if(uses_contact(profile) &&
        lis_solver_set_mfamg_contact_partition(solver,NP,labels))goto done;
-    for(pass=0;pass<4;pass++)
+    for(pass=0;pass<6;pass++)
     {
         /* Second pair of solves tests independent P with local RAS
          * factors. Standalone MFAMG has no ILUT child. */
@@ -318,6 +318,11 @@ static int check_paired_schur_profile(LIS_MATRIX S,LIS_VECTOR g,
             if(lis_solver_set_option(
                 "-ilut_ras_overlap 1 -ilut_ras_domains 2",solver))
                 goto done;
+            kept=NULL;
+        }
+        if(pass==4)
+        {
+            if(lis_solver_set_option("-ilut_schur 1",solver))goto done;
             kept=NULL;
         }
         if(lis_vector_set_all((LIS_SCALAR)0,x) ||
