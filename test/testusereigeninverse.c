@@ -97,7 +97,8 @@ static int origin(void)
     LIS_PRECON pc=NULL;
     LIS_INT status;
     int failed=1,active=0;
-    if(create(&c,&A) || lis_matrix_set_user(A,&c,varied_apply,varied_apply) ||
+    if(lis_matrix_create(LIS_COMM_WORLD,&A) || lis_matrix_set_size(A,0,c.n) ||
+       lis_matrix_set_user(A,&c,varied_apply,varied_apply) ||
        lis_vector_duplicate(A,&b) || lis_vector_duplicate(A,&x) ||
        lis_vector_set_all(1.0,b) || lis_solver_create(&solver) ||
        lis_solver_set_option("-i cg -p none -maxiter 1 -tol 1e-14",solver))goto done;

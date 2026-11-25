@@ -4752,6 +4752,7 @@ lis_egli_block_first_recurrence(
             candidate[j],
             solver,
             precon);
+        if(lis_callback_scope_status()) err=lis_callback_scope_status();
 
         if( err )
             return err;
@@ -5353,6 +5354,7 @@ lis_egli_block_continue_recurrence(
                 candidate[j],
                 solver,
                 precon);
+            if(lis_callback_scope_status()) err=lis_callback_scope_status();
 
             if( err )
                 return err;
@@ -7925,8 +7927,7 @@ LIS_INT lis_egli(LIS_ESOLVER esolver)
           1,
           j,
           r);
-      if( err )
-          return err;
+      if( err ) goto callback_failure;
 
       /* solve B * q = r */
       err = lis_solve_kernel(B, r, q, solver, precon);
