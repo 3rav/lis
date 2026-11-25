@@ -1241,7 +1241,7 @@ lis_matrix_auto_session_solve_with_precon_matrix(
     LIS_SOLVER solver;
     uint64_t as,av,ps,pv;
     LIS_INT pp=LIS_MATRIX_POLICY_DIRECT,pa=LIS_MATRIX_POLICY_ACTION_DIRECT;
-    LIS_INT err,reset_err,ap,aa,method;
+    LIS_INT err,reset_err,ap,aa,method,kind,threads=1;
 
     if(!session || !session->solver || !source || !precon_source || !b || !x)
         return LIS_ERR_ILL_ARG;
@@ -1257,11 +1257,17 @@ lis_matrix_auto_session_solve_with_precon_matrix(
     }
     solver=session->solver;
     method=solver->options[LIS_OPTIONS_SOLVER];
+    kind=solver->options[LIS_OPTIONS_PRECON];
+#ifdef _OPENMP
+    threads=solver->num_threads>0 ? solver->num_threads : omp_get_max_threads();
+#endif
     if(source->nprocs!=1 || precon_source->nprocs!=1 ||
        source->n!=source->gn || precon_source->n!=precon_source->gn ||
        (method!=LIS_SOLVER_GMRES && method!=LIS_SOLVER_FGMRES) ||
-       solver->options[LIS_OPTIONS_PRECON]!=LIS_PRECON_TYPE_JACOBI ||
+       (kind!=LIS_PRECON_TYPE_JACOBI && kind!=LIS_PRECON_TYPE_ILUT &&
+        kind!=LIS_PRECON_TYPE_MFAMG && kind!=LIS_PRECON_TYPE_MFAMG_ILUTP) ||
        solver->options[LIS_OPTIONS_SCALE]!=LIS_SCALE_NONE ||
+       source->is_scaled || precon_source->is_scaled ||
        solver->options[LIS_OPTIONS_PRECISION]!=LIS_PRECISION_DEFAULT ||
        solver->options[LIS_OPTIONS_STORAGE]!=0 ||
        solver->options[LIS_OPTIONS_ADDS] || solver->options[LIS_OPTIONS_USE_AT] ||
@@ -1269,9 +1275,33 @@ lis_matrix_auto_session_solve_with_precon_matrix(
        solver->near_nullspace_dim ||
        !lis_matrix_policy_has_matvec(source,0))
         return LIS_ERR_NOT_IMPLEMENTED;
-    if(source->n!=precon_source->n || b->n!=source->n || x->n!=source->n ||
-       b->gn!=source->gn || x->gn!=source->gn)
+    if(source->n<=0 || source->n!=precon_source->n ||
+       source->is!=precon_source->is || source->ie!=precon_source->ie ||
+       b->label!=LIS_LABEL_VECTOR || x->label!=LIS_LABEL_VECTOR ||
+       b->precision!=LIS_PRECISION_DEFAULT || x->precision!=LIS_PRECISION_DEFAULT ||
+       !b->value || !x->value || b->nprocs!=1 || x->nprocs!=1 ||
+       b->n!=source->n || x->n!=source->n ||
+       b->gn!=source->gn || x->gn!=source->gn ||
+       b->is!=source->is || x->is!=source->is ||
+       b->ie!=source->ie || x->ie!=source->ie)
         return LIS_ERR_ILL_ARG;
+    if(kind!=LIS_PRECON_TYPE_JACOBI)
+    {
+#if defined(_COMPLEX) || defined(USE_COMPLEX) || defined(_LONG__DOUBLE)
+        return LIS_ERR_NOT_IMPLEMENTED;
+#endif
+        if(solver->precon_half_mode!=LIS_PRECON_HALF_OFF ||
+           (precon_source->matrix_type==LIS_MATRIX_CSR && precon_source->is_splited))
+            return LIS_ERR_NOT_IMPLEMENTED;
+        if((kind==LIS_PRECON_TYPE_ILUT || kind==LIS_PRECON_TYPE_MFAMG_ILUTP) &&
+           (threads!=1 || solver->ilut_ras_overlap>=0 || solver->ilut_schur))
+            return LIS_ERR_NOT_IMPLEMENTED;
+        if(kind==LIS_PRECON_TYPE_MFAMG_ILUTP && method!=LIS_SOLVER_FGMRES)
+            return LIS_ERR_NOT_IMPLEMENTED;
+        if((kind==LIS_PRECON_TYPE_MFAMG || kind==LIS_PRECON_TYPE_MFAMG_ILUTP) &&
+           (solver->amg_coarse_basis_dim<=0 || !solver->amg_coarse_basis))
+            return LIS_ERR_ILL_ARG;
+    }
     if(precon_source->matrix_type==LIS_MATRIX_USER ||
        precon_source->matrix_type==LIS_MATRIX_OPERATOR)
         pp=LIS_MATRIX_POLICY_CACHED_CSR;

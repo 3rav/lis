@@ -152,9 +152,15 @@ LIS_INT lis_matrix_auto_session_solve(
 
 /*
  * Separate physical operator and preconditioning matrix. For distinct
- * inputs this initial path supports single-process, unscaled, default
- * precision GMRES/FGMRES with Jacobi. A USER/OPERATOR P is materialized
- * into a second owned cache; A is applied directly. Both inputs are
+ * inputs this path supports single-process, unscaled, default precision
+ * GMRES/FGMRES with Jacobi, ILUT or MFAMG; MFAMG_ILUTP requires FGMRES.
+ * ILUT (including global ILUTP) and MFAMG_ILUTP require one active worker,
+ * no RAS/Schur correction and no half storage. MFAMG-based profiles require
+ * an explicit AMG coarse basis; mathematical nullspaces are not supported
+ * in paired mode. Non-Jacobi paths initially require real-double builds.
+ * A USER/OPERATOR P is materialized into a second owned cache; A is
+ * applied directly. Composite residual correction uses P, not A.
+ * Both inputs are
  * borrowed and must publish generation changes. Any change to either
  * input conservatively resets the sequence before materialization.
  * Passing source==precon_source delegates to the original single path.

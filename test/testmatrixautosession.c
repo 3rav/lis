@@ -487,6 +487,35 @@ int main(int argc,char **argv)
         if(test_solve(session,solver,A,b,x,truth,
             LIS_MATRIX_POLICY_CACHED_CSR,LIS_MATRIX_MATERIALIZE_REBUILD,
             "paired-to-single"))goto done;
+#if !defined(_COMPLEX) && !defined(USE_COMPLEX) && !defined(_LONG__DOUBLE)
+        /* Both factorizations consume the independently cached P.
+         * Force a fresh physical solve, not an already exact warm start. */
+        for(LIS_INT pivoted=0;pivoted<=1;pivoted++)
+        {
+            char plain[]="-i fgmres -p ilut -scale none -restart 10 -maxiter 80 -tol 1e-11";
+            char pivot[]="-i fgmres -p ilut -ilutp 1 -ilutp_threshold 0.5 -scale none -restart 10 -maxiter 80 -tol 1e-11";
+            err=lis_solver_set_option_replace(pivoted?pivot:plain,solver);
+            if(err || lis_solver_set_num_threads(solver,1) ||
+               lis_vector_set_all((LIS_SCALAR)0,x))goto done;
+            err=lis_matrix_auto_session_solve_with_precon_matrix(
+                session,A,B,b,x,&policy,&action,&pp,&pa);
+            if(err || policy!=LIS_MATRIX_POLICY_DIRECT ||
+               pp!=LIS_MATRIX_POLICY_CACHED_CSR ||
+               !solver->sequence_precon ||
+               solver->sequence_precon_matrix==A ||
+               solver->sequence_precon_matrix==B ||
+               lis_solver_get_status(solver,&status) || status!=LIS_SUCCESS ||
+               test_solution(x,truth))goto done;
+            kept=solver->sequence_precon;
+            if(lis_vector_set_all((LIS_SCALAR)0,x))goto done;
+            err=lis_matrix_auto_session_solve_with_precon_matrix(
+                session,A,B,b,x,NULL,NULL,NULL,&pa);
+            if(err || pa!=LIS_MATRIX_MATERIALIZE_REUSE ||
+               solver->sequence_precon!=kept || test_solution(x,truth))
+                goto done;
+            printf("PAIRED_AUTO_%s PASS\n",pivoted?"ILUTP":"ILUT");
+        }
+#endif
     }
     failed=0;
 done:
