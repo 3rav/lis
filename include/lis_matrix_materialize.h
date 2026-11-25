@@ -150,6 +150,23 @@ LIS_INT lis_matrix_auto_session_solve(
     LIS_INT *policy,
     LIS_INT *action);
 
+/*
+ * Separate physical operator and preconditioning matrix. For distinct
+ * inputs this initial path supports single-process, unscaled, default
+ * precision GMRES/FGMRES with Jacobi. A USER/OPERATOR P is materialized
+ * into a second owned cache; A is applied directly. Both inputs are
+ * borrowed and must publish generation changes. Any change to either
+ * input conservatively resets the sequence before materialization.
+ * Passing source==precon_source delegates to the original single path.
+ * Outputs remain unchanged on API failure; check solver status separately.
+ */
+LIS_INT lis_matrix_auto_session_solve_with_precon_matrix(
+    LIS_MATRIX_AUTO_SESSION session,
+    LIS_MATRIX source, LIS_MATRIX precon_source,
+    LIS_VECTOR b, LIS_VECTOR x,
+    LIS_INT *policy, LIS_INT *action,
+    LIS_INT *precon_policy, LIS_INT *precon_action);
+
 LIS_INT lis_matrix_auto_session_reset(
     LIS_MATRIX_AUTO_SESSION session);
 
