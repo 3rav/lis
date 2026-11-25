@@ -74,6 +74,77 @@ done:
     if(A)lis_matrix_destroy(A);
     return failed;
 }
+
+/* A nontrivial spectrum forces multiple iterations. Sweep every application
+ * observed in the healthy run, including final physical certification, and
+ * reuse the same eigensolver after every failure. */
+typedef struct { LIS_INT calls,fail,code; } SWEEP_CTX;
+static LIS_INT sweep_apply(void *raw,const LIS_SCALAR *x,LIS_SCALAR *y)
+{
+    SWEEP_CTX *c=(SWEEP_CTX *)raw;
+    const double diag[4]={1.0,2.0,3.0,8.0};
+    LIS_INT i;
+    ++c->calls;
+    if(c->fail && c->calls==c->fail){
+        y[0]=(LIS_SCALAR)NAN;
+        return c->code;
+    }
+    for(i=0;i<4;i++)y[i]=diag[i]*x[i];
+    return LIS_SUCCESS;
+}
+static int sweep_healthy(LIS_MATRIX A,LIS_VECTOR x,LIS_ESOLVER e,SWEEP_CTX *c)
+{
+    const double diag[4]={1.0,2.0,3.0,8.0};
+    LIS_SCALAR value=0;
+    LIS_INT i,status;
+    double r2=0.0,x2=0.0;
+    c->calls=0; c->fail=0;
+    if(lis_vector_set_all(1.0,x) || lis_esolve(A,x,&value,e) ||
+       lis_esolver_get_status(e,&status) || status!=LIS_SUCCESS ||
+       !(fabs((double)value-8.0)<=1e-9))return 1;
+    for(i=0;i<4;i++){
+        double v=(double)x->value[i],r=(diag[i]-(double)value)*v;
+        r2+=r*r; x2+=v*v;
+    }
+    return !(x2>0.0 && sqrt(r2/x2)/8.0<=1e-9 && c->calls>4);
+}
+static int sweep(void)
+{
+    SWEEP_CTX c={0,0,LIS_ERR_ILL_ARG};
+    LIS_MATRIX A=NULL;
+    LIS_VECTOR x=NULL;
+    LIS_ESOLVER e=NULL;
+    LIS_INT count=0,k,j,status;
+    const LIS_INT codes[]={LIS_ERR_ILL_ARG,LIS_BREAKDOWN,LIS_MAXITER,12345};
+    LIS_SCALAR value;
+    LIS_REAL residual;
+    int failed=1;
+    if(lis_matrix_create(LIS_COMM_WORLD,&A) || lis_matrix_set_size(A,0,4) ||
+       lis_matrix_set_user(A,&c,sweep_apply,sweep_apply) ||
+       lis_vector_duplicate(A,&x) || lis_esolver_create(&e) ||
+       lis_esolver_set_option("-e pi -etol 1e-10 -emaxiter 200 -eprint none",e) ||
+       sweep_healthy(A,x,e,&c))goto done;
+    count=c.calls;
+    for(j=0;j<(LIS_INT)(sizeof(codes)/sizeof(codes[0]));j++){
+        for(k=1;k<=count;k++){
+            c.calls=0; c.fail=k; c.code=codes[j]; value=0;
+            if(lis_vector_set_all(1.0,x) || lis_esolve(A,x,&value,e) ||
+               lis_esolver_get_status(e,&status) || status!=c.code ||
+               lis_esolver_get_residualnorm(e,&residual) ||
+               !isnan((double)value) || !isnan((double)residual) ||
+               c.calls!=k)goto done;
+            if(sweep_healthy(A,x,e,&c) || c.calls!=count)goto done;
+        }
+    }
+    failed=0;
+done:
+    if(failed)fprintf(stderr,"USER power sweep failed: code=%d fail=%d calls=%d baseline=%d\n",
+                      (int)c.code,(int)c.fail,(int)c.calls,(int)count);
+    if(e)lis_esolver_destroy(e);
+    if(x)lis_vector_destroy(x);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
 #endif
 int main(int argc,char **argv)
 {
@@ -91,6 +162,7 @@ int main(int argc,char **argv)
     failed|=run(1,0,1);
     failed|=run(0,0,0);
     failed|=run(1,0,0);
+    failed|=sweep();
     lis_finalize();
     printf("USER_EIGEN_POWER %s\n",failed?"FAILED":"PASSED");
     return failed?1:0;
