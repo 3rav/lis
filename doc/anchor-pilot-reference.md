@@ -10,7 +10,7 @@ This opt-in application-side driver is a reference implementation, **not an inst
 4. If the result is still unacceptable, build one fresh factorization of A in a separate temporary solver and allow 100 iterations from zero. Never rebuild the same frozen factorization automatically. Do not retry hard API errors.
 5. Commit x only on physical acceptance. Preserve the native raw status in the report, including MAXITER or BREAKDOWN with a separately accepted physical residual. Report successful factor creations separately from solve status. The anchor stays allocated during fallback, so peak memory can be higher.
 
-The driver owns its solvers and preconditioners. The application owns P, A, b and x; P must outlive the driver, and A/b/x must not alias each other or the anchor storage. Do not use the driver concurrently or mutate any input while solving. Recreate it after a hard solve error. The fixed profile and pilot limits deliberately reproduce the studied configuration, not an automatic universal tuning policy.
+The driver owns its solvers and preconditioners. The application owns P, A, b and x; P must outlive the driver. A may be P; b and x must not alias one another or matrix storage. Do not use the driver concurrently or mutate any input while solving. Recreate it after a hard solve error. The fixed profile and pilot limits deliberately reproduce the studied configuration, not an automatic universal tuning policy.
 
 ## Build and regression
 
@@ -40,3 +40,7 @@ Both modes independently certify the physical residual and report setup+solve ti
 ## Prior exploratory evidence and limitations
 
 On 15 private CalculiX contact systems (60,265 DOFs; 12 distinct matrices), an earlier application-side experiment observed 15/15 physically accepted solutions, six factorizations instead of 15, and 221.66 s versus 296.61 s in an earlier fresh-reference run (25.27% lower time; 1.34x). The maximum certified relative residual was 2.94e-10. Peak RSS increased from approximately 844 to 1136 MiB. One direct kernel result reported MAXITER despite physical acceptance. Those runs used different harnesses and single observations; they do not prove a general speedup or nonlinear CalculiX convergence. The new benchmark provides a matched fresh/pilot harness for reproducible follow-up; private inputs are not included. Do not make this heuristic a default without independent models and repeated timing comparisons.
+
+## Matched reference-driver smoke benchmark
+
+The new executable was compiled against the parent of this package (`18219f23`), real-double serial/OpenMP, one active thread, `-O2 -DNDEBUG`. On original snapshots 01 and 15, using the same input files, profile, executable and physical acceptance rule in both modes, fresh mode accepted 2/2 with two factorizations in 21.883959 s; pilot mode accepted 2/2 with one factorization in 12.885392 s (41.12% lower time, 1.70x observed ratio). Snapshot 15 used the continuation path, achieved relative residual 8.843346254176e-14, and required no new factorization. Fresh mode achieved 1.512875194850e-13 on that snapshot. These are sequential single measurements in a shared environment, excluding input loading; this pair was selected because previous experiments showed reuse potential. They are not an independent full-series validation.
