@@ -214,6 +214,67 @@ done:
     return failed;
 }
 
+static int check_managed_session(void){
+    LIS_MATRIX a=NULL,next=NULL,old_s=NULL;
+    LIS_VECTOR exact=NULL,b=NULL,x=NULL,r=NULL;
+    LIS_SOLVER solver=NULL;
+    lis_sc_solver_session *session=NULL;
+    lis_sc_solver_report report;
+    LIS_REAL nr,nb;
+    int failed=1;
+
+    if(build_matrix(&a,0.0) || lis_vector_duplicate(a,&exact) ||
+       lis_vector_duplicate(a,&b) || lis_vector_duplicate(a,&x) ||
+       lis_vector_duplicate(a,&r) || lis_vector_set_all((LIS_SCALAR)1,exact) ||
+       lis_matvec(a,exact,b))goto done;
+    if(lis_sc_solver_session_create(a,NB,bp,qd,1e-13,&session)!=LIS_SC_OK)
+        goto done;
+    solver=lis_sc_solver_session_get_solver(session);
+    if(!solver || lis_solver_set_option(
+        "-i fgmres -p none -scale none -print none -maxiter 500 -restart 120 -tol 1e-9",solver))
+        goto done;
+    old_s=lis_sc_lis_matrix(lis_sc_solver_session_get_condensation(session));
+    if(lis_sc_solver_session_solve(session,b,x,1e-7)!=LIS_SC_OK ||
+       lis_sc_solver_session_get_report(session,&report)!=LIS_SC_OK ||
+       !report.solver_called || !report.solution_committed ||
+       !report.full_residual_valid || report.full_relative_residual>1e-7)
+        goto done;
+    if(lis_sc_solver_session_update(session,a,NB,bp,qd,1e-13,LIS_SC_REUSE_ALL)!=LIS_SC_OK ||
+       lis_sc_lis_matrix(lis_sc_solver_session_get_condensation(session))!=old_s ||
+       lis_sc_solver_session_solve(session,b,x,1e-7)!=LIS_SC_OK)
+        goto done;
+    if(build_matrix(&next,0.125) || lis_matvec(next,exact,b))goto done;
+    if(lis_sc_solver_session_update(session,next,NB,bp,qd,1e-13,LIS_SC_REUSE_ALL)==LIS_SC_OK ||
+       lis_sc_lis_matrix(lis_sc_solver_session_get_condensation(session))!=old_s)
+        goto done;
+    if(lis_sc_solver_session_update(session,next,NB,bp,qd,1e-13,LIS_SC_NUMERIC)!=LIS_SC_OK ||
+       lis_sc_lis_matrix(lis_sc_solver_session_get_condensation(session))==old_s ||
+       lis_sc_solver_session_get_report(session,&report)==LIS_SC_OK)
+        goto done;
+    if(lis_vector_set_all((LIS_SCALAR)7,x) ||
+       lis_sc_solver_session_solve(session,b,x,-1)!=LIS_SC_BAD_ARGUMENT ||
+       lis_sc_solver_session_get_report(session,&report)!=LIS_SC_OK ||
+       report.solver_called || report.solution_committed ||
+       x->value[0]!=(LIS_SCALAR)7)
+        goto done;
+    if(lis_sc_solver_session_solve(session,b,x,1e-7)!=LIS_SC_OK ||
+       lis_matvec(next,x,r) || lis_vector_axpy((LIS_SCALAR)-1,b,r) ||
+       lis_vector_nrm2(r,&nr) || lis_vector_nrm2(b,&nb) || !(nb>0) ||
+       !(nr/nb<1e-7))
+        goto done;
+    failed=0;
+done:
+    lis_sc_solver_session_destroy(session);
+    if(r)lis_vector_destroy(r);
+    if(x)lis_vector_destroy(x);
+    if(b)lis_vector_destroy(b);
+    if(exact)lis_vector_destroy(exact);
+    if(next)lis_matrix_destroy(next);
+    if(a)lis_matrix_destroy(a);
+    printf("MANAGED_SCHUR_SESSION %s\n",failed?"FAILED":"PASSED");
+    return failed;
+}
+
 static int run(int argc,char **argv){
     LIS_MATRIX a=NULL,s=NULL;
     LIS_VECTOR xtrue=NULL,b=NULL,g=NULL,u=NULL,xfull=NULL;
@@ -228,6 +289,7 @@ static int run(int argc,char **argv){
     char options[220];
 
     make_map();
+    if(!strcmp(profile,"none") && check_managed_session())return 1;
     if(strcmp(profile,"none") && strcmp(profile,"mfamg") &&
        strcmp(profile,"ca-mfamg") && strcmp(profile,"ilutp") &&
        strcmp(profile,"mfamg_ilutp") && strcmp(profile,"ca-mfamg_ilutp")){
