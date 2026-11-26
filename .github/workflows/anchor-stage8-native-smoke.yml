@@ -1,0 +1,64 @@
+name: Anchor stage 8 native regression
+on:
+  push:
+    branches: ['experiment/anchor-stage7-native-20261126']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [release, asan-ubsan]
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool
+      - name: Build patched LIS and run native regressions
+        shell: bash
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          gcc --version > evidence/gcc.txt
+          flags=(-O2 -DNDEBUG); link=()
+          if [[ $PROFILE == asan-ubsan ]]; then
+            flags=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all)
+            link=(-no-pie)
+          fi
+          ./configure --disable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg --disable-test --disable-shared --enable-static CFLAGS="${flags[*]}" LDFLAGS="${flags[*]}" 2>&1 | tee evidence/configure.log
+          make -j2 2>&1 | tee evidence/build.log
+          for t in test_anchor_pilot test_anchor_single_pass test_anchor_pilot_faults bench_anchor_pilot; do
+            extra=()
+            if [[ $t == test_anchor_pilot_faults ]]; then
+              extra=(-Wl,--wrap=lis_solver_sequence_prepare_precon,--wrap=lis_solve_kernel,--wrap=lis_matrix_get_generation,--wrap=lis_vector_copy)
+            fi
+            cc "${flags[@]}" "${link[@]}" -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c "tools/$t.c" src/.libs/liblis.a "${extra[@]}" -lm -o "$t"
+          done
+          ./test_anchor_pilot | tee evidence/anchor.log
+          grep -Fx 'ANCHOR_PILOT_REGRESSION=PASS' evidence/anchor.log
+          ./test_anchor_single_pass | tee evidence/single-pass.log
+          grep -Fx 'SINGLE_PASS_REGRESSION=PASS' evidence/single-pass.log
+          grep -q '^MATCHED_DRIVER ' evidence/single-pass.log
+          ./test_anchor_pilot_faults | tee evidence/faults.log
+          for n in 1 2 3 4 5; do grep -Fx "ROLLING_FAULT_${n}=PASS" evidence/faults.log; done
+          sha256sum bench_anchor_pilot > evidence/benchmark.sha256
+      - name: Preserve regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anchor-stage8-${{ matrix.profile }}-evidence
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 14

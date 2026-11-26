@@ -29,6 +29,11 @@ LIS_INT lis_anchor_pilot_create_low_memory(LIS_MATRIX P, lis_anchor_pilot **out)
  * (its factor may be absent). The context never owns any matrix. */
 LIS_INT lis_anchor_pilot_create_rolling(LIS_MATRIX P, lis_anchor_pilot **out);
 LIS_MATRIX lis_anchor_pilot_current_anchor(const lis_anchor_pilot *ctx);
+/* Local prototype: same retained anchor, one FGMRES run up to 100 steps. */
+LIS_INT lis_anchor_pilot_create_single_pass(LIS_MATRIX P, lis_anchor_pilot **out);
+/* Experimental control: forced restart at 20, then matched physical tolerance.
+ * Like single-pass, reports completed projected iterations for anchor solves. */
+LIS_INT lis_anchor_pilot_create_restart_matched(LIS_MATRIX P, lis_anchor_pilot **out);
 LIS_INT lis_anchor_pilot_solve(lis_anchor_pilot *ctx, LIS_MATRIX A,
     LIS_VECTOR b, LIS_VECTOR x, lis_anchor_pilot_report *report);
 /* Matched fresh-factorization reference, same options and certification. */
