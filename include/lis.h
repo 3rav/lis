@@ -27,7 +27,44 @@
 #ifndef __LIS_H__
 #define __LIS_H__
 
-#ifdef HAVE_CONFIG_H
+/* External clients may opt into the configuration installed alongside
+ * this header, without borrowing their own project's HAVE_CONFIG_H.
+ * Use matching include/library prefixes and compiler/MPI flags. */
+#if defined(LIS_USE_INSTALLED_CONFIG)
+/* Do not export Autoconf package identity into the consumer's namespace. */
+#if defined(__GNUC__) || defined(__clang__) || defined(_MSC_VER)
+#pragma push_macro("PACKAGE")
+#undef PACKAGE
+#pragma push_macro("PACKAGE_BUGREPORT")
+#undef PACKAGE_BUGREPORT
+#pragma push_macro("PACKAGE_NAME")
+#undef PACKAGE_NAME
+#pragma push_macro("PACKAGE_STRING")
+#undef PACKAGE_STRING
+#pragma push_macro("PACKAGE_TARNAME")
+#undef PACKAGE_TARNAME
+#pragma push_macro("PACKAGE_URL")
+#undef PACKAGE_URL
+#pragma push_macro("PACKAGE_VERSION")
+#undef PACKAGE_VERSION
+#pragma push_macro("VERSION")
+#undef VERSION
+#pragma push_macro("LT_OBJDIR")
+#undef LT_OBJDIR
+#endif
+#include "lis_config.h"
+#if defined(__GNUC__) || defined(__clang__) || defined(_MSC_VER)
+#pragma pop_macro("LT_OBJDIR")
+#pragma pop_macro("VERSION")
+#pragma pop_macro("PACKAGE_VERSION")
+#pragma pop_macro("PACKAGE_URL")
+#pragma pop_macro("PACKAGE_TARNAME")
+#pragma pop_macro("PACKAGE_STRING")
+#pragma pop_macro("PACKAGE_NAME")
+#pragma pop_macro("PACKAGE_BUGREPORT")
+#pragma pop_macro("PACKAGE")
+#endif
+#elif defined(HAVE_CONFIG_H)
 #include "lis_config.h"
 #else
 #ifdef HAVE_CONFIG_WIN_H
@@ -36,6 +73,7 @@
 #endif
 
 #include <math.h>
+#include "lis_abi.h"
 
 #ifdef __cplusplus
 #undef HAVE_COMPLEX_H
@@ -1259,6 +1297,62 @@ struct LIS_ESOLVER_STRUCT
         LIS_INT inverse_recovery_shift_mask;
 };
 typedef struct LIS_ESOLVER_STRUCT *LIS_ESOLVER;
+
+/* Compile-time client description, NOT a query of the linked library.
+ * Compare with lis_abi_get_info before passing LIS objects across the
+ * ABI. Exact size checks catch many, not all, public layout mismatches. */
+#if defined(_MSC_VER)
+#define LIS_ABI_INLINE __inline
+#elif defined(__GNUC__) || defined(__clang__)
+#define LIS_ABI_INLINE __inline__
+#elif defined(__cplusplus) || (defined(__STDC_VERSION__) && __STDC_VERSION__>=199901L)
+#define LIS_ABI_INLINE inline
+#else
+#define LIS_ABI_INLINE
+#endif
+static LIS_ABI_INLINE void lis_abi_get_client_info(LIS_ABI_INFO *info)
+{
+    const uint16_t endian_probe=1;
+    if(!info) return;
+    info->version=LIS_ABI_INFO_VERSION;
+    info->struct_size=(uint32_t)sizeof(*info);
+    info->lis_int_bytes=(uint32_t)sizeof(LIS_INT);
+    info->lis_scalar_bytes=(uint32_t)sizeof(LIS_SCALAR);
+    info->lis_real_bytes=(uint32_t)sizeof(LIS_REAL);
+#ifdef _COMPLEX
+    info->scalar_kind=LIS_ABI_SCALAR_COMPLEX;
+#else
+    info->scalar_kind=LIS_ABI_SCALAR_REAL;
+#endif
+    info->flags=0;
+#ifdef USE_MPI
+    info->flags|=LIS_ABI_FLAG_MPI;
+#endif
+#ifdef _OPENMP
+    info->flags|=LIS_ABI_FLAG_OPENMP;
+#endif
+#ifdef USE_QUAD_PRECISION
+    info->flags|=LIS_ABI_FLAG_QUAD_SOLVER;
+#endif
+#ifdef _LONG__DOUBLE
+    info->flags|=LIS_ABI_FLAG_LONG_DOUBLE;
+#endif
+#if defined(_COMPLEX) && defined(_LONG__DOUBLE) && defined(HAVE_QUADMATH_H)
+    info->flags|=LIS_ABI_FLAG_FLOAT128;
+#endif
+    info->reserved=0;
+    info->pointer_bytes=(uint32_t)sizeof(void *);
+    info->endianness=*((const unsigned char *)&endian_probe)?
+        LIS_ABI_ENDIAN_LITTLE:LIS_ABI_ENDIAN_BIG;
+    info->comm_bytes=(uint32_t)sizeof(LIS_Comm);
+    info->vector_struct_bytes=(uint32_t)sizeof(struct LIS_VECTOR_STRUCT);
+    info->matrix_struct_bytes=(uint32_t)sizeof(struct LIS_MATRIX_STRUCT);
+    info->precon_struct_bytes=(uint32_t)sizeof(struct LIS_PRECON_STRUCT);
+    info->solver_struct_bytes=(uint32_t)sizeof(struct LIS_SOLVER_STRUCT);
+    info->esolver_struct_bytes=(uint32_t)sizeof(struct LIS_ESOLVER_STRUCT);
+}
+#undef LIS_ABI_INLINE
+
 
 struct LIS_CONV_OPTIONS_STRUCT
 {
