@@ -48,5 +48,10 @@ jobs:
           make -j2
           cc $flags -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/test_anchor_pilot.c src/.libs/liblis.a -lm -o test-anchor-pilot
           cc $flags -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/bench_anchor_pilot.c src/.libs/liblis.a -lm -o bench-anchor-pilot
+          cc $flags -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/test_anchor_pilot_faults.c src/.libs/liblis.a -Wl,--wrap=lis_solver_sequence_prepare_precon,--wrap=lis_solve_kernel,--wrap=lis_matrix_get_generation,--wrap=lis_vector_copy -lm -o test-anchor-pilot-faults
           ./test-anchor-pilot | tee anchor-pilot.log
           grep -Fx 'ANCHOR_PILOT_REGRESSION=PASS' anchor-pilot.log
+          ./test-anchor-pilot-faults | tee anchor-pilot-faults.log
+          for n in 1 2 3 4 5; do
+            grep -Fx "ROLLING_FAULT_${n}=PASS" anchor-pilot-faults.log
+          done

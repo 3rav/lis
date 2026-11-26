@@ -47,6 +47,14 @@ int main(int argc,char **argv)
     for(i=0;i<x->n;i++)if(x->value[i]!=7)goto done;
     if(lis_anchor_fresh_solve(A,b,b,&report)!=LIS_ERR_ILL_ARG||report.accepted)goto done;
     for(i=0;i<b->n;i++)if(b->value[i]!=1)goto done;
+    lis_anchor_pilot_destroy(ctx);ctx=NULL;
+    if(lis_anchor_pilot_create_rolling(P,&ctx))goto done;
+    if(lis_anchor_pilot_solve(ctx,B,b,x,&report)||!report.accepted||!report.fallback||report.factorizations!=1||lis_anchor_pilot_current_anchor(ctx)!=B)goto done;
+    lis_matrix_destroy(P);P=NULL; /* old anchor may now be released */
+    if(lis_anchor_pilot_solve(ctx,B,b,x,&report)||!report.accepted||report.fallback||report.factorizations||lis_anchor_pilot_current_anchor(ctx)!=B)goto done;
+    if(lis_matrix_mark_values_changed(B)||lis_vector_set_all(7,x))goto done;
+    if(lis_anchor_pilot_solve(ctx,A,b,x,&report)!=LIS_ERR_ILL_ARG||report.accepted)goto done;
+    for(i=0;i<x->n;i++)if(x->value[i]!=7)goto done;
     fail=0;
 done:
     lis_anchor_pilot_destroy(ctx);

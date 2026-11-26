@@ -9,12 +9,15 @@
 #include <omp.h>
 #endif
 
+enum anchor_policy { RETAIN, LOW_MEMORY, ROLLING };
+
 struct lis_anchor_pilot {
     LIS_MATRIX P;
     LIS_SOLVER solver;
     LIS_PRECON factor;
     LIS_UNSIGNED_INT structure, values;
-    int valid, low_memory;
+    int valid;
+    enum anchor_policy policy;
 };
 
 static void init_report(lis_anchor_pilot_report *r)
@@ -29,6 +32,10 @@ LIS_INT lis_anchor_pilot_create(LIS_MATRIX P,lis_anchor_pilot **out)
 { (void)P; if(out)*out=NULL; return LIS_ERR_NOT_IMPLEMENTED; }
 LIS_INT lis_anchor_pilot_create_low_memory(LIS_MATRIX P,lis_anchor_pilot **out)
 { return lis_anchor_pilot_create(P,out); }
+LIS_INT lis_anchor_pilot_create_rolling(LIS_MATRIX P,lis_anchor_pilot **out)
+{ return lis_anchor_pilot_create(P,out); }
+LIS_MATRIX lis_anchor_pilot_current_anchor(const lis_anchor_pilot *ctx)
+{ (void)ctx;return NULL; }
 LIS_INT lis_anchor_pilot_solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR x,lis_anchor_pilot_report *r)
 { (void)ctx;(void)A;(void)b;(void)x;if(r)init_report(r);return LIS_ERR_NOT_IMPLEMENTED; }
 LIS_INT lis_anchor_fresh_solve(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR x,lis_anchor_pilot_report *r)
@@ -121,7 +128,7 @@ static LIS_INT fresh_attempt(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR work,LIS_VECTO
     if(s)lis_solver_destroy(s);
     return rc;
 }
-static LIS_INT create(LIS_MATRIX P,lis_anchor_pilot **out,int low_memory)
+static LIS_INT create(LIS_MATRIX P,lis_anchor_pilot **out,enum anchor_policy policy)
 {
     lis_anchor_pilot *ctx;lis_anchor_pilot_report r;LIS_INT rc;
     if(!out)return LIS_ERR_ILL_ARG;
@@ -132,12 +139,16 @@ static LIS_INT create(LIS_MATRIX P,lis_anchor_pilot **out,int low_memory)
     rc=factor(P,&ctx->solver,&ctx->factor,&r);
     if(!rc)rc=lis_matrix_get_generation(P,&ctx->structure,&ctx->values);
     if(rc){lis_anchor_pilot_destroy(ctx);return rc;}
-    ctx->valid=1;ctx->low_memory=low_memory;*out=ctx;return LIS_SUCCESS;
+    ctx->valid=1;ctx->policy=policy;*out=ctx;return LIS_SUCCESS;
 }
 LIS_INT lis_anchor_pilot_create(LIS_MATRIX P,lis_anchor_pilot **out)
-{ return create(P,out,0); }
+{ return create(P,out,RETAIN); }
 LIS_INT lis_anchor_pilot_create_low_memory(LIS_MATRIX P,lis_anchor_pilot **out)
-{ return create(P,out,1); }
+{ return create(P,out,LOW_MEMORY); }
+LIS_INT lis_anchor_pilot_create_rolling(LIS_MATRIX P,lis_anchor_pilot **out)
+{ return create(P,out,ROLLING); }
+LIS_MATRIX lis_anchor_pilot_current_anchor(const lis_anchor_pilot *ctx)
+{ return ctx?ctx->P:NULL; }
 static void retire_anchor(lis_anchor_pilot *ctx)
 {
     if(ctx->solver)lis_solver_destroy(ctx->solver);
@@ -151,6 +162,7 @@ static LIS_INT solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR 
 {
     LIS_VECTOR work=NULL,residual=NULL;
     LIS_INT rc=LIS_SUCCESS;
+    int promote=0;
     LIS_UNSIGNED_INT structure,values;
     pilot_history h={NAN,NAN};
     if(!r)return LIS_ERR_ILL_ARG;
@@ -185,12 +197,29 @@ static LIS_INT solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR 
         }
         if(!r->accepted){
             r->fallback=1;
-            if(ctx->low_memory)retire_anchor(ctx);
-            rc=fresh_attempt(A,b,work,residual,r);
+            if(ctx->policy!=RETAIN)retire_anchor(ctx);
+            if(ctx->policy==ROLLING){
+                /* Reuse the fresh factor itself, not just its matrix. */
+                rc=factor(A,&ctx->solver,&ctx->factor,r);
+                if(!rc)rc=attempt(A,b,work,residual,ctx->solver,ctx->factor,
+                                  100,1,&r->fresh_iterations,r);
+                if(!rc && r->accepted)
+                    rc=lis_matrix_get_generation(A,&structure,&values);
+                if(!rc && r->accepted)promote=1;
+                else{retire_anchor(ctx);if(rc)ctx->valid=0;}
+            }else rc=fresh_attempt(A,b,work,residual,r);
         }
     }else rc=fresh_attempt(A,b,work,residual,r);
-    if(!rc && r->accepted)rc=lis_vector_copy(work,x);
-    else if(!rc)rc=r->raw_status==LIS_SUCCESS?LIS_BREAKDOWN:r->raw_status;
+    if(!rc && r->accepted){
+        rc=lis_vector_copy(work,x);
+        if(promote){
+            /* Commit the new borrowed anchor only after output acceptance.
+             * On a copy error destroy the candidate; the old matrix remains
+             * the caller's retained anchor even though its factor is gone. */
+            if(!rc){ctx->P=A;ctx->structure=structure;ctx->values=values;}
+            else{retire_anchor(ctx);ctx->valid=0;}
+        }
+    }else if(!rc)rc=r->raw_status==LIS_SUCCESS?LIS_BREAKDOWN:r->raw_status;
 done:
     if(ctx){unbind(ctx->solver,ctx->P);if(rc && !numerical(rc))ctx->valid=0;}
     if(work)lis_vector_destroy(work);
