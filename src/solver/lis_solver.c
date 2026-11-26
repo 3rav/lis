@@ -5412,9 +5412,15 @@ LIS_INT lis_solve_kernel_fgmres_stop(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR x,
        solver->options[LIS_OPTIONS_SOLVER]!=LIS_SOLVER_FGMRES ||
        solver->options[LIS_OPTIONS_PRECISION]!=LIS_PRECISION_DOUBLE ||
        solver->options[LIS_OPTIONS_SCALE]!=LIS_SCALE_NONE ||
-       solver->options[LIS_OPTIONS_PRECON]!=LIS_PRECON_TYPE_ILUT ||
+       (solver->options[LIS_OPTIONS_PRECON]!=LIS_PRECON_TYPE_ILUT &&
+        solver->options[LIS_OPTIONS_PRECON]!=LIS_PRECON_TYPE_ILU) ||
+       precon->precon_type!=solver->options[LIS_OPTIONS_PRECON] ||
        solver->convergence || solver->monitor)
         return LIS_ERR_ILL_ARG;
+#ifdef _OPENMP
+    if(omp_in_parallel() || omp_get_max_threads()!=1 || solver->num_threads>1)
+        return LIS_ERR_ILL_ARG;
+#endif
     return lis_solve_kernel_impl(A,b,x,solver,precon,stop,data);
 #endif
 }
