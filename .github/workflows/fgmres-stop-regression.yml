@@ -1,0 +1,64 @@
+name: Internal FGMRES stop regression
+on:
+  push:
+    branches: [experiment/fgmres-stop-core-20261126]
+  pull_request:
+    paths:
+      - 'include/lis_solver.h'
+      - 'src/solver/**'
+      - 'test/testfgmresstop.c'
+      - '.github/workflows/fgmres-stop-regression.yml'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [serial, openmp, sanitizer, complex, quad, mpi, int64]
+    env:
+      OMP_NUM_THREADS: '2'
+      OMP_DYNAMIC: 'FALSE'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libopenmpi-dev openmpi-bin
+      - name: Build and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          profile='${{ matrix.profile }}'
+          options='--disable-mpi --disable-omp'
+          flags='-O2'
+          link=''
+          cc=cc
+          defs=''
+          shared='--enable-shared'
+          case "$profile" in
+            openmp) options='--disable-mpi --enable-omp'; link='-fopenmp';;
+            sanitizer) options='--disable-mpi --enable-omp'; flags='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all'; link='-fopenmp -no-pie'; shared='--disable-shared';;
+            complex) options="$options --enable-complex"; defs='-DEXPECT_COMPLEX';;
+            quad) options="$options --enable-quad"; defs='-DEXPECT_QUAD';;
+            mpi) options='--enable-mpi --disable-omp'; cc=mpicc; defs='-DEXPECT_MPI';;
+            int64) options="$options --enable-longlong"; defs='-DEXPECT_INT64';;
+          esac
+          ./configure $options --disable-fortran --disable-f90 --disable-saamg --disable-test $shared --enable-static CC="$cc" CFLAGS="$flags" LDFLAGS="$flags"
+          make -j2
+          $cc $flags $link $defs -DHAVE_CONFIG_H -Iinclude test/testfgmresstop.c src/.libs/liblis.a -lm -o test-fgmres-stop
+          ./test-fgmres-stop | tee result.log
+          case "$profile" in
+            complex|quad|mpi) grep -Fx FGMRES_STOP_UNSUPPORTED=PASS result.log;;
+            *) grep -Fx FGMRES_STOP_REGRESSION=PASS result.log;;
+          esac
+          if [ "$shared" = --enable-shared ]; then
+            nm -D --defined-only src/.libs/liblis.so > exports.txt
+            grep -Eq ' [TW] lis_fgmres$' exports.txt
+            grep -Eq ' [TW] lis_solve_kernel$' exports.txt
+            if grep -Eq ' (lis_fgmres_with_stop|lis_solve_kernel_fgmres_stop)$' exports.txt; then
+              echo 'Internal stop symbols exported' >&2; exit 1
+            fi
+            echo FGMRES_STOP_ELF_EXPORTS=PASS
+          fi

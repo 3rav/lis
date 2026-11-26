@@ -255,6 +255,21 @@ extern "C"
 /*******************/
 
 	extern LIS_INT lis_fgmres(LIS_SOLVER solver);
+	/* Internal synchronous FGMRES stop policy, not an installed API.
+	 * Called once per completed projected iteration; nonzero requests a
+	 * stop after applying the current Krylov approximation. Returning zero
+	 * preserves the current basis. The callback must not mutate solver state.
+	 * Keep these entry points out of the ELF shared-library export table. */
+#if defined(__GNUC__) && defined(__ELF__)
+#define LIS_FGMRES_INTERNAL __attribute__((visibility("hidden")))
+#else
+#define LIS_FGMRES_INTERNAL
+#endif
+	typedef LIS_INT (*LIS_FGMRES_STOP)(LIS_INT,LIS_REAL,void *);
+	LIS_FGMRES_INTERNAL extern LIS_INT lis_fgmres_with_stop(LIS_SOLVER solver,LIS_FGMRES_STOP stop,void *data);
+	LIS_FGMRES_INTERNAL extern LIS_INT lis_solve_kernel_fgmres_stop(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR x,
+	    LIS_SOLVER solver,LIS_PRECON precon,LIS_FGMRES_STOP stop,void *data);
+#undef LIS_FGMRES_INTERNAL
 	extern LIS_INT lis_fgmres_quad(LIS_SOLVER solver);
 /*	extern LIS_INT lis_fgmres_switch(LIS_SOLVER solver);*/
 	extern LIS_INT lis_fgmres_check_params(LIS_SOLVER solver);
