@@ -173,7 +173,11 @@ test_PROGRAMS = testesubspaceretry$(EXEEXT) etest1$(EXEEXT) \
 	testusercrserrors$(EXEEXT) testuserfgcrodrerrors$(EXEEXT) \
 	testusergcrodrerrors$(EXEEXT) testusergmreserrors$(EXEEXT) \
 	testusergpbic$(EXEEXT) testuseridrcallback$(EXEEXT) \
-	testuserorthominerrors$(EXEEXT) testusertfqmrcallback$(EXEEXT)
+	testuserorthominerrors$(EXEEXT) testusertfqmrcallback$(EXEEXT) \
+	testusereigencgcr$(EXEEXT) testusereigeninverse$(EXEEXT) \
+	testusereigenpower$(EXEEXT) testusereigenprojection$(EXEEXT) \
+	testusereigenrqiguard$(EXEEXT) testusereigenstatus$(EXEEXT) \
+	testbicgstablinit$(EXEEXT)
 @ENABLE_HALF_REAL_DOUBLE_TRUE@am__append_1 = testhalfstorage testhalfprobe testhalfdispatch testhalfilukmemory testhalfiluksimd testhalfilut
 @ENABLE_FORTRAN_TRUE@am__append_2 = etest1f etest4f test1f test4f test7f
 @ENABLE_F90_TRUE@am__append_3 = test2f test6f 
@@ -521,6 +525,10 @@ am_testabi_OBJECTS = testabi.$(OBJEXT)
 testabi_OBJECTS = $(am_testabi_OBJECTS)
 testabi_LDADD = $(LDADD)
 testabi_DEPENDENCIES =
+am_testbicgstablinit_OBJECTS = testbicgstablinit.$(OBJEXT)
+testbicgstablinit_OBJECTS = $(am_testbicgstablinit_OBJECTS)
+am__DEPENDENCIES_1 =
+testbicgstablinit_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am_testblockgram_OBJECTS = testblockgram.$(OBJEXT)
 testblockgram_OBJECTS = $(am_testblockgram_OBJECTS)
 testblockgram_LDADD = $(LDADD)
@@ -559,7 +567,6 @@ testcomponentnullspace_LDADD = $(LDADD)
 testcomponentnullspace_DEPENDENCIES =
 am_testcomposite_core_OBJECTS = testcomposite_core.$(OBJEXT)
 testcomposite_core_OBJECTS = $(am_testcomposite_core_OBJECTS)
-am__DEPENDENCIES_1 =
 testcomposite_core_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am_testcondense_core_OBJECTS = testcondense_core.$(OBJEXT)
 testcondense_core_OBJECTS = $(am_testcondense_core_OBJECTS)
@@ -984,6 +991,26 @@ am_testusercsrbounds_OBJECTS = testusercsrbounds.$(OBJEXT)
 testusercsrbounds_OBJECTS = $(am_testusercsrbounds_OBJECTS)
 testusercsrbounds_LDADD = $(LDADD)
 testusercsrbounds_DEPENDENCIES =
+am_testusereigencgcr_OBJECTS = testusereigencgcr.$(OBJEXT)
+testusereigencgcr_OBJECTS = $(am_testusereigencgcr_OBJECTS)
+testusereigencgcr_DEPENDENCIES = $(am__DEPENDENCIES_1)
+am_testusereigeninverse_OBJECTS = testusereigeninverse.$(OBJEXT)
+testusereigeninverse_OBJECTS = $(am_testusereigeninverse_OBJECTS)
+testusereigeninverse_DEPENDENCIES = $(am__DEPENDENCIES_1)
+am_testusereigenpower_OBJECTS = testusereigenpower.$(OBJEXT)
+testusereigenpower_OBJECTS = $(am_testusereigenpower_OBJECTS)
+testusereigenpower_DEPENDENCIES = $(am__DEPENDENCIES_1)
+am_testusereigenprojection_OBJECTS =  \
+	testusereigenprojection.$(OBJEXT)
+testusereigenprojection_OBJECTS =  \
+	$(am_testusereigenprojection_OBJECTS)
+testusereigenprojection_DEPENDENCIES = $(am__DEPENDENCIES_1)
+am_testusereigenrqiguard_OBJECTS = testusereigenrqiguard.$(OBJEXT)
+testusereigenrqiguard_OBJECTS = $(am_testusereigenrqiguard_OBJECTS)
+testusereigenrqiguard_DEPENDENCIES = $(am__DEPENDENCIES_1)
+am_testusereigenstatus_OBJECTS = testusereigenstatus.$(OBJEXT)
+testusereigenstatus_OBJECTS = $(am_testusereigenstatus_OBJECTS)
+testusereigenstatus_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am_testuserfgcrodrerrors_OBJECTS = testuserfgcrodrerrors.$(OBJEXT)
 testuserfgcrodrerrors_OBJECTS = $(am_testuserfgcrodrerrors_OBJECTS)
 testuserfgcrodrerrors_DEPENDENCIES = $(am__DEPENDENCIES_1)
@@ -1117,7 +1144,7 @@ am__depfiles_remade = ./$(DEPDIR)/benchautojacobirefresh.Po \
 	./$(DEPDIR)/test_krylov_unified.Po \
 	./$(DEPDIR)/test_krylov_window.Po \
 	./$(DEPDIR)/test_krylov_workspace.Po ./$(DEPDIR)/testabi.Po \
-	./$(DEPDIR)/testblockgram.Po \
+	./$(DEPDIR)/testbicgstablinit.Po ./$(DEPDIR)/testblockgram.Po \
 	./$(DEPDIR)/testblockorthogonal.Po \
 	./$(DEPDIR)/testblockrank.Po ./$(DEPDIR)/testbreakretry.Po \
 	./$(DEPDIR)/testcapabilities.Po \
@@ -1203,6 +1230,12 @@ am__depfiles_remade = ./$(DEPDIR)/benchautojacobirefresh.Po \
 	./$(DEPDIR)/testusercrcomplex.Po \
 	./$(DEPDIR)/testusercrserrors.Po \
 	./$(DEPDIR)/testusercsrbounds.Po \
+	./$(DEPDIR)/testusereigencgcr.Po \
+	./$(DEPDIR)/testusereigeninverse.Po \
+	./$(DEPDIR)/testusereigenpower.Po \
+	./$(DEPDIR)/testusereigenprojection.Po \
+	./$(DEPDIR)/testusereigenrqiguard.Po \
+	./$(DEPDIR)/testusereigenstatus.Po \
 	./$(DEPDIR)/testuserfgcrodrerrors.Po \
 	./$(DEPDIR)/testusergcrodrerrors.Po \
 	./$(DEPDIR)/testusergmreserrors.Po \
@@ -1285,11 +1318,11 @@ SOURCES = $(benchautojacobirefresh_SOURCES) $(benchfrozenilut_SOURCES) \
 	$(test_krylov_sparse_SOURCES) $(test_krylov_stress_SOURCES) \
 	$(test_krylov_unified_SOURCES) $(test_krylov_window_SOURCES) \
 	$(test_krylov_workspace_SOURCES) $(testabi_SOURCES) \
-	$(testblockgram_SOURCES) $(testblockorthogonal_SOURCES) \
-	$(testblockrank_SOURCES) $(testbreakretry_SOURCES) \
-	$(testcapabilities_SOURCES) $(testchangingsystem_SOURCES) \
-	$(testcoarseapply_SOURCES) $(testcoarsesetup_SOURCES) \
-	$(testcomponentnullspace_SOURCES) \
+	$(testbicgstablinit_SOURCES) $(testblockgram_SOURCES) \
+	$(testblockorthogonal_SOURCES) $(testblockrank_SOURCES) \
+	$(testbreakretry_SOURCES) $(testcapabilities_SOURCES) \
+	$(testchangingsystem_SOURCES) $(testcoarseapply_SOURCES) \
+	$(testcoarsesetup_SOURCES) $(testcomponentnullspace_SOURCES) \
 	$(testcomposite_core_SOURCES) $(testcondense_core_SOURCES) \
 	$(testcondense_lis_SOURCES) $(testcondense_oom_SOURCES) \
 	$(testcsrtransposeoom_SOURCES) $(testdiagonal_SOURCES) \
@@ -1345,7 +1378,12 @@ SOURCES = $(benchautojacobirefresh_SOURCES) $(benchfrozenilut_SOURCES) \
 	$(testuserbicgerrors_SOURCES) $(testuserbicgsafe_SOURCES) \
 	$(testuserbicgstabl_SOURCES) $(testusercgerrors_SOURCES) \
 	$(testusercrcomplex_SOURCES) $(testusercrserrors_SOURCES) \
-	$(testusercsrbounds_SOURCES) $(testuserfgcrodrerrors_SOURCES) \
+	$(testusercsrbounds_SOURCES) $(testusereigencgcr_SOURCES) \
+	$(testusereigeninverse_SOURCES) $(testusereigenpower_SOURCES) \
+	$(testusereigenprojection_SOURCES) \
+	$(testusereigenrqiguard_SOURCES) \
+	$(testusereigenstatus_SOURCES) \
+	$(testuserfgcrodrerrors_SOURCES) \
 	$(testusergcrodrerrors_SOURCES) $(testusergmreserrors_SOURCES) \
 	$(testusergpbic_SOURCES) $(testuseridrcallback_SOURCES) \
 	$(testuserminreserrors_SOURCES) \
@@ -1389,11 +1427,11 @@ DIST_SOURCES = $(benchautojacobirefresh_SOURCES) \
 	$(test_krylov_sparse_SOURCES) $(test_krylov_stress_SOURCES) \
 	$(test_krylov_unified_SOURCES) $(test_krylov_window_SOURCES) \
 	$(test_krylov_workspace_SOURCES) $(testabi_SOURCES) \
-	$(testblockgram_SOURCES) $(testblockorthogonal_SOURCES) \
-	$(testblockrank_SOURCES) $(testbreakretry_SOURCES) \
-	$(testcapabilities_SOURCES) $(testchangingsystem_SOURCES) \
-	$(testcoarseapply_SOURCES) $(testcoarsesetup_SOURCES) \
-	$(testcomponentnullspace_SOURCES) \
+	$(testbicgstablinit_SOURCES) $(testblockgram_SOURCES) \
+	$(testblockorthogonal_SOURCES) $(testblockrank_SOURCES) \
+	$(testbreakretry_SOURCES) $(testcapabilities_SOURCES) \
+	$(testchangingsystem_SOURCES) $(testcoarseapply_SOURCES) \
+	$(testcoarsesetup_SOURCES) $(testcomponentnullspace_SOURCES) \
 	$(testcomposite_core_SOURCES) $(testcondense_core_SOURCES) \
 	$(testcondense_lis_SOURCES) $(testcondense_oom_SOURCES) \
 	$(am__testcsrtransposeoom_SOURCES_DIST) \
@@ -1452,7 +1490,12 @@ DIST_SOURCES = $(benchautojacobirefresh_SOURCES) \
 	$(testuserbicgerrors_SOURCES) $(testuserbicgsafe_SOURCES) \
 	$(testuserbicgstabl_SOURCES) $(testusercgerrors_SOURCES) \
 	$(testusercrcomplex_SOURCES) $(testusercrserrors_SOURCES) \
-	$(testusercsrbounds_SOURCES) $(testuserfgcrodrerrors_SOURCES) \
+	$(testusercsrbounds_SOURCES) $(testusereigencgcr_SOURCES) \
+	$(testusereigeninverse_SOURCES) $(testusereigenpower_SOURCES) \
+	$(testusereigenprojection_SOURCES) \
+	$(testusereigenrqiguard_SOURCES) \
+	$(testusereigenstatus_SOURCES) \
+	$(testuserfgcrodrerrors_SOURCES) \
 	$(testusergcrodrerrors_SOURCES) $(testusergmreserrors_SOURCES) \
 	$(testusergpbic_SOURCES) $(testuseridrcallback_SOURCES) \
 	$(testuserminreserrors_SOURCES) \
@@ -2085,7 +2128,11 @@ TESTS = testsnapshot$(EXEEXT) test.sh testuserrow$(EXEEXT) \
 	testusercrserrors$(EXEEXT) testuserfgcrodrerrors$(EXEEXT) \
 	testusergcrodrerrors$(EXEEXT) testusergmreserrors$(EXEEXT) \
 	testusergpbic$(EXEEXT) testuseridrcallback$(EXEEXT) \
-	testuserorthominerrors$(EXEEXT) testusertfqmrcallback$(EXEEXT)
+	testuserorthominerrors$(EXEEXT) testusertfqmrcallback$(EXEEXT) \
+	testusereigencgcr$(EXEEXT) testusereigeninverse$(EXEEXT) \
+	testusereigenpower$(EXEEXT) testusereigenprojection$(EXEEXT) \
+	testusereigenrqiguard$(EXEEXT) testusereigenstatus$(EXEEXT) \
+	testbicgstablinit$(EXEEXT)
 testthreads_SOURCES = testthreads.c
 testfgcrodr_SOURCES = testfgcrodr.c
 testfgcrodrmaxiter_SOURCES = testfgcrodrmaxiter.c
@@ -2166,6 +2213,20 @@ testuserorthominerrors_SOURCES = testuserorthominerrors.c
 testuserorthominerrors_LDADD = $(LDADD) -lm
 testusertfqmrcallback_SOURCES = testusertfqmrcallback.c
 testusertfqmrcallback_LDADD = $(LDADD) -lm
+testusereigencgcr_SOURCES = testusereigencgcr.c
+testusereigencgcr_LDADD = $(LDADD) -lm
+testusereigeninverse_SOURCES = testusereigeninverse.c
+testusereigeninverse_LDADD = $(LDADD) -lm
+testusereigenpower_SOURCES = testusereigenpower.c
+testusereigenpower_LDADD = $(LDADD) -lm
+testusereigenprojection_SOURCES = testusereigenprojection.c
+testusereigenprojection_LDADD = $(LDADD) -lm
+testusereigenrqiguard_SOURCES = testusereigenrqiguard.c
+testusereigenrqiguard_LDADD = $(LDADD) -lm
+testusereigenstatus_SOURCES = testusereigenstatus.c
+testusereigenstatus_LDADD = $(LDADD) -lm
+testbicgstablinit_SOURCES = testbicgstablinit.c
+testbicgstablinit_LDADD = $(LDADD) -lm
 all: all-am
 
 .SUFFIXES:
@@ -2559,6 +2620,10 @@ test_krylov_workspace$(EXEEXT): $(test_krylov_workspace_OBJECTS) $(test_krylov_w
 testabi$(EXEEXT): $(testabi_OBJECTS) $(testabi_DEPENDENCIES) $(EXTRA_testabi_DEPENDENCIES) 
 	@rm -f testabi$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(testabi_OBJECTS) $(testabi_LDADD) $(LIBS)
+
+testbicgstablinit$(EXEEXT): $(testbicgstablinit_OBJECTS) $(testbicgstablinit_DEPENDENCIES) $(EXTRA_testbicgstablinit_DEPENDENCIES) 
+	@rm -f testbicgstablinit$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testbicgstablinit_OBJECTS) $(testbicgstablinit_LDADD) $(LIBS)
 
 testblockgram$(EXEEXT): $(testblockgram_OBJECTS) $(testblockgram_DEPENDENCIES) $(EXTRA_testblockgram_DEPENDENCIES) 
 	@rm -f testblockgram$(EXEEXT)
@@ -3012,6 +3077,30 @@ testusercsrbounds$(EXEEXT): $(testusercsrbounds_OBJECTS) $(testusercsrbounds_DEP
 	@rm -f testusercsrbounds$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(testusercsrbounds_OBJECTS) $(testusercsrbounds_LDADD) $(LIBS)
 
+testusereigencgcr$(EXEEXT): $(testusereigencgcr_OBJECTS) $(testusereigencgcr_DEPENDENCIES) $(EXTRA_testusereigencgcr_DEPENDENCIES) 
+	@rm -f testusereigencgcr$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testusereigencgcr_OBJECTS) $(testusereigencgcr_LDADD) $(LIBS)
+
+testusereigeninverse$(EXEEXT): $(testusereigeninverse_OBJECTS) $(testusereigeninverse_DEPENDENCIES) $(EXTRA_testusereigeninverse_DEPENDENCIES) 
+	@rm -f testusereigeninverse$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testusereigeninverse_OBJECTS) $(testusereigeninverse_LDADD) $(LIBS)
+
+testusereigenpower$(EXEEXT): $(testusereigenpower_OBJECTS) $(testusereigenpower_DEPENDENCIES) $(EXTRA_testusereigenpower_DEPENDENCIES) 
+	@rm -f testusereigenpower$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testusereigenpower_OBJECTS) $(testusereigenpower_LDADD) $(LIBS)
+
+testusereigenprojection$(EXEEXT): $(testusereigenprojection_OBJECTS) $(testusereigenprojection_DEPENDENCIES) $(EXTRA_testusereigenprojection_DEPENDENCIES) 
+	@rm -f testusereigenprojection$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testusereigenprojection_OBJECTS) $(testusereigenprojection_LDADD) $(LIBS)
+
+testusereigenrqiguard$(EXEEXT): $(testusereigenrqiguard_OBJECTS) $(testusereigenrqiguard_DEPENDENCIES) $(EXTRA_testusereigenrqiguard_DEPENDENCIES) 
+	@rm -f testusereigenrqiguard$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testusereigenrqiguard_OBJECTS) $(testusereigenrqiguard_LDADD) $(LIBS)
+
+testusereigenstatus$(EXEEXT): $(testusereigenstatus_OBJECTS) $(testusereigenstatus_DEPENDENCIES) $(EXTRA_testusereigenstatus_DEPENDENCIES) 
+	@rm -f testusereigenstatus$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testusereigenstatus_OBJECTS) $(testusereigenstatus_LDADD) $(LIBS)
+
 testuserfgcrodrerrors$(EXEEXT): $(testuserfgcrodrerrors_OBJECTS) $(testuserfgcrodrerrors_DEPENDENCIES) $(EXTRA_testuserfgcrodrerrors_DEPENDENCIES) 
 	@rm -f testuserfgcrodrerrors$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(testuserfgcrodrerrors_OBJECTS) $(testuserfgcrodrerrors_LDADD) $(LIBS)
@@ -3169,6 +3258,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_krylov_window.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_krylov_workspace.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testabi.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testbicgstablinit.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testblockgram.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testblockorthogonal.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testblockrank.Po@am__quote@ # am--include-marker
@@ -3282,6 +3372,12 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusercrcomplex.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusercrserrors.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusercsrbounds.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusereigencgcr.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusereigeninverse.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusereigenpower.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusereigenprojection.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusereigenrqiguard.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusereigenstatus.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testuserfgcrodrerrors.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusergcrodrerrors.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testusergmreserrors.Po@am__quote@ # am--include-marker
@@ -4585,6 +4681,55 @@ testusertfqmrcallback.log: testusertfqmrcallback$(EXEEXT)
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
 	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testusereigencgcr.log: testusereigencgcr$(EXEEXT)
+	@p='testusereigencgcr$(EXEEXT)'; \
+	b='testusereigencgcr'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testusereigeninverse.log: testusereigeninverse$(EXEEXT)
+	@p='testusereigeninverse$(EXEEXT)'; \
+	b='testusereigeninverse'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testusereigenpower.log: testusereigenpower$(EXEEXT)
+	@p='testusereigenpower$(EXEEXT)'; \
+	b='testusereigenpower'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testusereigenprojection.log: testusereigenprojection$(EXEEXT)
+	@p='testusereigenprojection$(EXEEXT)'; \
+	b='testusereigenprojection'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testusereigenrqiguard.log: testusereigenrqiguard$(EXEEXT)
+	@p='testusereigenrqiguard$(EXEEXT)'; \
+	b='testusereigenrqiguard'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testusereigenstatus.log: testusereigenstatus$(EXEEXT)
+	@p='testusereigenstatus$(EXEEXT)'; \
+	b='testusereigenstatus'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testbicgstablinit.log: testbicgstablinit$(EXEEXT)
+	@p='testbicgstablinit$(EXEEXT)'; \
+	b='testbicgstablinit'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
 .test.log:
 	@p='$<'; \
 	$(am__set_b); \
@@ -4732,6 +4877,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/test_krylov_window.Po
 	-rm -f ./$(DEPDIR)/test_krylov_workspace.Po
 	-rm -f ./$(DEPDIR)/testabi.Po
+	-rm -f ./$(DEPDIR)/testbicgstablinit.Po
 	-rm -f ./$(DEPDIR)/testblockgram.Po
 	-rm -f ./$(DEPDIR)/testblockorthogonal.Po
 	-rm -f ./$(DEPDIR)/testblockrank.Po
@@ -4845,6 +4991,12 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/testusercrcomplex.Po
 	-rm -f ./$(DEPDIR)/testusercrserrors.Po
 	-rm -f ./$(DEPDIR)/testusercsrbounds.Po
+	-rm -f ./$(DEPDIR)/testusereigencgcr.Po
+	-rm -f ./$(DEPDIR)/testusereigeninverse.Po
+	-rm -f ./$(DEPDIR)/testusereigenpower.Po
+	-rm -f ./$(DEPDIR)/testusereigenprojection.Po
+	-rm -f ./$(DEPDIR)/testusereigenrqiguard.Po
+	-rm -f ./$(DEPDIR)/testusereigenstatus.Po
 	-rm -f ./$(DEPDIR)/testuserfgcrodrerrors.Po
 	-rm -f ./$(DEPDIR)/testusergcrodrerrors.Po
 	-rm -f ./$(DEPDIR)/testusergmreserrors.Po
@@ -4959,6 +5111,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/test_krylov_window.Po
 	-rm -f ./$(DEPDIR)/test_krylov_workspace.Po
 	-rm -f ./$(DEPDIR)/testabi.Po
+	-rm -f ./$(DEPDIR)/testbicgstablinit.Po
 	-rm -f ./$(DEPDIR)/testblockgram.Po
 	-rm -f ./$(DEPDIR)/testblockorthogonal.Po
 	-rm -f ./$(DEPDIR)/testblockrank.Po
@@ -5072,6 +5225,12 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/testusercrcomplex.Po
 	-rm -f ./$(DEPDIR)/testusercrserrors.Po
 	-rm -f ./$(DEPDIR)/testusercsrbounds.Po
+	-rm -f ./$(DEPDIR)/testusereigencgcr.Po
+	-rm -f ./$(DEPDIR)/testusereigeninverse.Po
+	-rm -f ./$(DEPDIR)/testusereigenpower.Po
+	-rm -f ./$(DEPDIR)/testusereigenprojection.Po
+	-rm -f ./$(DEPDIR)/testusereigenrqiguard.Po
+	-rm -f ./$(DEPDIR)/testusereigenstatus.Po
 	-rm -f ./$(DEPDIR)/testuserfgcrodrerrors.Po
 	-rm -f ./$(DEPDIR)/testusergcrodrerrors.Po
 	-rm -f ./$(DEPDIR)/testusergmreserrors.Po
