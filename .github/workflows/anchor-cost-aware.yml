@@ -1,0 +1,61 @@
+name: Cost-aware rolling reuse study
+on:
+  push:
+    branches: [experiment/anchor-cost-aware-20261126]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [grid32, grid100, holdout48, bcsstk16, bcsstk17, bcsstk18]
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool time python3-numpy python3-scipy
+      - name: Fetch public matrix
+        if: startsWith(matrix.case, 'bcsstk')
+        env:
+          MATRIX: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          mkdir -p data evidence
+          url="https://math.nist.gov/MatrixMarket/data/Harwell-Boeing/bcsstruc2/$MATRIX.mtx.gz"
+          printf '%s\n' "$url" > evidence/source-url.txt
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 300 "$url" -o "data/$MATRIX.mtx.gz"
+          sha256sum "data/$MATRIX.mtx.gz" > evidence/archive.sha256
+          gzip -dc "data/$MATRIX.mtx.gz" > "data/$MATRIX.mtx"
+          sha256sum "data/$MATRIX.mtx" > evidence/source.sha256
+      - name: Build research-only comparison
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          lscpu > evidence/cpu.txt
+          cc --version > evidence/compiler.txt
+          /usr/bin/python3 -m py_compile tools/anchor_cost_aware.py
+          ./configure --disable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg --disable-test --disable-shared --enable-static CFLAGS='-O2 -DNDEBUG' > evidence/configure.log 2>&1
+          make -j2 > evidence/build.log 2>&1
+          cc -O2 -DNDEBUG -fopenmp -DHAVE_CONFIG_H -Iinclude -Itools tools/bench_anchor_cost_aware.c src/.libs/liblis.a -lm -o evidence/anchor
+      - name: Fresh versus fixed, rolling and cost-aware
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 tools/anchor_cost_aware.py evidence/anchor evidence/study --case '${{ matrix.case }}' --source 'data/${{ matrix.case }}.mtx' --reps 3 | tee evidence/study.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: anchor-cost-aware-${{ matrix.case }}
+          path: |
+            evidence/
+            !evidence/study/input/*.mtx
+          retention-days: 14
+          if-no-files-found: warn
