@@ -1,5 +1,6 @@
 /* Internal FGMRES stop policy regression; no reference driver dependency. */
 #include "lislib.h"
+#include "lis_solver_options.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
