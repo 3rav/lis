@@ -3,6 +3,7 @@
 #include "lis_anchor_pilot.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #if defined(USE_MPI) || defined(_COMPLEX) || defined(USE_COMPLEX) || defined(_LONG__DOUBLE) || defined(USE_QUAD_PRECISION)
@@ -29,25 +30,43 @@ static LIS_INT load_rhs(const char *name,LIS_VECTOR b)
 bad:
     fclose(f);return LIS_ERR_FILE_IO;
 }
+/* Opt-in audit only: exact round-trip decimal doubles, no timing claims. */
+static LIS_INT save_solution(const char *dir,int step,LIS_VECTOR x)
+{
+    char path[4096]; FILE *f; LIS_INT i; int len,failed=0;
+    len=snprintf(path,sizeof(path),"%s/x-%03d.mtx",dir,step);
+    if(len<0 || (size_t)len>=sizeof(path))return LIS_ERR_FILE_IO;
+    f=fopen(path,"wx");
+    if(!f)return LIS_ERR_FILE_IO;
+    if(fprintf(f,"%%%%MatrixMarket matrix array real general\n%lld 1\n",(long long)x->n)<0)failed=1;
+    for(i=0;i<x->n && !failed;i++){
+        if(!isfinite(x->value[i]) || fprintf(f,"%.17g\n",x->value[i])<0)failed=1;
+    }
+    if(fclose(f)!=0)failed=1;
+    return failed?LIS_ERR_FILE_IO:LIS_SUCCESS;
+}
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL,P=NULL;LIS_VECTOR b=NULL,x=NULL;
     lis_anchor_pilot *ctx=NULL;lis_anchor_pilot_report r;
-    LIS_INT rc=0;int i,pilot,low_memory,rolling,accepted=0,creates=0,steps;
+    LIS_INT rc=0;int i,pilot,low_memory,rolling,single_pass,restart_matched,accepted=0,creates=0,steps;
     double total=0,setup=0;
-    if(argc<4 || (argc%2) || (strcmp(argv[1],"fresh") && strcmp(argv[1],"pilot") && strcmp(argv[1],"pilot-low-memory") && strcmp(argv[1],"pilot-rolling"))){
-        fprintf(stderr,"usage: %s fresh|pilot|pilot-low-memory|pilot-rolling A1.mtx b1.mtx [A2.mtx b2.mtx ...]\n",argv[0]);return 2;
+    const char *audit_dir=getenv("LIS_ANCHOR_AUDIT_DIR");
+    if(argc<4 || (argc%2) || (strcmp(argv[1],"fresh") && strcmp(argv[1],"pilot") && strcmp(argv[1],"pilot-low-memory") && strcmp(argv[1],"pilot-rolling") && strcmp(argv[1],"pilot-single-pass") && strcmp(argv[1],"pilot-restart-matched"))){
+        fprintf(stderr,"usage: %s fresh|pilot|pilot-low-memory|pilot-rolling|pilot-single-pass|pilot-restart-matched A1.mtx b1.mtx [A2.mtx b2.mtx ...]\n",argv[0]);return 2;
     }
     low_memory=!strcmp(argv[1],"pilot-low-memory");
     rolling=!strcmp(argv[1],"pilot-rolling");
-    pilot=rolling||low_memory||!strcmp(argv[1],"pilot");steps=(argc-2)/2;
+    single_pass=!strcmp(argv[1],"pilot-single-pass");
+    restart_matched=!strcmp(argv[1],"pilot-restart-matched");
+    pilot=restart_matched||single_pass||rolling||low_memory||!strcmp(argv[1],"pilot");steps=(argc-2)/2;
     if(lis_initialize(&argc,&argv))return 1;
     for(i=2;i<argc;i+=2){
         double start,initial=0,elapsed;int first=pilot&&!ctx;
         if((rc=load_matrix(argv[i],&A)) || (rc=lis_vector_duplicate(A,&b)) ||
            (rc=lis_vector_duplicate(A,&x)) || (rc=load_rhs(argv[i+1],b)))goto done;
         start=lis_wtime();
-        if(first){P=A;if((rc=rolling?lis_anchor_pilot_create_rolling(P,&ctx):low_memory?lis_anchor_pilot_create_low_memory(P,&ctx):lis_anchor_pilot_create(P,&ctx)))goto done;initial=lis_wtime()-start;}
+        if(first){P=A;if((rc=restart_matched?lis_anchor_pilot_create_restart_matched(P,&ctx):single_pass?lis_anchor_pilot_create_single_pass(P,&ctx):rolling?lis_anchor_pilot_create_rolling(P,&ctx):low_memory?lis_anchor_pilot_create_low_memory(P,&ctx):lis_anchor_pilot_create(P,&ctx)))goto done;initial=lis_wtime()-start;}
         rc=pilot?lis_anchor_pilot_solve(ctx,A,b,x,&r):lis_anchor_fresh_solve(A,b,x,&r);
         elapsed=lis_wtime()-start;
         accepted+=r.accepted;creates+=r.factorizations+first;total+=elapsed;setup+=r.setup_seconds+initial;
@@ -57,6 +76,7 @@ int main(int argc,char **argv)
             r.factorizations+first,r.ratio,r.relative_residual,r.setup_seconds+initial,elapsed);
         fflush(stdout);
         if(rc)goto done;
+        if(audit_dir && r.accepted && (rc=save_solution(audit_dir,i/2,x)))goto done;
         lis_vector_destroy(x);x=NULL;lis_vector_destroy(b);b=NULL;
         if(rolling){
             LIS_MATRIX next=lis_anchor_pilot_current_anchor(ctx);

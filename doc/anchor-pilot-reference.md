@@ -1,6 +1,6 @@
 # Retained-anchor FGMRES pilot (experimental)
 
-This opt-in application-side driver is a reference implementation, **not an installed LIS API or a change to the default solver**. It uses native LIS FGMRES and complete-fill ILUTP, and keeps one anchor factorization for a sequence of related matrices. It is intentionally limited to unscaled, assembled serial real-double CSR and one active thread. Matrices and vectors must share the same DOF ordering. No callback, MPI, complex, QUAD, or recycling support is claimed.
+This opt-in application-side driver is a reference implementation, **not an installed LIS API or a change to the default solver**. It uses native LIS FGMRES and complete-fill ILUTP, and keeps one anchor factorization for a sequence of related matrices. It is intentionally limited to unscaled, assembled serial real-double CSR and one active thread. Matrices and vectors must share the same DOF ordering. No application-defined callback, MPI, complex, QUAD, or recycling support is claimed.
 
 ## Policy
 
@@ -66,3 +66,84 @@ Use `lis_anchor_pilot_create_rolling(P, &ctx)` or benchmark mode `pilot-rolling`
 The local rolling prototype was previously measured on the full 15 original contact snapshots in the same executable against low-memory, one thread per process on separate cores, excluding input loading: both accepted 15/15, rolling required nine factor creations rather than eleven, 253.689640 s vs 267.163146 s (5.04% lower observed time), peak RSS 821964 vs 821588 KiB. Printed physical residuals matched, including a physically accepted raw MAXITER. This is a prior single comparison, not a new benchmark of the hardened implementation or independent-model validation. Standard retained-anchor and low-memory policies are unchanged.
 
 The extended regression tests promotion, releasing the former anchor, retaining the new factor and generation invalidation. The dedicated workflow also compiles `test_anchor_pilot_faults.c` using GNU ld wrapping and runs five deterministic boundary-failure cases (fresh factorization, fresh solve, generation lookup, output copy, numerical rejection). They require unchanged anchor identity and output, release of the rejected matrix, and correct subsequent invalidation or lazy rebuild. These tests are not exhaustive internal allocation-failure coverage.
+
+## Optional single-pass and matched-restart controls
+
+These are opt-in reference-driver policies, not installed application APIs or
+changes to the default retained-anchor algorithm. The internal synchronous
+FGMRES stop hook is restricted to the serial real-double CSR/ILUT path; it
+adds no solver-object fields or global callback state. Other configurations
+are not supported by this hook.
+
+- `lis_anchor_pilot_create_single_pass(P, &ctx)` / `pilot-single-pass`:
+  preserve the Krylov basis across the 20-step checkpoint if the projected
+  residual ratio r20/r10 <= 0.25, with the original 100-iteration hard budget
+  and restart length 60. If the checkpoint rejects, reconstruct the current
+  approximation before returning a numerical stop. Physical acceptance and
+  fresh fallback remain unchanged.
+- `lis_anchor_pilot_create_restart_matched(P, &ctx)` /
+  `pilot-restart-matched`: retain the 20+80 restart structure but normalize
+  the continuation tolerance against the independently measured pilot
+  residual, and reset the original tolerance for every new solve. This
+  isolates the restart effect from the original driver's stricter effective
+  stopping tolerance.
+- These two modes count completed projected anchor iterations; legacy raw
+  terminal counters may include an extra increment. Fresh counters remain
+  native. Never infer nonlinear application convergence from linear residuals.
+
+The opt-in environment variable `LIS_ANCHOR_AUDIT_DIR` names an existing
+directory for exclusive creation of accepted solution files
+`x-001.mtx`, etc. Run audits separately from timing comparisons. The
+diagonal Python regression independently recomputes physical residuals in
+70-digit Decimal arithmetic, checks raw decisions/iteration counts across
+paired runs, and hashes input and executable files. Use fresh output
+directories for each run.
+
+```sh
+cc -O2 -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c \
+   tools/test_anchor_single_pass.c src/.libs/liblis.a -lm -o test-anchor-single-pass
+OMP_NUM_THREADS=1 OMP_DYNAMIC=FALSE ./test-anchor-single-pass
+python3 tools/anchor_stage9_diagonal.py ./bench-anchor-pilot ./diagonal-evidence
+python3 tools/anchor_stage10_contact.py ./bench-anchor-pilot ./contact-evidence \
+  --width 100 --height 100 --reps 3
+```
+
+The latter generates a sparse spring network with changing penalty constraints
+and nonsymmetric rank-one perturbations. It is an algebraic contact
+surrogate, not a finite-element contact simulation. Both scripts use one
+CPU-affinity core, separate timing/audit runs, and round-trip decimal inputs.
+The sparse checker uses independent streaming binary64 products and
+`math.fsum` accumulation. Neither script requires private CalculiX inputs.
+
+### Native experimental evidence (2026-11-26)
+
+Native Release and ASan/UBSan regressions passed on experimental commit
+`3503ba04fab2bead2108e7e9c25d13e4592c1c76`:
+https://github.com/3rav/lis/actions/runs/45765554090 .
+
+The diagonal sequence (15 states, 80 DOF, three repetitions per policy/profile)
+accepted all 540 timing/audit solves, with 270 independently certified audit
+vectors and maximum relative residual 9.211e-9. Corrected anchor-iteration
+totals were 445 / 400 / 350 for classic / matched / single-pass.
+https://github.com/3rav/lis/actions/runs/45766919827 .
+
+The sparse surrogate Release results below are medians of three repetitions,
+setup plus solve excluding input loading. Each listed size independently
+certified 270 audit vectors over six policies; no pilot fallback occurred.
+
+| DOF | Fresh (s) | Classic (s) | Matched (s) | Single-pass (s) |
+|---:|---:|---:|---:|---:|
+| 1024 | 0.087187 | 0.059847 | 0.038133 | 0.036151 |
+| 10000 | 3.102383 | 1.452082 | 0.870498 | 0.877557 |
+
+At 1024 DOF, corrected anchor iterations were 534 / 366 / 314; at 10000
+DOF, 540 / 306 / 296. The sanitizer 1024-DOF case also passed (90
+independent audit vectors). Source:
+https://github.com/3rav/lis/actions/runs/45767929726 .
+
+The 60000-DOF run, gate/restart screening, public-matrix perturbation tests,
+and adaptive heuristics are separate experimental work. No claim is made
+about their outcome here. No tuning change or adaptive heuristic is included
+in the reference driver by this commit. Full private CalculiX revalidation
+remains outstanding. The results are not grounds for making either new
+policy a universal default.

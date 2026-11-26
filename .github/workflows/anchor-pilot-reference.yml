@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'tools/*anchor_pilot*'
+      - 'tools/test_anchor_single_pass.c'
+      - 'tools/anchor_stage9_diagonal.py'
+      - 'tools/anchor_stage10_contact.py'
       - 'doc/anchor-pilot-reference.md'
       - '.github/workflows/anchor-pilot-reference.yml'
       - 'src/solver/**'
@@ -16,6 +19,9 @@ on:
       - experiment/retained-anchor-pilot-20261125
     paths:
       - 'tools/*anchor_pilot*'
+      - 'tools/test_anchor_single_pass.c'
+      - 'tools/anchor_stage9_diagonal.py'
+      - 'tools/anchor_stage10_contact.py'
       - 'doc/anchor-pilot-reference.md'
       - '.github/workflows/anchor-pilot-reference.yml'
 permissions:
@@ -35,23 +41,31 @@ jobs:
       UBSAN_OPTIONS: halt_on_error=1
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool time
       - name: Build native LIS and reference regression
         shell: bash
         run: |
           set -euo pipefail
           flags='-O2 -DNDEBUG'
+          link=''
           if [ '${{ matrix.profile }}' = asan-ubsan ]; then
             flags='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all'
+            link='-no-pie'
           fi
           ./configure --disable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg --disable-test --disable-shared --enable-static CFLAGS="$flags" LDFLAGS="$flags"
           make -j2
-          cc $flags -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/test_anchor_pilot.c src/.libs/liblis.a -lm -o test-anchor-pilot
-          cc $flags -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/bench_anchor_pilot.c src/.libs/liblis.a -lm -o bench-anchor-pilot
-          cc $flags -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/test_anchor_pilot_faults.c src/.libs/liblis.a -Wl,--wrap=lis_solver_sequence_prepare_precon,--wrap=lis_solve_kernel,--wrap=lis_matrix_get_generation,--wrap=lis_vector_copy -lm -o test-anchor-pilot-faults
+          cc $flags $link -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/test_anchor_pilot.c src/.libs/liblis.a -lm -o test-anchor-pilot
+          cc $flags $link -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/bench_anchor_pilot.c src/.libs/liblis.a -lm -o bench-anchor-pilot
+          cc $flags $link -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/test_anchor_pilot_faults.c src/.libs/liblis.a -Wl,--wrap=lis_solver_sequence_prepare_precon,--wrap=lis_solve_kernel,--wrap=lis_matrix_get_generation,--wrap=lis_vector_copy -lm -o test-anchor-pilot-faults
+          cc $flags $link -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/test_anchor_single_pass.c src/.libs/liblis.a -lm -o test-anchor-single-pass
+          ./test-anchor-single-pass | tee anchor-single-pass.log
+          grep -Fx 'SINGLE_PASS_REGRESSION=PASS' anchor-single-pass.log
+          grep -q '^MATCHED_DRIVER ' anchor-single-pass.log
           ./test-anchor-pilot | tee anchor-pilot.log
           grep -Fx 'ANCHOR_PILOT_REGRESSION=PASS' anchor-pilot.log
           ./test-anchor-pilot-faults | tee anchor-pilot-faults.log
           for n in 1 2 3 4 5; do
             grep -Fx "ROLLING_FAULT_${n}=PASS" anchor-pilot-faults.log
           done
+          python3 tools/anchor_stage9_diagonal.py ./bench-anchor-pilot ./diagonal-evidence | tee diagonal.log
+          grep -q '^DIAGONAL_PAIRED_GATE=PASS ' diagonal.log

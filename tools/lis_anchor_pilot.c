@@ -9,7 +9,7 @@
 #include <omp.h>
 #endif
 
-enum anchor_policy { RETAIN, LOW_MEMORY, ROLLING };
+enum anchor_policy { RETAIN, LOW_MEMORY, ROLLING, SINGLE_PASS, RESTART_MATCHED };
 
 struct lis_anchor_pilot {
     LIS_MATRIX P;
@@ -33,6 +33,10 @@ LIS_INT lis_anchor_pilot_create(LIS_MATRIX P,lis_anchor_pilot **out)
 LIS_INT lis_anchor_pilot_create_low_memory(LIS_MATRIX P,lis_anchor_pilot **out)
 { return lis_anchor_pilot_create(P,out); }
 LIS_INT lis_anchor_pilot_create_rolling(LIS_MATRIX P,lis_anchor_pilot **out)
+{ return lis_anchor_pilot_create(P,out); }
+LIS_INT lis_anchor_pilot_create_single_pass(LIS_MATRIX P,lis_anchor_pilot **out)
+{ return lis_anchor_pilot_create(P,out); }
+LIS_INT lis_anchor_pilot_create_restart_matched(LIS_MATRIX P,lis_anchor_pilot **out)
 { return lis_anchor_pilot_create(P,out); }
 LIS_MATRIX lis_anchor_pilot_current_anchor(const lis_anchor_pilot *ctx)
 { (void)ctx;return NULL; }
@@ -90,16 +94,17 @@ static int numerical(LIS_INT status)
 {
     return status==LIS_SUCCESS || status==LIS_MAXITER || status==LIS_BREAKDOWN;
 }
-static LIS_INT attempt(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR work,LIS_VECTOR residual,
+static LIS_INT attempt_impl(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR work,LIS_VECTOR residual,
     LIS_SOLVER s,LIS_PRECON pc,LIS_INT budget,int zero,LIS_INT *iterations,
-    lis_anchor_pilot_report *r)
+    lis_anchor_pilot_report *r,LIS_FGMRES_STOP stop,void *data)
 {
     LIS_INT rc;
     LIS_REAL nr,nb,reported;
     if((rc=lis_solver_set_maxiter(s,budget)))return rc;
     s->options[LIS_OPTIONS_INITGUESS_ZEROS]=zero?LIS_TRUE:LIS_FALSE;
     if(zero && (rc=lis_vector_set_all(0,work)))return rc;
-    if((rc=lis_solve_kernel(A,b,work,s,pc)))return rc;
+    rc=stop?lis_solve_kernel_fgmres_stop(A,b,work,s,pc,stop,data):lis_solve_kernel(A,b,work,s,pc);
+    if(rc)return rc;
     if((rc=lis_solver_get_status(s,&r->raw_status)) ||
        (rc=lis_solver_get_iter(s,iterations)) ||
        (rc=lis_solver_get_residualnorm(s,&reported)))return rc;
@@ -112,11 +117,28 @@ static LIS_INT attempt(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR work,LIS_VECTOR resi
     return LIS_SUCCESS;
 }
 
-typedef struct { double r10,r20; } pilot_history;
+static LIS_INT attempt(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR work,LIS_VECTOR residual,
+    LIS_SOLVER s,LIS_PRECON pc,LIS_INT budget,int zero,LIS_INT *iterations,
+    lis_anchor_pilot_report *r)
+{
+    return attempt_impl(A,b,work,residual,s,pc,budget,zero,iterations,r,NULL,NULL);
+}
+typedef struct { double r10,r20; LIS_INT last; } pilot_history;
+static LIS_INT checkpoint(LIS_INT iter,LIS_REAL res,void *data)
+{
+    pilot_history *h=data;
+    h->last=iter;
+    if(iter==10)h->r10=res;
+    if(iter!=20)return LIS_FALSE;
+    h->r20=res;
+    return !(isfinite(h->r10) && h->r10>0 && isfinite(h->r20) &&
+             h->r20>=0 && h->r20/h->r10<=0.25);
+}
 static void monitor(LIS_SOLVER s,LIS_INT iter,LIS_REAL res,LIS_REAL tol,LIS_INT kind,void *data)
 {
     pilot_history *h=data;(void)s;(void)tol;
     if(kind!=LIS_SOLVER_RESIDUAL_PROJECTED)return;
+    h->last=iter;
     if(iter==10)h->r10=res;
     if(iter==20)h->r20=res;
 }
@@ -147,6 +169,10 @@ LIS_INT lis_anchor_pilot_create_low_memory(LIS_MATRIX P,lis_anchor_pilot **out)
 { return create(P,out,LOW_MEMORY); }
 LIS_INT lis_anchor_pilot_create_rolling(LIS_MATRIX P,lis_anchor_pilot **out)
 { return create(P,out,ROLLING); }
+LIS_INT lis_anchor_pilot_create_single_pass(LIS_MATRIX P,lis_anchor_pilot **out)
+{ return create(P,out,SINGLE_PASS); }
+LIS_INT lis_anchor_pilot_create_restart_matched(LIS_MATRIX P,lis_anchor_pilot **out)
+{ return create(P,out,RESTART_MATCHED); }
 LIS_MATRIX lis_anchor_pilot_current_anchor(const lis_anchor_pilot *ctx)
 { return ctx?ctx->P:NULL; }
 static void retire_anchor(lis_anchor_pilot *ctx)
@@ -164,7 +190,7 @@ static LIS_INT solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR 
     LIS_INT rc=LIS_SUCCESS;
     int promote=0;
     LIS_UNSIGNED_INT structure,values;
-    pilot_history h={NAN,NAN};
+    pilot_history h={NAN,NAN,0};
     if(!r)return LIS_ERR_ILL_ARG;
     init_report(r);
     if(!valid_args(A,b,x))return LIS_ERR_ILL_ARG;
@@ -182,22 +208,54 @@ static LIS_INT solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR 
             rc=factor(ctx->P,&ctx->solver,&ctx->factor,r);
             if(rc){retire_anchor(ctx);ctx->valid=0;goto done;}
         }
+        if(ctx->policy==SINGLE_PASS){
+            LIS_INT reported_iterations=0;
+            rc=attempt_impl(A,b,work,residual,ctx->solver,ctx->factor,100,1,
+                &reported_iterations,r,checkpoint,&h);
+            unbind(ctx->solver,ctx->P);
+            if(rc){ctx->valid=0;goto done;}
+            /* Count actual completed projected iterations, not the legacy
+             * maxiter+1 terminal counter. Initial convergence can be zero. */
+            r->pilot_iterations=h.last<20?h.last:20;
+            r->continuation_iterations=h.last>20?h.last-20:0;
+            r->continued=h.last>20;
+            if(isfinite(h.r10) && h.r10>0 && isfinite(h.r20) && h.r20>=0)
+                r->ratio=h.r20/h.r10;
+        }else{
+        /* A previous matched continuation may have changed the tolerance. */
+        if(ctx->policy==RESTART_MATCHED && (rc=lis_solver_set_tolerance(ctx->solver,1e-8)))goto done;
         if((rc=lis_solver_set_monitor(ctx->solver,monitor,&h)))goto done;
         rc=attempt(A,b,work,residual,ctx->solver,ctx->factor,20,1,&r->pilot_iterations,r);
         unbind(ctx->solver,ctx->P);
         if(rc){ctx->valid=0;goto done;}
+        if(ctx->policy==RESTART_MATCHED)r->pilot_iterations=h.last;
         if(!r->accepted && r->raw_status==LIS_MAXITER && isfinite(h.r10) && h.r10>0 && isfinite(h.r20) && h.r20>=0){
             r->ratio=h.r20/h.r10;
             if(r->ratio<=0.25){
-                r->continued=1;
-                rc=attempt(A,b,work,residual,ctx->solver,ctx->factor,80,0,&r->continuation_iterations,r);
-                unbind(ctx->solver,ctx->P);
-                if(rc){ctx->valid=0;goto done;}
+                pilot_history continuation={NAN,NAN,0};
+                int matched=ctx->policy==RESTART_MATCHED;
+                /* NRM2_R normalizes the second solve by ||r20||, not ||b||.
+                 * The certified pilot residual is ||r20||/||b|| (or ||r20||
+                 * for a zero RHS). Match the final physical target, without
+                 * trusting the projected residual as the denominator. */
+                if(!matched || (isfinite(r->relative_residual) && r->relative_residual>1e-8)){
+                    if(matched){
+                        rc=lis_solver_set_tolerance(ctx->solver,1e-8/r->relative_residual);
+                        if(!rc)rc=lis_solver_set_monitor(ctx->solver,monitor,&continuation);
+                        if(rc)goto done;
+                    }
+                    r->continued=1;
+                    rc=attempt(A,b,work,residual,ctx->solver,ctx->factor,80,0,&r->continuation_iterations,r);
+                    unbind(ctx->solver,ctx->P);
+                    if(rc){ctx->valid=0;goto done;}
+                    if(matched)r->continuation_iterations=continuation.last;
+                }
             }
+        }
         }
         if(!r->accepted){
             r->fallback=1;
-            if(ctx->policy!=RETAIN)retire_anchor(ctx);
+            if(ctx->policy==LOW_MEMORY || ctx->policy==ROLLING)retire_anchor(ctx);
             if(ctx->policy==ROLLING){
                 /* Reuse the fresh factor itself, not just its matrix. */
                 rc=factor(A,&ctx->solver,&ctx->factor,r);
