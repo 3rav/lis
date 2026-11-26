@@ -1,0 +1,68 @@
+name: Anchor stage 12 public stiffness benchmark
+on:
+  push:
+    branches: ['experiment/anchor-stage7-native-20261126']
+    paths:
+      - 'tools/anchor_stage12_public.py'
+      - '.github/workflows/anchor-stage12-public.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {group: HB, name: bcsstk16, reps: 3}
+          - {group: Boeing, name: bcsstk36, reps: 1}
+          - {group: Boeing, name: ct20stif, reps: 1}
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool time python3-numpy python3-scipy
+      - name: Fetch public matrix
+        env:
+          GROUP: ${{ matrix.group }}
+          MATRIX: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence data
+          url="https://sparse-files.engr.tamu.edu/MM/$GROUP/$MATRIX.tar.gz"
+          printf '%s\n' "$url" > evidence/source-url.txt
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 300 "$url" -o "data/$MATRIX.tar.gz"
+          sha256sum "data/$MATRIX.tar.gz" > evidence/archive.sha256
+          tar -xOzf "data/$MATRIX.tar.gz" "$MATRIX/$MATRIX.mtx" > "data/$MATRIX.mtx"
+          sha256sum "data/$MATRIX.mtx" > evidence/source.sha256
+      - name: Build native LIS
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > evidence/head.txt
+          /usr/bin/python3 -m py_compile tools/anchor_stage10_contact.py tools/anchor_stage12_public.py
+          /usr/bin/python3 -c 'import numpy,scipy; print(numpy.__version__,scipy.__version__)' > evidence/versions.txt
+          ./configure --disable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg --disable-test --disable-shared --enable-static CFLAGS="-O2 -DNDEBUG" 2>&1 | tee evidence/configure.log
+          make -j2 2>&1 | tee evidence/build.log
+          cc -O2 -DNDEBUG -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/bench_anchor_pilot.c src/.libs/liblis.a -lm -o evidence/bench_anchor_pilot
+      - name: Public stiffness paired benchmark
+        env:
+          MATRIX: ${{ matrix.name }}
+          REPS: ${{ matrix.reps }}
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 tools/anchor_stage12_public.py evidence/bench_anchor_pilot "data/$MATRIX.mtx" evidence/public --name "$MATRIX" --reps "$REPS" | tee evidence/public.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: anchor-stage12-${{ matrix.name }}
+          path: |
+            evidence/
+            !evidence/public/input/*.mtx
+          retention-days: 7
+          if-no-files-found: warn

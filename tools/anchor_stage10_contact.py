@@ -111,14 +111,14 @@ def certify(a,b,x,n):
 def kv(line):
     return dict(v.split("=",1) for v in line.split()[1:])
 
-def parse(log,mode,gate=.25):
+def parse(log,mode,gate=.25,steps=15):
     rows=[]; summary=[]
     for line in log.read_text().splitlines():
         if line.startswith("STEP "):
             d=kv(line); r={k:int(d[k]) for k in INTS}
             r.update({k:float(d[k]) for k in FLOATS}); rows.append(r)
         elif line.startswith("SUMMARY "): summary.append(kv(line))
-    need(len(rows)==15 and len(summary)==1,f"incomplete {log}")
+    need(len(rows)==steps and len(summary)==1,f"incomplete {log}")
     for i,r in enumerate(rows):
         need(r["step"]==i+1 and r["accepted"]==1 and r["api"]==0 and 0<=r["residual"]<=1e-8,f"acceptance {log} {i+1}")
         need(r["continued"] in (0,1) and r["fallback"] in (0,1),f"flags {log}")
@@ -132,9 +132,9 @@ def parse(log,mode,gate=.25):
                 need(r["pilot_iter"] in (20,21) and 0<=r["ratio"]<=gate,f"gate {log}")
             need(r["fallback"] or r["fresh_iter"]==0,f"unexpected fresh {log}")
     s=summary[0]
-    need(s["accepted"]=="15/15" and int(s["factors"])==sum(r["factors"] for r in rows),f"summary {log}")
+    need(s["accepted"]==f"{steps}/{steps}" and int(s["factors"])==sum(r["factors"] for r in rows),f"summary {log}")
     for k in ("setup_s","total_s"):
-        need(abs(float(s[k])-sum(r[k] for r in rows))<=17e-6,f"summary time {log}")
+        need(abs(float(s[k])-sum(r[k] for r in rows))<=(steps+2)*1e-6,f"summary time {log}")
     return rows,s
 
 def signature(rows):
