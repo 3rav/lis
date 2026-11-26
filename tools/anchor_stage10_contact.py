@@ -111,7 +111,7 @@ def certify(a,b,x,n):
 def kv(line):
     return dict(v.split("=",1) for v in line.split()[1:])
 
-def parse(log,mode):
+def parse(log,mode,gate=.25):
     rows=[]; summary=[]
     for line in log.read_text().splitlines():
         if line.startswith("STEP "):
@@ -129,7 +129,7 @@ def parse(log,mode):
         else:
             need(r["factors"]>=int(i==0)+r["fallback"],f"factors {log}")
             if r["continued"]:
-                need(r["pilot_iter"] in (20,21) and 0<=r["ratio"]<=.25,f"gate {log}")
+                need(r["pilot_iter"] in (20,21) and 0<=r["ratio"]<=gate,f"gate {log}")
             need(r["fallback"] or r["fresh_iter"]==0,f"unexpected fresh {log}")
     s=summary[0]
     need(s["accepted"]=="15/15" and int(s["factors"])==sum(r["factors"] for r in rows),f"summary {log}")
