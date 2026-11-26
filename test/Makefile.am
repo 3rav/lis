@@ -345,6 +345,9 @@ testoomiluc_SOURCES = testoomiluc.c
 testoomsnapshot_SOURCES = testoomsnapshot.c
 testoomrco_SOURCES = testoomrco.c
 testcsrtransposeoom_SOURCES = testcsrtransposeoom.c
+check_PROGRAMS += testuserrowoom
+TESTS += testuserrowoom$(EXEEXT)
+testuserrowoom_SOURCES = testuserrowoom.c
 if ENABLE_MPI
 check_PROGRAMS += testoommpiscale
 TESTS += testoommpiscale$(EXEEXT)
@@ -431,3 +434,93 @@ testcondense_lis_LDADD = $(LDADD) -lm
 TESTS += testcondense_core$(EXEEXT) testcomposite_core$(EXEEXT) testcondense_lis$(EXEEXT) testcondense_oom$(EXEEXT)
 TESTS += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
 EXTRA_DIST += testca_mfamg_ilutp.sh testca_mfamg_profiles.sh testcondense_differential.sh
+
+test_PROGRAMS += testuserbicgstabl
+testuserbicgstabl_SOURCES = testuserbicgstabl.c
+testuserbicgstabl_LDADD = $(LDADD) -lm
+TESTS += testuserbicgstabl$(EXEEXT)
+
+test_PROGRAMS += testusercrcomplex
+testusercrcomplex_SOURCES = testusercrcomplex.c
+testusercrcomplex_LDADD = $(LDADD) -lm
+TESTS += testusercrcomplex$(EXEEXT)
+
+test_PROGRAMS += testusercrserrors
+testusercrserrors_SOURCES = testusercrserrors.c
+testusercrserrors_LDADD = $(LDADD) -lm
+TESTS += testusercrserrors$(EXEEXT)
+
+test_PROGRAMS += testuserfgcrodrerrors
+testuserfgcrodrerrors_SOURCES = testuserfgcrodrerrors.c
+testuserfgcrodrerrors_LDADD = $(LDADD) -lm
+TESTS += testuserfgcrodrerrors$(EXEEXT)
+
+test_PROGRAMS += testusergcrodrerrors
+testusergcrodrerrors_SOURCES = testusergcrodrerrors.c
+testusergcrodrerrors_LDADD = $(LDADD) -lm
+TESTS += testusergcrodrerrors$(EXEEXT)
+
+test_PROGRAMS += testusergmreserrors
+testusergmreserrors_SOURCES = testusergmreserrors.c
+testusergmreserrors_LDADD = $(LDADD) -lm
+TESTS += testusergmreserrors$(EXEEXT)
+
+test_PROGRAMS += testusergpbic
+testusergpbic_SOURCES = testusergpbic.c
+testusergpbic_LDADD = $(LDADD) -lm
+TESTS += testusergpbic$(EXEEXT)
+
+test_PROGRAMS += testuseridrcallback
+testuseridrcallback_SOURCES = testuseridrcallback.c
+testuseridrcallback_LDADD = $(LDADD) -lm
+TESTS += testuseridrcallback$(EXEEXT)
+
+test_PROGRAMS += testuserorthominerrors
+testuserorthominerrors_SOURCES = testuserorthominerrors.c
+testuserorthominerrors_LDADD = $(LDADD) -lm
+TESTS += testuserorthominerrors$(EXEEXT)
+
+test_PROGRAMS += testusertfqmrcallback
+testusertfqmrcallback_SOURCES = testusertfqmrcallback.c
+testusertfqmrcallback_LDADD = $(LDADD) -lm
+TESTS += testusertfqmrcallback$(EXEEXT)
+
+test_PROGRAMS += testusereigencgcr
+testusereigencgcr_SOURCES = testusereigencgcr.c
+testusereigencgcr_LDADD = $(LDADD) -lm
+TESTS += testusereigencgcr$(EXEEXT)
+
+test_PROGRAMS += testusereigeninverse
+testusereigeninverse_SOURCES = testusereigeninverse.c
+testusereigeninverse_LDADD = $(LDADD) -lm
+TESTS += testusereigeninverse$(EXEEXT)
+
+test_PROGRAMS += testusereigenpower
+testusereigenpower_SOURCES = testusereigenpower.c
+testusereigenpower_LDADD = $(LDADD) -lm
+TESTS += testusereigenpower$(EXEEXT)
+
+test_PROGRAMS += testusereigenprojection
+testusereigenprojection_SOURCES = testusereigenprojection.c
+testusereigenprojection_LDADD = $(LDADD) -lm
+TESTS += testusereigenprojection$(EXEEXT)
+
+test_PROGRAMS += testusereigenrqiguard
+testusereigenrqiguard_SOURCES = testusereigenrqiguard.c
+testusereigenrqiguard_LDADD = $(LDADD) -lm
+TESTS += testusereigenrqiguard$(EXEEXT)
+
+test_PROGRAMS += testusereigenstatus
+testusereigenstatus_SOURCES = testusereigenstatus.c
+testusereigenstatus_LDADD = $(LDADD) -lm
+TESTS += testusereigenstatus$(EXEEXT)
+
+test_PROGRAMS += testusercomplexadjoint
+testusercomplexadjoint_SOURCES = testusercomplexadjoint.c
+testusercomplexadjoint_LDADD = $(LDADD) -lm
+TESTS += testusercomplexadjoint$(EXEEXT)
+
+test_PROGRAMS += testuserserialcontract
+testuserserialcontract_SOURCES = testuserserialcontract.c
+testuserserialcontract_LDADD = $(LDADD) -lm
+TESTS += testuserserialcontract$(EXEEXT)
