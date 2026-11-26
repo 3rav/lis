@@ -1,0 +1,52 @@
+name: Retained-anchor example regression
+on:
+  push:
+    branches: [experiment/retained-anchor-example-20261126]
+  pull_request:
+    paths:
+      - 'examples/retained_anchor/**'
+      - 'test/testanchor*.c'
+      - '.github/workflows/retained-anchor-example.yml'
+      - 'src/solver/**'
+      - 'src/precon/**'
+      - 'include/**'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [release, asan-ubsan]
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool
+      - name: Build and verify example
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags='-O2 -DNDEBUG'
+          link=''
+          if [ '${{ matrix.profile }}' = asan-ubsan ]; then
+            flags='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all'
+            link='-no-pie'
+          fi
+          ./configure --disable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg --disable-test --disable-shared --enable-static CFLAGS="$flags" LDFLAGS="$flags"
+          make -j2
+          path=examples/retained_anchor
+          cc $flags $link -fopenmp -DHAVE_CONFIG_H -Iinclude -I"$path" "$path"/lis_anchor_pilot.c test/testanchorpolicy.c src/.libs/liblis.a -lm -o test-anchor-policy
+          cc $flags $link -fopenmp -DHAVE_CONFIG_H -Iinclude -I"$path" "$path"/lis_anchor_pilot.c test/testanchorsinglepass.c src/.libs/liblis.a -lm -o test-anchor-single
+          cc $flags $link -fopenmp -DHAVE_CONFIG_H -Iinclude -I"$path" "$path"/lis_anchor_pilot.c test/testanchorfaults.c src/.libs/liblis.a -Wl,--wrap=lis_solver_sequence_prepare_precon,--wrap=lis_solve_kernel,--wrap=lis_matrix_get_generation,--wrap=lis_vector_copy -lm -o test-anchor-faults
+          ./test-anchor-policy | tee policy.log
+          grep -Fx ANCHOR_PILOT_REGRESSION=PASS policy.log
+          ./test-anchor-single | tee single.log
+          grep -Fx SINGLE_PASS_REGRESSION=PASS single.log
+          ./test-anchor-faults | tee faults.log
+          for n in 1 2 3 4 5; do grep -Fx "ROLLING_FAULT_${n}=PASS" faults.log; done
