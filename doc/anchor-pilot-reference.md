@@ -141,9 +141,55 @@ DOF, 540 / 306 / 296. The sanitizer 1024-DOF case also passed (90
 independent audit vectors). Source:
 https://github.com/3rav/lis/actions/runs/45767929726 .
 
-The 60000-DOF run, gate/restart screening, public-matrix perturbation tests,
-and adaptive heuristics are separate experimental work. No claim is made
-about their outcome here. No tuning change or adaptive heuristic is included
-in the reference driver by this commit. Full private CalculiX revalidation
-remains outstanding. The results are not grounds for making either new
-policy a universal default.
+### Extended experimental results
+
+The 60000-DOF Release contact-surrogate sequence also passed all 90
+independent audit vectors; maximum relative residual was 8.9764e-9.
+This is one timing repetition, not a statistically established speedup.
+
+| Policy | Total (s) | Setup (s) | Corrected anchor iterations | Factor creations | Peak RSS (KiB) |
+|---|---:|---:|---:|---:|---:|
+| Fresh | 64.540514 | 63.117776 | 0 | 15 | 318144 |
+| Classic | 24.344149 | 3.998087 | 469 | 1 | 310968 |
+| Low-memory | 24.096604 | 4.008687 | 469 | 1 | 311004 |
+| Rolling | 23.981713 | 4.004637 | 469 | 1 | 311040 |
+| Matched | 16.052933 | 4.023242 | 291 | 1 | 311052 |
+| Single-pass | 16.920309 | 3.955768 | 288 | 1 | 311056 |
+
+Fresh additionally performed 15 fresh iterations; all five pilot strategies
+had zero fallbacks on this particular sequence. Source:
+https://github.com/3rav/lis/actions/runs/45767929726 .
+
+The separate fixed-budget screening tested gates 0.10, 0.25, 0.50 and 0.75
+at restart 60, and restart lengths 40 and 100 at gate 0.25, on normal and
+abrupt-change sequences at 1024 and 10000 DOF. It included 13 candidates
+(fresh plus 12 policy/parameter combinations), three repetitions, with
+2340 independent audit vectors. All candidates passed; there were no
+reported failures. The 1024-DOF abrupt-change single-pass case used
+4/3/2/0 fallbacks for gates 0.10/0.25/0.50/0.75 respectively, and
+223/241/257/294 total capped iterations. The observed median total times
+were 0.027397/0.026225/0.024605/0.021070 s. The same gate choices did
+not change iterations or fallback decisions at 10000 DOF. This is
+insufficient evidence for changing the fixed 0.25 gate.
+https://github.com/3rav/lis/actions/runs/45768177552 .
+
+The separate adaptive holdout tested early stagnation rejection and
+projected geometric continuation prediction in addition to the existing
+controls (five candidates, four size/scenario combinations, three
+repetitions, 900 independent audit vectors). All passed, but neither
+heuristic changed a checkpoint decision on these fixtures. Therefore
+no adaptive policy is promoted and no speedup is attributed to it.
+https://github.com/3rav/lis/actions/runs/45768395227 .
+
+The initial public-matrix benchmark could not download its SuiteSparse
+archives (SSL connection timeouts); no numerical result was obtained.
+https://github.com/3rav/lis/actions/runs/45768298336 .
+A separate retry uses NIST Matrix Market BCSSTRUC2 data. Its results
+are not yet included.
+
+The unchanged default gate, restart and budgets are retained. The integrated
+optional policies passed the Release and ASan/UBSan CI, including the paired
+diagonal audit:
+https://github.com/3rav/lis/actions/runs/45768507080 .
+Full private CalculiX revalidation remains outstanding. The results are
+not grounds for making either new policy a universal default.
