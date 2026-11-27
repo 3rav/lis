@@ -54,3 +54,15 @@ request has a context-local monotonic token independent of nested projector
 tokens. The native test uses lis_eigen_projected_solve and actual assembled
 LIS A/B matrices (known spectra 1,2,5,8); tests repeat, cancellation, callback
 error, generation invalidation and independently check physical residuals.
+
+The recycle-space continuation stores fixed GCRO U/ZU/C and flexible
+FGCRO W/Z/C separately (Z authoritative), refreshes images with A and
+fixed preconditioning, performs twice-MGS with identical transforms,
+drops rank-deficient candidates, and commits via a two-bank transaction.
+Cancellation, incomplete output, generation mismatch or callback failure
+keeps the previous committed basis. Residual and direction projection
+preserve A*Z=C and orthogonality to C. Tests cover two RHS, changed operator,
+fixed/flexible policy, and all request-phase faults. This is a building
+block, NOT complete GCRO-DR/FGCRO-DR: native harmonic Ritz selection,
+automatic integration into the augmented Arnoldi/restart recurrence and
+differential native qualification remain open.

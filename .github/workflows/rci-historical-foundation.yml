@@ -23,6 +23,8 @@ jobs:
           ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "$RUNNER_TEMP/restore"
           "${{ matrix.cc }}" "${flags[@]}" -Iinclude -Iqualification/rci-restore/ src/lis_rci.c qualification/rci-restore/lis_rci_restore.c qualification/rci-restore/lis_rci_split_restore.c qualification/rci-restore/test_split.c -lm -o "$RUNNER_TEMP/split"
           ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "$RUNNER_TEMP/split"
+          "${{ matrix.cc }}" "${flags[@]}" -Iinclude -Iqualification/rci-restore/ qualification/rci-restore/lis_rci_recycle_restore.c qualification/rci-restore/test_recycle.c -lm -o "$RUNNER_TEMP/recycle"
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "$RUNNER_TEMP/recycle"
   native:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
