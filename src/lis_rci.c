@@ -29,33 +29,66 @@ struct lis_rci_context {
 };
 static int mul(size_t a,size_t b,size_t *z){if(b && a>SIZE_MAX/b)return 0;*z=a*b;return 1;}
 static int add(size_t a,size_t b,size_t *z){if(a>SIZE_MAX-b)return 0;*z=a+b;return 1;}
-static int finite_vec(const double *a,size_t n){int ok=1;
+/* Avoid serialized OpenMP regions below the existing parallel threshold.
+ * Keep the numerical reduction order within each selected backend. */
+#define RCI_OMP_MIN 4096u
+static int finite_vec(const double *a,size_t n)
+{
 #ifdef _OPENMP
-#pragma omp parallel for reduction(&:ok) if(n>=4096)
+ if(n>=RCI_OMP_MIN){
+  int ok=1;
+#pragma omp parallel for reduction(&:ok)
+  for(size_t i=0;i<n;i++)ok &= isfinite(a[i])!=0;
+  return ok;
+ }
 #endif
- for(size_t i=0;i<n;i++)ok &= isfinite(a[i])!=0;return ok;}
-static long double dot(const double *a,const double *b,size_t n){long double s=0;
+ for(size_t i=0;i<n;i++)if(!isfinite(a[i]))return 0;
+ return 1;
+}
+static long double dot(const double *a,const double *b,size_t n)
+{
+ long double s=0;
 #ifdef _OPENMP
-#pragma omp parallel for reduction(+:s) if(n>=4096)
+ if(n>=RCI_OMP_MIN){
+#pragma omp parallel for reduction(+:s)
+  for(size_t i=0;i<n;i++)s+=(long double)a[i]*b[i];
+  return s;
+ }
 #endif
- for(size_t i=0;i<n;i++)s+=(long double)a[i]*b[i];return s;}
-static long double norm(const double *a,size_t n){/* scaled to avoid overflow/underflow even with narrow long double */
- double m=0;
+ for(size_t i=0;i<n;i++)s+=(long double)a[i]*b[i];
+ return s;
+}
+static long double norm(const double *a,size_t n)
+{
+ /* Scale before squaring, including when long double has narrow range. */
+ double m=0;long double s=0;
 #ifdef _OPENMP
-#pragma omp parallel for reduction(max:m) if(n>=4096)
+ if(n>=RCI_OMP_MIN){
+#pragma omp parallel for reduction(max:m)
+  for(size_t i=0;i<n;i++)if(fabs(a[i])>m)m=fabs(a[i]);
+  if(m==0)return 0;
+#pragma omp parallel for reduction(+:s)
+  for(size_t i=0;i<n;i++){long double v=(long double)a[i]/m;s+=v*v;}
+  return (long double)m*sqrtl(s);
+ }
 #endif
  for(size_t i=0;i<n;i++)if(fabs(a[i])>m)m=fabs(a[i]);
- if(m==0)return 0;long double s=0;
-#ifdef _OPENMP
-#pragma omp parallel for reduction(+:s) if(n>=4096)
-#endif
- for(size_t i=0;i<n;i++){long double v=(long double)a[i]/m;s+=v*v;}return (long double)m*sqrtl(s);}
+ if(m==0)return 0;
+ for(size_t i=0;i<n;i++){long double v=(long double)a[i]/m;s+=v*v;}
+ return (long double)m*sqrtl(s);
+}
 static void copy(double *a,const double *b,size_t n){memcpy(a,b,n*sizeof(double));}
-static void axpy(double *a,const double *b,long double k,size_t n){
+static void axpy(double *a,const double *b,long double k,size_t n)
+{
 #ifdef _OPENMP
-#pragma omp parallel for if(n>=4096)
+ if(n>=RCI_OMP_MIN){
+#pragma omp parallel for
+  for(size_t i=0;i<n;i++)a[i]=(double)((long double)a[i]+k*b[i]);
+  return;
+ }
 #endif
- for(size_t i=0;i<n;i++)a[i]=(double)((long double)a[i]+k*b[i]);}
+ for(size_t i=0;i<n;i++)a[i]=(double)((long double)a[i]+k*b[i]);
+}
 /* Request tokens are context-local and never reset on context reuse. */
 static int end(lis_rci_context *c,int status,lis_rci_request_ex *q)
 {
@@ -66,7 +99,7 @@ static int end(lis_rci_context *c,int status,lis_rci_request_ex *q)
 static int request(lis_rci_context *c,enum phase p,int status,
  const double *in,const double *in2,double *out,lis_rci_request_ex *q)
 {
- if(!finite_vec(in,c->o.n)||(in2&&!finite_vec(in2,c->o.n)))
+ if(!finite_vec(in,c->o.n)||(in2&&in2!=in&&!finite_vec(in2,c->o.n)))
   return end(c,LIS_RCI_NONFINITE,q);
  if(c->token==UINT64_MAX)return end(c,LIS_RCI_PROTOCOL,q);
  if(out)for(size_t i=0;i<c->o.n;i++)out[i]=NAN;

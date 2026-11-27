@@ -142,3 +142,13 @@ by preconditioner call count. This adds 24 cross-mode solves per test invocation
 The lifecycle test covers zero RHS, exact initial guess, iteration limit and
 breakdown for all method/mode combinations. Full-mode fault injection also
 cancels at every request position and verifies context reuse after cancellation.
+
+## Local execution overhead
+
+For small vectors (n < 4096) the built-in kernels in OpenMP builds use a direct
+serial loop instead of entering an inactive OpenMP region. Larger vectors
+retain the existing parallel reductions. A DOT request with identical operands
+validates the input once rather than twice. NaN output poisoning, input/output
+finite checks, token validation and public operation counters are preserved.
+These changes do not alter the request protocol or expose opaque/device
+vectors. Timing depends on machine, compiler, method and callback cost.
