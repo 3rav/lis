@@ -33,3 +33,12 @@ and two-RHS contour projection against independent complex Gaussian
 elimination. Input and output planes must be disjoint; the caller owns them.
 Callback failure preserves the current column's output; earlier columns
 may already have changed. No full complex LIS ABI support is claimed.
+
+A separate native real-double adapter borrows assembled A/B matrices and a
+prepared LIS_SOLVER/preconditioner. It uses lis_matvec and lis_psolve,
+checks both structure/value generations and invalidates on replacement of the
+prepared preconditioner. The adapter does not prepare arbitrary native
+preconditioners itself; the caller must meet their workspace and lifecycle
+requirements. Qualification tests use native Jacobi and SSOR, with all four
+linear methods in Serial/OpenMP and INT32/INT64. Native bridge integration
+does not imply a shared classic numerical recurrence or native FEAST.
