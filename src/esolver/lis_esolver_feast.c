@@ -3540,7 +3540,8 @@ LIS_INT lis_efeast_malloc_work(
 
 
 #if defined(USE_NATIVE_RCI)
-LIS_INT lis_efeast_native_reference(LIS_ESOLVER esolver)
+#include "../rci_native/lis_rci_native_visibility.h"
+LIS_RCI_PRIVATE LIS_INT lis_efeast_native_reference(LIS_ESOLVER esolver)
 
 #else
 LIS_INT lis_efeast(

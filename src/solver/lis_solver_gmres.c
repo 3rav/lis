@@ -147,7 +147,8 @@ LIS_INT lis_gmres_malloc_work(LIS_SOLVER solver)
 #define __FUNC__ "lis_gmres"
 
 #if defined(USE_NATIVE_RCI)
-LIS_INT lis_gmres_native_reference(LIS_SOLVER solver)
+#include "../rci_native/lis_rci_native_visibility.h"
+LIS_RCI_PRIVATE LIS_INT lis_gmres_native_reference(LIS_SOLVER solver)
 
 #else
 LIS_INT lis_gmres(LIS_SOLVER solver)
@@ -1511,7 +1512,8 @@ LIS_INT lis_fgmres_malloc_work(LIS_SOLVER solver)
 #define __FUNC__ "lis_fgmres"
 
 #if defined(USE_NATIVE_RCI)
-LIS_INT lis_fgmres_native_reference(LIS_SOLVER solver)
+#include "../rci_native/lis_rci_native_visibility.h"
+LIS_RCI_PRIVATE LIS_INT lis_fgmres_native_reference(LIS_SOLVER solver)
 
 #else
 LIS_INT lis_fgmres(LIS_SOLVER solver)

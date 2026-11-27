@@ -2,7 +2,7 @@
  * Sources: src/esolver/lis_esolver.c, src/esolver/lis_esolver_block.c, src/esolver/lis_esolver_feast.c, src/esolver/lis_krylov.c, src/solver/lis_solver.c, src/solver/lis_solver_bicgstab.c, src/solver/lis_solver_cg.c, src/solver/lis_solver_fgcrodr.c, src/solver/lis_solver_gcrodr.c, src/solver/lis_solver_gmres.c
  */
 /* Generated, qualification only. Native source copyrights retained. */
-extern LIS_INT lis_eigen_block_rank_transform(
+extern LIS_RCI_PRIVATE LIS_INT lis_eigen_block_rank_transform(
     LIS_INT n,
     LIS_REAL rank_tol,
     LIS_SCALAR *gram,
@@ -10,7 +10,7 @@ extern LIS_INT lis_eigen_block_rank_transform(
     LIS_SCALAR *evec,
     LIS_SCALAR *transform,
     LIS_INT *active_rank);
-extern LIS_INT lis_eigen_block_zero_outputs(
+extern LIS_RCI_PRIVATE LIS_INT lis_eigen_block_zero_outputs(
     LIS_INT capacity,
     LIS_INT start,
     LIS_VECTOR source,

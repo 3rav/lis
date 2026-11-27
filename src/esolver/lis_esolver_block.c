@@ -955,7 +955,8 @@ LIS_INT lis_eigen_block_linear_combination(
 
 
 #if defined(USE_NATIVE_RCI)
-LIS_INT lis_eigen_block_rank_transform(
+#include "../rci_native/lis_rci_native_visibility.h"
+LIS_RCI_PRIVATE LIS_INT lis_eigen_block_rank_transform(
 
 #else
 static LIS_INT
@@ -1196,7 +1197,8 @@ lis_eigen_block_rank_transform(
 
 
 #if defined(USE_NATIVE_RCI)
-LIS_INT lis_eigen_block_zero_outputs(
+#include "../rci_native/lis_rci_native_visibility.h"
+LIS_RCI_PRIVATE LIS_INT lis_eigen_block_zero_outputs(
 
 #else
 static LIS_INT

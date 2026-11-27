@@ -129,7 +129,8 @@ LIS_INT lis_cg_malloc_work(LIS_SOLVER solver)
 #define __FUNC__ "lis_cg"
 
 #if defined(USE_NATIVE_RCI)
-LIS_INT lis_cg_native_reference(LIS_SOLVER solver)
+#include "../rci_native/lis_rci_native_visibility.h"
+LIS_RCI_PRIVATE LIS_INT lis_cg_native_reference(LIS_SOLVER solver)
 
 #else
 LIS_INT lis_cg(LIS_SOLVER solver)

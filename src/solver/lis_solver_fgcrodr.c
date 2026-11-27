@@ -6923,7 +6923,8 @@ lis_fgcrodr_flexible_core(
 LIS_INT
 
 #if defined(USE_NATIVE_RCI)
-lis_fgcrodr_native_reference(
+#include "../rci_native/lis_rci_native_visibility.h"
+LIS_RCI_PRIVATE lis_fgcrodr_native_reference(
 
 #else
 lis_fgcrodr(

@@ -146,10 +146,10 @@ static _Thread_local int reference_mode;
 static _Thread_local lis_rci_native_linear_test_driver external_driver;
 void lis_rci_native_linear_test_select(int reference,lis_rci_native_linear_test_driver driver)
 {reference_mode=reference;external_driver=driver;}
-extern LIS_INT lis_cg_native_reference(LIS_SOLVER);
-extern LIS_INT lis_bicgstab_native_reference(LIS_SOLVER);
-extern LIS_INT lis_gmres_native_reference(LIS_SOLVER);
-extern LIS_INT lis_fgmres_native_reference(LIS_SOLVER);
+extern LIS_RCI_PRIVATE LIS_INT lis_cg_native_reference(LIS_SOLVER);
+extern LIS_RCI_PRIVATE LIS_INT lis_bicgstab_native_reference(LIS_SOLVER);
+extern LIS_RCI_PRIVATE LIS_INT lis_gmres_native_reference(LIS_SOLVER);
+extern LIS_RCI_PRIVATE LIS_INT lis_fgmres_native_reference(LIS_SOLVER);
 static LIS_INT dispatch_linear(LIS_SOLVER solver,LIS_INT method,LIS_INT (*reference)(LIS_SOLVER))
 {
  if(reference_mode)return reference(solver);

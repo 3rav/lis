@@ -137,7 +137,8 @@ LIS_INT lis_bicgstab_malloc_work(LIS_SOLVER solver)
 #define __FUNC__ "lis_bicgstab"
 
 #if defined(USE_NATIVE_RCI)
-LIS_INT lis_bicgstab_native_reference(LIS_SOLVER solver)
+#include "../rci_native/lis_rci_native_visibility.h"
+LIS_RCI_PRIVATE LIS_INT lis_bicgstab_native_reference(LIS_SOLVER solver)
 
 #else
 LIS_INT lis_bicgstab(LIS_SOLVER solver)
