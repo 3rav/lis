@@ -1,0 +1,74 @@
+name: Isolated RC32 GLI functional regression
+on:
+  push:
+    branches: [ci/buckle-gli-functional-rc32]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: serial
+            options: ''
+            cflags: '-O2 -g'
+            ldflags: ''
+          - mode: openmp
+            options: '--enable-omp'
+            cflags: '-O2 -g'
+            ldflags: ''
+          - mode: complex
+            options: '--enable-complex'
+            cflags: '-O2 -g'
+            ldflags: ''
+          - mode: sanitizer
+            options: ''
+            cflags: '-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
+            ldflags: '-fsanitize=address,undefined'
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build isolated functional fixes
+        env:
+          CONFIGURE_OPTIONS: ${{ matrix.options }}
+          CFLAGS: ${{ matrix.cflags }}
+          LDFLAGS: ${{ matrix.ldflags }}
+        run: |
+          ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-shared $CONFIGURE_OPTIONS
+          make -j2
+      - name: Exercise targeted behavior and full regression
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          set -euo pipefail
+          ./test/testeigenbreakdown | tee gli.log
+          ./test/test_krylov_lis | tee krylov.log
+          if [[ "$MODE" == complex ]]; then
+            grep -q '^PASS LIS API: native Krylov rejects complex arithmetic' krylov.log
+          else
+            grep -q '^PASS: transformed Block GLI requested NEV and inner options' gli.log
+          fi
+          make -j2 check
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: gli-${{ matrix.mode }}-logs
+          path: |
+            config.log
+            gli.log
+            krylov.log
+            test/test-suite.log
+            test/*.log
+          if-no-files-found: ignore
