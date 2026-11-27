@@ -6206,6 +6206,7 @@ lis_egli_block_transformed_project_results(
     LIS_INT projected_niter;
     LIS_INT allocated_vectors;
     LIS_INT final_status;
+    LIS_INT required_count;
     LIS_REAL projected_error;
     LIS_REAL cert_resid;
     LIS_REAL cert_tol;
@@ -6258,6 +6259,14 @@ lis_egli_block_transformed_project_results(
     projected_error = 0.0;
     allocated_vectors = 0;
     final_status = LIS_SUCCESS;
+
+    /* Keep all active results, but use the explicit request for
+     * convergence. No positive request preserves legacy behavior. */
+    required_count = projected_dim;
+    if( esolver->requested_nev_active && esolver->requested_nev>0 )
+        required_count = esolver->requested_nev;
+    if( required_count>projected_dim )
+        final_status = LIS_MAXITER;
 
     cert_tol =
         esolver->params[
@@ -6666,7 +6675,9 @@ lis_egli_block_transformed_project_results(
         esolver->resid[i] =
             cert_resid;
 
-        if( cert_resid>cert_tol &&
+        /* All results are certified; only the requested prefix
+         * controls convergence in transformed magnitude order. */
+        if( i<required_count && cert_resid>cert_tol &&
             final_status==LIS_SUCCESS )
         {
             final_status =
@@ -7057,9 +7068,20 @@ lis_egli_block_transformed(
     if( err )
         goto cleanup;
 
-    lis_solver_set_option(
+    err = lis_solver_set_option(
         "-i bicg -p none",
         solver);
+
+    if( err )
+        goto cleanup;
+
+    /* Match scalar transformed GLI's option precedence. */
+    if( esolver->linear_options && esolver->linear_options[0] )
+    {
+        err = lis_solver_set_option(esolver->linear_options,solver);
+        if( err )
+            goto cleanup;
+    }
 
     err = lis_solver_set_optionC(
         solver);
@@ -7067,9 +7089,9 @@ lis_egli_block_transformed(
     if( err )
         goto cleanup;
 
-    solver->A = S;
-
-    err = lis_precon_create(
+    /* Match scalar GLI and shift-recovery setup. */
+    err = lis_esolver_rebuild_precon(
+        S,
         solver,
         &precon);
 
