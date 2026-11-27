@@ -1,0 +1,138 @@
+name: RCI upstream regression and ABI qualification
+on:
+  push:
+    branches: ['qualification/rci-upstream-regression-20261127']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [serial, openmp]
+        variant: [upstream, disabled, enabled]
+    env:
+      OMP_NUM_THREADS: '2'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Configure and build entire LIS test suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.variant }}" = upstream ]; then git checkout --detach 6a4ae9c11bb03b028a6477455cb4f9f0a790132d; fi
+          autoreconf -fiv
+          opts=(--enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-quad)
+          if [ "${{ matrix.mode }}" = openmp ]; then opts+=(--enable-omp); else opts+=(--disable-omp); fi
+          if [ "${{ matrix.variant }}" = enabled ]; then opts+=(--enable-rci); fi
+          ./configure "${opts[@]}"
+          make -j2
+      - name: Run full native make check and report every result
+        shell: bash
+        run: |
+          set -uo pipefail
+          make -j2 check 2>&1 | tee "$RUNNER_TEMP/make-check.log"
+          status=${PIPESTATUS[0]}
+          python3 - <<'PY'
+          import collections, pathlib
+          rows={}
+          for f in sorted(pathlib.Path("test").rglob("*.trs")):
+              for line in f.read_text().splitlines():
+                  if line.startswith(":test-result: "):
+                      rows.setdefault(str(f),[]).append(line.split()[-1])
+          assert rows, "no Automake test records"
+          counts=collections.Counter(x for v in rows.values() for x in v)
+          for f,v in rows.items(): print("SUITE", f, ",".join(v))
+          print("SUITE COUNTS",dict(counts))
+          expected={"testrci","testrcibridge","testrcilarge","testrciext","testrcifull","testrcistate"}
+          found={pathlib.Path(f).stem for f in rows}
+          if "${{ matrix.variant }}"=="enabled":
+              assert expected <= found, expected-found
+              assert all(rows["test/"+t+".trs"]==["PASS"] for t in expected)
+          else: assert not expected & found
+          PY
+          py=$?
+          if [ "$status" -ne 0 ] || [ "$py" -ne 0 ]; then
+            cat test/test-suite.log || true
+            exit 1
+          fi
+  old-client:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        index: [int32,int64]
+    env:
+      OMP_NUM_THREADS: '2'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Build first proposed RCI and current PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/first" 5055c85afd779d2f67b1c002fee95aafe9856e7d
+          opts=(--enable-rci --enable-shared --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg --disable-quad)
+          if [ "${{ matrix.index }}" = int64 ]; then opts+=(--enable-longlong); fi
+          build(){
+            (cd "$1"; autoreconf -fiv; ./configure "${opts[@]}" --prefix="$2"; make -C src -j2; make -C include install; make -C src install)
+          }
+          build "$RUNNER_TEMP/first" "$RUNNER_TEMP/old"
+          build "$PWD" "$RUNNER_TEMP/new"
+      - name: Run unmodified initial RCI clients against both libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          old="$RUNNER_TEMP/old"; new="$RUNNER_TEMP/new"; first="$RUNNER_TEMP/first"
+          flags=(-DHAVE_CONFIG_H -fopenmp)
+          if [ "${{ matrix.index }}" = int64 ]; then flags+=(-D_LONG__LONG); fi
+          for name in testrci testrcibridge testrcilarge testrciabi; do
+            cc -std=gnu11 "${flags[@]}" -I"$old/include" "$first/test/$name.c" -L"$old/lib" -llis -lm -o "$RUNNER_TEMP/$name"
+          done
+          g++ -std=c++11 -I"$old/include" "$first/test/testrcicxx.cpp" -L"$old/lib" -llis -lm -o "$RUNNER_TEMP/testrcicxx"
+          for name in testrci testrcibridge testrcilarge testrciabi testrcicxx; do
+            for version in old new; do
+              lib="$RUNNER_TEMP/$version/lib"
+              LD_LIBRARY_PATH="$lib" ldd "$RUNNER_TEMP/$name" | grep -F "$lib/liblis.so"
+              LD_LIBRARY_PATH="$lib" timeout 120 "$RUNNER_TEMP/$name"
+              echo "ORIGINAL RCI CLIENT $name $version PASS"
+            done
+          done
+          for version in old new; do
+            nm -D --defined-only "$RUNNER_TEMP/$version/lib/liblis.so" | awk '$3 ~ /^lis_rci_/ {print $3}' | LC_ALL=C sort -u > "$RUNNER_TEMP/$version.rci"
+          done
+          LC_ALL=C comm -23 "$RUNNER_TEMP/old.rci" "$RUNNER_TEMP/new.rci" > "$RUNNER_TEMP/removed"
+          test ! -s "$RUNNER_TEMP/removed"
+          echo "ORIGINAL RCI SYMBOLS PRESERVED $(wc -l < "$RUNNER_TEMP/old.rci") -> $(wc -l < "$RUNNER_TEMP/new.rci")"
+          diff <(readelf -d "$old/lib/liblis.so" | grep SONAME) <(readelf -d "$new/lib/liblis.so" | grep SONAME)
+  distribution:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Inspect tracked configure then regenerate release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ./configure --help | grep -F -- '--enable-rci'; then echo 'TRACKED CONFIGURE: RCI option available'; else echo 'TRACKED CONFIGURE: RCI option missing (regeneration needed)'; fi
+          autoreconf -fiv
+          ./configure --enable-test --enable-rci --disable-mpi --disable-fortran --disable-f90 --disable-saamg --disable-quad
+          make distdir
+          root=$(find . -maxdepth 1 -type d -name 'lis-*' | head -n1)
+          test -n "$root"
+          for path in include/lis_rci.h include/lis_rci_bridge.h src/lis_rci.c src/lis_rci_bridge.c test/testrci.c test/testrcilarge.c test/testrciext.c test/testrcifull.c test/testrcistate.c doc/generic-rci.md; do test -f "$root/$path"; done
+          cd "$root"
+          ./configure --enable-rci --enable-test --disable-mpi --disable-fortran --disable-f90 --disable-saamg --disable-quad
+          make -C src -j2
+          make -C test -j2 testrci testrcistate
+          ./test/testrci
+          ./test/testrcistate
+          echo 'RCI DISTRIBUTION BUILD AND TEST PASS (without autoreconf in distdir)'
