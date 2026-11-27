@@ -46,13 +46,15 @@ jobs:
           make -C src -j2
           make -C include install
           make -C src install
-          make -C test -j2 testrci testrcibridge testrcilarge
+          make -C test -j2 testrci testrcibridge testrcilarge testrciext
           lib="$RUNNER_TEMP/install/lib"; inc="$RUNNER_TEMP/install/include"
           export LD_LIBRARY_PATH="$lib"
-          for t in testrci testrcibridge testrcilarge; do
-            ldd "test/$t" | grep -F "$lib/liblis.so"
-            OMP_NUM_THREADS=1 timeout 120 "test/$t"
-            if [ "${{ matrix.mode }}" = openmp ]; then OMP_NUM_THREADS=4 timeout 120 "test/$t"; fi
+          for t in testrci testrcibridge testrcilarge testrciext; do
+            # Libtool's test/$t may be a shell wrapper; compile an installed-library consumer.
+            cc "${flags[@]}" -I"$inc" "test/$t.c" -L"$lib" -Wl,-rpath,"$lib" -llis -lm -o "$RUNNER_TEMP/$t"
+            ldd "$RUNNER_TEMP/$t" | grep -F "$lib/liblis.so"
+            OMP_NUM_THREADS=1 timeout 120 "$RUNNER_TEMP/$t"
+            if [ "${{ matrix.mode }}" = openmp ]; then OMP_NUM_THREADS=4 timeout 120 "$RUNNER_TEMP/$t"; fi
           done
           cc "${flags[@]}" -I"$inc" test/testrciabi.c -L"$lib" -Wl,-rpath,"$lib" -llis -lm -o "$RUNNER_TEMP/abi"
           "$RUNNER_TEMP/abi"

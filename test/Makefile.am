@@ -533,13 +533,15 @@ TESTS += testbicgstablinit$(EXEEXT)
 
 
 if ENABLE_RCI
-test_PROGRAMS += testrci testrcibridge testrcilarge
+test_PROGRAMS += testrci testrcibridge testrcilarge testrciext
 testrci_SOURCES = testrci.c
 testrcibridge_SOURCES = testrcibridge.c
 testrcilarge_SOURCES = testrcilarge.c
+testrciext_SOURCES = testrciext.c
 testrci_LDADD = $(LDADD) -lm
 testrcibridge_LDADD = $(LDADD) -lm
 testrcilarge_LDADD = $(LDADD) -lm
-TESTS += testrci$(EXEEXT) testrcibridge$(EXEEXT) testrcilarge$(EXEEXT)
+testrciext_LDADD = $(LDADD) -lm
+TESTS += testrci$(EXEEXT) testrcibridge$(EXEEXT) testrcilarge$(EXEEXT) testrciext$(EXEEXT)
 endif
 EXTRA_DIST += testrciabi.c testrcicxx.cpp
