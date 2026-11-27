@@ -591,8 +591,8 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-am
 
-clean-am: clean-generic clean-libtool clean-noinstLTLIBRARIES \ clean-local
-	mostlyclean-am
+clean-am: clean-generic clean-libtool clean-noinstLTLIBRARIES \
+	mostlyclean-am clean-local
 
 distclean: distclean-am
 	-rm -f ./$(DEPDIR)/lis_esolver.Plo
@@ -790,3 +790,6 @@ RCI_NATIVE_INPUTS = $(top_srcdir)/src/solver/lis_solver.c \
 
 clean-local:
 	rm -rf rci-generated rci-native.stamp
+
+# Recompile after changing configure options, including disabling RCI.
+lis_esolver.lo lis_esolver_block.lo lis_esolver_feast.lo lis_krylov.lo: Makefile $(top_builddir)/include/lis_config.h

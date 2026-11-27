@@ -100,3 +100,6 @@ endif
 
 clean-local:
 	rm -rf rci-generated rci-native.stamp
+
+# Recompile after changing configure options, including disabling RCI.
+lis_esolver.lo lis_esolver_block.lo lis_esolver_feast.lo lis_krylov.lo: Makefile $(top_builddir)/include/lis_config.h
