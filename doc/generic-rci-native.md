@@ -32,3 +32,10 @@ RC3 code. This is a candidate, not a stable ABI. Extended scalar kernels are
 separately qualified; this facade does not yet enable them. MPI and double-double
 solver mode are excluded. Maintainer review and contributor licensing
 confirmation remain necessary.
+
+A nonzero external completion code is a callback failure even when its
+numeric value overlaps a native MAXITER or BREAKDOWN result. No additional
+certification callback is launched after that failure. The public driver
+rejects unwritten/nonfinite raw Krylov outputs. Forced linear termination
+invalidates recycling state. Installed-client tests cover these distinctions,
+wrong tokens, stale generations and recovery after interruption.

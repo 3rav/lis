@@ -69,6 +69,11 @@ int lis_rci_native_advance(lis_rci_native_context *s,uint64_t token,LIS_INT code
  case LIS_NR_FEAST:st=lis_rci_native_feast_lifecycle_advance(s->core.feast,token,code,&s->pending);break;
  case LIS_NR_KRYLOV:
   if(code<INT_MIN||code>INT_MAX)return LIS_RCI_BADARG;
+  if(code){lis_rci_native_session_cancel(s->core.krylov,token);st=LIS_RCI_CALLBACK;break;}
+  for(int64_t i=0;i<s->pending.n64;i++)if(!isfinite(s->pending.raw_out[i])){
+   lis_rci_native_session_cancel(s->core.krylov,token);
+   return public_publish(s,LIS_RCI_NONFINITE,q);
+  }
   st=lis_rci_native_session_advance(s->core.krylov,token,code,&s->pending);break;
  default:return LIS_RCI_BADARG;
  }

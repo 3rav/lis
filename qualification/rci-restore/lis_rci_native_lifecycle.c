@@ -51,7 +51,11 @@ static int life_finish(lis_rci_native_lifecycle *K,LIS_INT rc)
  LIS_SOLVER s=K->f.solver;
  if(rc!=LIS_SUCCESS){s->retcode=rc;lis_solver_work_destroy(s);}
  K->native=s->retcode;
- if(K->forced){s->retcode=K->native=K->completion?K->completion:LIS_BREAKDOWN;s->resid=NAN;}
+ if(K->forced){
+  s->retcode=K->native=K->completion?K->completion:LIS_BREAKDOWN;s->resid=NAN;
+  if(K->f.nsolver==LIS_SOLVER_GCRODR)lis_gcrodr_clear_recycle(s);
+  if(K->f.nsolver==LIS_SOLVER_FGCRODR)lis_fgcrodr_clear_recycle(s);
+ }
  K->status=K->forced?K->forced:life_map(K->native);
  if(K->status==LIS_RCI_DONE)lis_vector_copy(K->stage,K->output);
  if(s->precon==K->owned_precon)s->precon=NULL;
@@ -106,19 +110,20 @@ int lis_rci_native_lifecycle_start(lis_rci_native_lifecycle *K,LIS_MATRIX A,LIS_
  K->ag=A->structure_generation;K->vg=A->value_generation;K->active=1;
  return life_drive(K,life_step(K),q);
 }
-static int life_interrupt(lis_rci_native_lifecycle *K,int reason,lis_rci_native_session_request *q)
+static int life_interrupt(lis_rci_native_lifecycle *K,int reason,LIS_INT code,lis_rci_native_session_request *q)
 {
- K->forced=reason;K->completion=LIS_BREAKDOWN;
+ K->forced=reason;K->completion=code;
  if(K->phase==1)lis_rci_native_session_cancel(K->child,K->inner.token);
  return life_drive(K,life_step(K),q);
 }
 int lis_rci_native_lifecycle_advance(lis_rci_native_lifecycle *K,uint64_t token,LIS_INT code,lis_rci_native_session_request *q)
 {
  if(!K||!q)return LIS_RCI_BADARG;if(!K->active)return LIS_RCI_STATE;if(token!=K->token)return LIS_RCI_PROTOCOL;
- if(K->f.A->structure_generation!=K->ag||K->f.A->value_generation!=K->vg)return life_interrupt(K,LIS_NR_STALE,q);
+ if(K->f.A->structure_generation!=K->ag||K->f.A->value_generation!=K->vg)return life_interrupt(K,LIS_NR_STALE,LIS_BREAKDOWN,q);
 #ifdef _OPENMP
- if(omp_get_max_threads()!=K->threads)return life_interrupt(K,LIS_RCI_STATE,q);
+ if(omp_get_max_threads()!=K->threads)return life_interrupt(K,LIS_RCI_STATE,LIS_BREAKDOWN,q);
 #endif
+ if(code)return life_interrupt(K,LIS_RCI_CALLBACK,code,q);
  if(K->phase==1){
   int st=lis_rci_native_session_advance(K->child,K->inner.token,code,&K->inner);
   return life_drive(K,life_core_result(K,st),q);
@@ -131,6 +136,6 @@ int lis_rci_native_lifecycle_advance(lis_rci_native_lifecycle *K,uint64_t token,
  return life_drive(K,life_step(K),q);
 }
 int lis_rci_native_lifecycle_cancel(lis_rci_native_lifecycle *K,uint64_t token)
-{if(!K)return LIS_RCI_BADARG;if(!K->active)return LIS_RCI_STATE;if(token!=K->token)return LIS_RCI_PROTOCOL;return life_interrupt(K,LIS_RCI_CANCELLED,NULL);}
+{if(!K)return LIS_RCI_BADARG;if(!K->active)return LIS_RCI_STATE;if(token!=K->token)return LIS_RCI_PROTOCOL;return life_interrupt(K,LIS_RCI_CANCELLED,LIS_BREAKDOWN,NULL);}
 int lis_rci_native_lifecycle_status(const lis_rci_native_lifecycle *K,LIS_INT *native)
 {if(!K||!native)return LIS_RCI_BADARG;*native=K->native;return K->status;}

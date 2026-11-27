@@ -81,6 +81,11 @@ int lis_rci_native_feast_lifecycle_start(lis_rci_native_feast_lifecycle *K,LIS_M
 int lis_rci_native_feast_lifecycle_advance(lis_rci_native_feast_lifecycle *K,uint64_t token,LIS_INT code,lis_rci_native_session_request *q)
 {
  if(!K||!q)return LIS_RCI_BADARG;if(!K->active)return LIS_RCI_STATE;if(token!=K->token)return LIS_RCI_PROTOCOL;
+ if(code){
+  lis_rci_native_session_cancel(K->child,K->inner.token);
+  K->forced=LIS_RCI_CALLBACK;K->completion=code;
+  return ef_drive(K,ef_step(K),q);
+ }
  return ef_drive(K,ef_core_result(K,lis_rci_native_session_advance(K->child,K->inner.token,code,&K->inner)),q);
 }
 int lis_rci_native_feast_lifecycle_cancel(lis_rci_native_feast_lifecycle *K,uint64_t token)

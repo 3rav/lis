@@ -21,6 +21,33 @@ static int drive(lis_rci_native_context *s,int st,lis_rci_native_session_request
  LIS_INT native;C(lis_rci_native_status(s,&native)==LIS_RCI_DONE&&st==LIS_RCI_DONE&&native==LIS_SUCCESS);
  return 0;
 }
+static int linear_faults(lis_rci_native_context *s,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR x,LIS_SOLVER solver)
+{
+ uint64_t last=0;
+ for(int fault=0;fault<4;fault++){
+  C(!lis_vector_set_all(.125,x));lis_rci_native_session_request q,p;
+  int st=lis_rci_native_start_linear(s,A,b,x,solver,&q);
+  C(st>0&&q.token>last);last=q.token;
+  C(lis_rci_native_start_linear(s,A,b,x,solver,&q)==LIS_RCI_STATE);
+  C(lis_rci_native_pending(s,&p)==st&&p.token==last);
+  C(lis_rci_native_cancel(s,last-1)==LIS_RCI_PROTOCOL);
+  C(lis_rci_native_pending(s,&p)==st&&p.token==last);
+  LIS_INT native;
+  if(fault==0){
+   C(lis_rci_native_advance(s,last,LIS_MAXITER,&q)==LIS_RCI_CALLBACK);
+   C(lis_rci_native_status(s,&native)==LIS_RCI_CALLBACK&&native==LIS_MAXITER);
+  }else if(fault==1){
+   C(lis_rci_native_advance(s,last,0,&q)==LIS_RCI_NONFINITE);
+  }else if(fault==2){
+   /* Simulate a generation change without modifying the numerical matrix. */
+   ++A->value_generation;
+   C(lis_rci_native_advance(s,last,0,&q)==LIS_NR_STALE);
+  }else C(lis_rci_native_cancel(s,last)==LIS_RCI_CANCELLED);
+  C(lis_rci_native_pending(s,&p)==LIS_RCI_STATE&&p.token==0);
+  LIS_SCALAR v[12];C(!lis_vector_get_values(x,0,12,v));for(int j=0;j<12;j++)C(v[j]==.125);
+ }
+ return 0;
+}
 static int diag(void *u,int64_t n,const double *x,double *y){(void)u;for(int64_t i=0;i<n;i++)y[i]=(i+1)*x[i];return 0;}
 static int ident(void *u,int64_t n,const double *x,double *y){(void)u;for(int64_t i=0;i<n;i++)y[i]=x[i];return 0;}
 static int inverse(void *u,int64_t n,const double *x,double *y){(void)u;for(int64_t i=0;i<n;i++)y[i]=x[i]/(i+.5);return 0;}
@@ -39,17 +66,25 @@ int main(int argc,char **argv)
   snprintf(opts,sizeof opts,"-i %s -p none -restart 8 -gcrodr_keep 2 -fgcrodr_k 2 -tol 1e-10 -maxiter 300",m[i]);
   C(!lis_solver_set_option(opts,solver));C(!lis_vector_set_all(0,x));
   lis_rci_native_context *s=create(LIS_NR_LINEAR);C(s);
+  C(!linear_faults(s,A,b,x,solver));C(!lis_vector_set_all(0,x));
   lis_rci_native_session_request q;int st=lis_rci_native_start_linear(s,A,b,x,solver,&q);C(st>0);C(!drive(s,st,q));
   LIS_SCALAR v[12];C(!lis_vector_get_values(x,0,12,v));for(int j=0;j<12;j++)C(fabs(v[j]-1.0/(j+1))<1e-8);
   lis_rci_native_destroy(s);lis_solver_destroy(solver);printf("INSTALLED PASS %s\n",m[i]);
  }
  LIS_ESOLVER e;C(!lis_esolver_create(&e));C(!lis_esolver_set_option("-e feast -ss 6 -emaxiter 20 -etol 1e-7 -feast_emin 1.5 -feast_emax 3.5 -feast_points 16",e));C(!lis_vector_set_all(1,x));
  lis_rci_native_context *s=create(LIS_NR_FEAST);C(s);LIS_SCALAR ev;lis_rci_native_session_request q;
- int st=lis_rci_native_start_feast(s,A,NULL,x,&ev,e,&q);C(st>0);C(!drive(s,st,q));C(fabs(ev-2)<1e-6||fabs(ev-3)<1e-6);
+ ev=-123;int st=lis_rci_native_start_feast(s,A,NULL,x,&ev,e,&q);C(st>0);
+ C(lis_rci_native_advance(s,q.token,LIS_MAXITER,&q)==LIS_RCI_CALLBACK);
+ LIS_INT native;C(lis_rci_native_status(s,&native)==LIS_RCI_CALLBACK&&native==LIS_MAXITER&&ev==-123);
+ C(e->nev==0);st=lis_rci_native_start_feast(s,A,NULL,x,&ev,e,&q);C(st>0);C(!drive(s,st,q));C(fabs(ev-2)<1e-6||fabs(ev-3)<1e-6);
  lis_rci_native_destroy(s);lis_esolver_destroy(e);puts("INSTALLED PASS FEAST");
  s=create(LIS_NR_KRYLOV);C(s);lis_krylov_problem64 p={12,LIS_KRYLOV_SHIFT_INVERT_B,.5,NULL,diag,ident,inverse};
  lis_krylov_options o;lis_krylov_options_default(&o);o.nev=2;o.ncv=6;o.inner_tol=1e-12;o.maxiter=100;
  double v[2],vec[24],res[2];lis_krylov_stats stats;
+ st=lis_rci_native_start_krylov(s,&p,&o,NULL,NULL,NULL,v,vec,res,&stats,NULL,&q);C(st>0);
+ C(lis_rci_native_advance(s,q.token,0,&q)==LIS_RCI_NONFINITE&&stats.nreturned==0);
+ st=lis_rci_native_start_krylov(s,&p,&o,NULL,NULL,NULL,v,vec,res,&stats,NULL,&q);C(st>0);
+ C(lis_rci_native_advance(s,q.token,1,&q)==LIS_RCI_CALLBACK&&stats.nreturned==0);
  st=lis_rci_native_start_krylov(s,&p,&o,NULL,NULL,NULL,v,vec,res,&stats,NULL,&q);C(st>0);
  while(st>0){C(q.representation==LIS_NR_RAW64);int rc=q.operation==LIS_NR_OP_A?diag(NULL,q.n64,q.raw_in,q.raw_out):q.operation==LIS_NR_OP_B?ident(NULL,q.n64,q.raw_in,q.raw_out):inverse(NULL,q.n64,q.raw_in,q.raw_out);st=lis_rci_native_advance(s,q.token,rc,&q);}
  C(st==LIS_RCI_DONE&&stats.nreturned==2);lis_rci_native_destroy(s);puts("INSTALLED PASS KRYLOV");
