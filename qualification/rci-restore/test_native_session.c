@@ -51,17 +51,20 @@ static LIS_INT feast(LIS_ESOLVER e)
 }
 static int diag(void *ctx,int64_t n,const double *x,double *y)
 {(void)ctx;for(int64_t i=0;i<n;i++)y[i]=(i+1)*x[i];return 0;}
+static int identity(void *ctx,int64_t n,const double *x,double *y)
+{(void)ctx;for(int64_t i=0;i<n;i++)y[i]=x[i];return 0;}
 static int inverse(void *ctx,int64_t n,const double *x,double *y)
 {(void)ctx;for(int64_t i=0;i<n;i++)y[i]=x[i]/(i+1-.5);return 0;}
 static int krylov(void)
 {
- lis_krylov_problem64 p={12,1,.5,NULL,diag,NULL,inverse};
+ lis_krylov_problem64 p={12,LIS_KRYLOV_SHIFT_INVERT_B,.5,NULL,diag,identity,inverse};
  lis_krylov_options o;lis_krylov_options_default(&o);o.nev=2;o.ncv=6;o.inner_tol=1e-12;o.maxiter=100;
  double v[2],x[24],r[2];lis_krylov_stats stats;
  lis_rci_native_session *s=lis_rci_native_session_create(LIS_NR_KRYLOV);C(s);
  lis_rci_native_session_request q;uint64_t last=0;
  for(int rep=0;rep<2;rep++){
   int st=lis_rci_native_session_start_krylov(s,&p,&o,NULL,NULL,NULL,v,x,r,&stats,NULL,&q);
+  if(st<=0){LIS_INT native;uint64_t a,p;lis_rci_native_session_status(s,&native,&a,&p,NULL);fprintf(stderr,"KRYLOV START rep=%d status=%d native=%lld\n",rep,st,(long long)native);}
   C(st>0&&q.token>last);
   if(!rep){last=q.token;C(lis_rci_native_session_cancel(s,last-1)==LIS_RCI_PROTOCOL);C(lis_rci_native_session_cancel(s,last)==LIS_RCI_CANCELLED);C(stats.nreturned==0);continue;}
   int shifted=0;
@@ -70,6 +73,7 @@ static int krylov(void)
    last=q.token;C(lis_rci_native_session_advance(s,last-1,0,&q)==LIS_RCI_PROTOCOL);
    int rc;
    if(q.operation==LIS_RCI_OP_SHIFTED_SOLVE){C(q.shift_sign==-1&&q.sigma==.5);shifted++;rc=inverse(NULL,q.n64,q.raw_in,q.raw_out);}
+   else if(q.operation==LIS_RCI_OP_B)rc=identity(NULL,q.n64,q.raw_in,q.raw_out);
    else{C(q.operation==LIS_RCI_OP_A);rc=diag(NULL,q.n64,q.raw_in,q.raw_out);}
    st=lis_rci_native_session_advance(s,last,rc,&q);
   }
