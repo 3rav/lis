@@ -9,11 +9,12 @@
 #include <stdio.h>
 #include <string.h>
 #define N 48
+extern LIS_INT lis_fgcrodr_validate_recycle(LIS_SOLVER,LIS_REAL *,LIS_REAL *);
 #define C(e) do { if (!(e)) { fprintf(stderr,"FGCRO FAIL %d: %s\n",__LINE__,#e); rc=1; goto cleanup; } } while(0)
 typedef struct {
  LIS_INT native,iter,dim,action;
  LIS_REAL residual,quality,minquality,orth,relation;
- LIS_SCALAR x[N];
+ LIS_SCALAR x[N],basis[3*3*N];
 } answer;
 static uint64_t stop, observed;
 static int fault, terminal, stale;
@@ -81,6 +82,7 @@ static int sequence(int mode,answer out[3],int fail_rep,uint64_t fail_at,int kin
   C(a->dim>0&&a->dim<=3);
   C(!lis_fgcrodr_validate_recycle(s,&a->orth,&a->relation));
   C(a->orth<1e-8&&a->relation<1e-8);
+  C(!lis_rci_native_fgcro_test_basis(s,a->basis,3*3*N));
   C(!lis_vector_get_values(x,0,N,a->x));
   for(int i=0;i<N;i++)C(fabs(a->x[i]-exact[i])<1e-8);
   if(counts)counts[rep]=observed;
