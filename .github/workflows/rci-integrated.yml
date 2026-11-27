@@ -1,0 +1,100 @@
+name: Integrated experimental RCI qualification
+on:
+  push:
+    branches: ['qualification/rci-reconstructed-native-20261127']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integrated:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {index: int32, mode: serial, sanitizer: 'no'}
+          - {index: int64, mode: serial, sanitizer: 'no'}
+          - {index: int32, mode: openmp, sanitizer: 'no'}
+          - {index: int64, mode: openmp, sanitizer: 'no'}
+          - {index: int32, mode: openmp, sanitizer: 'yes'}
+          - {index: int64, mode: serial, sanitizer: 'yes'}
+    env:
+      OMP_DYNAMIC: 'FALSE'
+      ASAN_OPTIONS: 'detect_leaks=1:halt_on_error=1'
+      UBSAN_OPTIONS: 'halt_on_error=1:print_stacktrace=1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential autoconf automake libtool libtool-bin
+      - name: Build and install integrated liblis
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          opts=(--enable-rci --enable-shared --disable-mpi --disable-fortran --disable-f90 --disable-saamg --disable-quad --prefix="$RUNNER_TEMP/install")
+          if [ "${{ matrix.index }}" = int64 ]; then opts+=(--enable-longlong); fi
+          if [ "${{ matrix.mode }}" = openmp ]; then opts+=(--enable-omp); else opts+=(--disable-omp); fi
+          if [ "${{ matrix.sanitizer }}" = yes ]; then
+            export CFLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined"
+            export LDFLAGS="-fsanitize=address,undefined"
+          else export CFLAGS="-O2 -g"; fi
+          ./configure "${opts[@]}"
+          make -C src -j2
+          make -C include install
+          make -C src install
+          test -f "$RUNNER_TEMP/install/include/lis_rci.h"
+          test -f "$RUNNER_TEMP/install/include/lis_rci_bridge.h"
+          test -e "$RUNNER_TEMP/install/lib/liblis.so"
+          nm -D --defined-only "$RUNNER_TEMP/install/lib/liblis.so" | grep ' lis_rci_' > "$RUNNER_TEMP/symbols"
+          cat "$RUNNER_TEMP/symbols"
+          test "$(wc -l < "$RUNNER_TEMP/symbols")" = 10
+          if [ "${{ matrix.sanitizer }}" = yes ]; then
+            nm -D "$RUNNER_TEMP/install/lib/liblis.so" > "$RUNNER_TEMP/all-symbols"
+            grep -q '__asan_' "$RUNNER_TEMP/all-symbols"
+            grep -q '__ubsan_' "$RUNNER_TEMP/all-symbols"
+          fi
+      - name: Installed-library consumer and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags=(-DHAVE_CONFIG_H -std=gnu11 -O2 -g)
+          if [ "${{ matrix.index }}" = int64 ]; then flags+=(-D_LONG__LONG); fi
+          if [ "${{ matrix.mode }}" = openmp ]; then flags+=(-fopenmp); fi
+          if [ "${{ matrix.sanitizer }}" = yes ]; then flags+=(-O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -no-pie); fi
+          inc="$RUNNER_TEMP/install/include"
+          lib="$RUNNER_TEMP/install/lib"
+          q=qualification/rci-reconstructed
+          for d in abi_probe integrated_abi integrated_smoke integrated_bcsstk01 integrated_large; do
+            cc "${flags[@]}" -I"$inc" "$q/$d.c" -L"$lib" -Wl,-rpath,"$lib" -llis -lm -o "$RUNNER_TEMP/$d"
+          done
+          ldd "$RUNNER_TEMP/integrated_smoke" | tee "$RUNNER_TEMP/ldd"
+          grep -F "$lib/liblis.so" "$RUNNER_TEMP/ldd"
+          "$RUNNER_TEMP/abi_probe" "${{ matrix.index }}" "${{ matrix.mode }}"
+          "$RUNNER_TEMP/integrated_abi"
+          threads=(1)
+          if [ "${{ matrix.mode }}" = openmp ]; then threads+=(4); fi
+          for t in "${threads[@]}"; do
+            export OMP_NUM_THREADS="$t"
+            timeout 120 "$RUNNER_TEMP/integrated_smoke"
+            timeout 120 "$RUNNER_TEMP/integrated_bcsstk01" "$q/bcsstk01.mtx"
+            timeout 120 "$RUNNER_TEMP/integrated_large"
+          done
+  disabled:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential autoconf automake libtool libtool-bin
+      - name: Default build remains free of RCI
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          ./configure --enable-shared --disable-mpi --disable-fortran --disable-f90 --disable-saamg --prefix="$RUNNER_TEMP/install"
+          make -C src -j2
+          make -C include install
+          make -C src install
+          test ! -e "$RUNNER_TEMP/install/include/lis_rci.h"
+          nm -D --defined-only "$RUNNER_TEMP/install/lib/liblis.so" > "$RUNNER_TEMP/symbols"
+          if grep -q ' lis_rci_' "$RUNNER_TEMP/symbols"; then exit 1; fi
+          echo "DEFAULT_RCI_DISABLED PASS"

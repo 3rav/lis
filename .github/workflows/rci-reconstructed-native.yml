@@ -1,7 +1,5 @@
 name: Reconstructed RCI native LIS qualification
 on:
-  push:
-    branches: ['qualification/rci-reconstructed-native-20261127']
   workflow_dispatch:
 permissions:
   contents: read

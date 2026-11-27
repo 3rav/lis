@@ -29,6 +29,8 @@ AC_ARG_ENABLE(fortran, AS_HELP_STRING([--enable-fortran],[enable FORTRAN 77 comp
 AC_ARG_ENABLE(f90, AS_HELP_STRING([--enable-f90],[enable Fortran 90 compatible interface [[default=no]]]))
 AC_ARG_ENABLE(saamg, AS_HELP_STRING([--enable-saamg],[enable SA-AMG preconditioner [[default=no]]]))
 AC_ARG_ENABLE(mpi, AS_HELP_STRING([--enable-mpi],[build with MPI library [[default=no]]]))
+AC_ARG_ENABLE([rci], AS_HELP_STRING([--enable-rci],[enable experimental real-double serial/OpenMP RCI API [[default=no]]]), [], [enable_rci=no])
+AS_CASE([$enable_rci], [yes|no], [], [AC_MSG_ERROR([--enable-rci accepts yes or no])])
 AC_ARG_ENABLE(omp, AS_HELP_STRING([--enable-omp],[build with OpenMP library [[default=no]]]))
 AC_ARG_ENABLE(quad, AS_HELP_STRING([--enable-quad],[enable quadruple precision operations [[default=no]]]))
 AC_ARG_ENABLE(half, AS_HELP_STRING([--enable-half],[enable half precision preconditioner storage support [[default=no]]]))
@@ -1281,6 +1283,13 @@ if test "$enable_f90" = "yes" ; then
 fi
 AM_CONDITIONAL(ENABLE_SAAMG, test x$enable_saamg = xyes)
 AM_CONDITIONAL(ENABLE_MPI, test x"$enable_mpi" = xyes)
+if test "x$enable_rci" = xyes; then
+  if test "x$enable_mpi" = xyes || test "x$enable_complex" = xyes || test "x$enable_longdouble" = xyes || test "x$enable_quad" = xyes; then
+    AC_MSG_ERROR([experimental RCI requires non-MPI real-double LIS without quad solver support])
+  fi
+  AC_DEFINE([USE_RCI], [1], [Define to 1 when the experimental real-double RCI API is enabled.])
+fi
+AM_CONDITIONAL([ENABLE_RCI], [test "x$enable_rci" = xyes])
 AM_CONDITIONAL(ENABLE_OMP, test x"$enable_omp" = xyes)
 AM_CONDITIONAL(ENABLE_QUAD, test x$enable_quad = xyes)
 AM_CONDITIONAL([ENABLE_HALF_REAL_DOUBLE],
