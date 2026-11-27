@@ -1,0 +1,49 @@
+name: Diagnose native FGCRO-DR full regression failure
+on:
+  push:
+    branches: ['qualification/rci-shared-core-diagnose-20261127']
+permissions:
+  contents: read
+jobs:
+  differential:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {mode: serial, index: int32}
+          - {mode: openmp, index: int64}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - shell: bash
+        run: |
+          set -euo pipefail
+          opts=(--enable-rci --enable-test --enable-shared --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg)
+          if [ "${{ matrix.mode }}" = openmp ]; then opts+=(--enable-omp --enable-longlong); export OMP_NUM_THREADS=4; else opts+=(--disable-omp); export OMP_NUM_THREADS=1; fi
+          ./configure "${opts[@]}"
+          make -C src -j2
+          make -C test -j2 testfgcrodr
+          set +e
+          ./test/testfgcrodr > "$RUNNER_TEMP/baseline.log" 2>&1
+          before=$?
+          set -e
+          echo "BASELINE STATUS=$before"
+          cat "$RUNNER_TEMP/baseline.log"
+          python3 qualification/rci-restore/qualify_linear_native.py
+          python3 qualification/rci-restore/qualify_krylov_native.py
+          make -C src -j2
+          make -C test -j2 testfgcrodr
+          set +e
+          ./test/testfgcrodr > "$RUNNER_TEMP/redirected.log" 2>&1
+          after=$?
+          set -e
+          echo "REDIRECTED STATUS=$after"
+          cat "$RUNNER_TEMP/redirected.log"
+          echo 'DIFFERENTIAL FGCRODR LOGS'
+          diff -u "$RUNNER_TEMP/baseline.log" "$RUNNER_TEMP/redirected.log" || true
+          echo "DIAGNOSIS baseline=$before redirected=$after"
+          test "$before" -eq "$after"
+          if [ "$before" -ne 0 ]; then
+            echo 'Existing baseline also fails. Do not classify as full regression pass.'
+          fi
