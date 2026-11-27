@@ -66,12 +66,11 @@ lis_rci_native_linear_restore *lis_rci_native_linear_restore_create(void)
 }
 void lis_rci_native_linear_restore_destroy(lis_rci_native_linear_restore *K)
 {if(K){if(K->active)(void)abort_linear(K,LIS_RCI_CANCELLED);free(K);}}
-int lis_rci_native_linear_restore_start(lis_rci_native_linear_restore *K,LIS_SOLVER solver,int strict,lis_rci_native_linear_request *q)
+int lis_rci_native_linear_restore_start_method(lis_rci_native_linear_restore *K,LIS_SOLVER solver,LIS_INT method,int strict,lis_rci_native_linear_request *q)
 {
  if(!K||!q||!solver||!solver->A||!solver->b||!solver->x||!solver->work||
     (strict!=0&&strict!=1))return LIS_RCI_BADARG;
  if(K->active)return LIS_RCI_STATE;
- int method=solver->options[LIS_OPTIONS_SOLVER];
  if(method!=LIS_SOLVER_CG&&method!=LIS_SOLVER_BICGSTAB&&method!=LIS_SOLVER_GMRES&&method!=LIS_SOLVER_FGMRES)return LIS_RCI_BADARG;
  uint64_t token=K->token;memset(K,0,sizeof(*K));K->token=token;K->solver=solver;K->strict=strict;
  K->method=method;
@@ -80,6 +79,11 @@ int lis_rci_native_linear_restore_start(lis_rci_native_linear_restore *K,LIS_SOL
  else if(method==LIS_SOLVER_GMRES){K->active=4;K->gm.solver=solver;}
  else{K->active=5;K->fgm.solver=solver;}
  return drive(K,q);
+}
+int lis_rci_native_linear_restore_start(lis_rci_native_linear_restore *K,LIS_SOLVER solver,int strict,lis_rci_native_linear_request *q)
+{
+ if(!solver)return LIS_RCI_BADARG;
+ return lis_rci_native_linear_restore_start_method(K,solver,solver->options[LIS_OPTIONS_SOLVER],strict,q);
 }
 int lis_rci_native_linear_restore_advance(lis_rci_native_linear_restore *K,uint64_t token,LIS_INT code,lis_rci_native_linear_request *q)
 {
@@ -106,11 +110,11 @@ int lis_rci_native_linear_restore_status(const lis_rci_native_linear_restore *K,
  if(!K||!native||!a||!p)return LIS_RCI_BADARG;
  *native=K->native_code;*a=K->matvecs;*p=K->precons;return K->status;
 }
-LIS_INT lis_rci_native_linear_restore_classic(LIS_SOLVER solver)
+static LIS_INT classic_method(LIS_SOLVER solver,LIS_INT method)
 {
  lis_rci_native_linear_restore *K=lis_rci_native_linear_restore_create();if(!K)return LIS_ERR_OUT_OF_MEMORY;
  lis_rci_native_linear_request q;
- int st=lis_rci_native_linear_restore_start(K,solver,0,&q);
+ int st=lis_rci_native_linear_restore_start_method(K,solver,method,0,&q);
  while(st>0){
   LIS_INT e=q.operation==LIS_RCI_OP_A?lis_matvec(q.A,q.in,q.out):lis_psolve(q.solver,q.in,q.out);
   st=lis_rci_native_linear_restore_advance(K,q.token,e,&q);
@@ -118,6 +122,10 @@ LIS_INT lis_rci_native_linear_restore_classic(LIS_SOLVER solver)
  LIS_INT native=K->native_code;
  if(st==LIS_RCI_BADARG&&K->status==LIS_RCI_STATE)native=LIS_ERR_ILL_ARG;
  lis_rci_native_linear_restore_destroy(K);return native;
+}
+LIS_INT lis_rci_native_linear_restore_classic(LIS_SOLVER solver)
+{
+ return solver?classic_method(solver,solver->options[LIS_OPTIONS_SOLVER]):LIS_ERR_ILL_ARG;
 }
 /* The hook is limited to this disposable qualification build. */
 static _Thread_local int reference_mode;
@@ -128,13 +136,13 @@ extern LIS_INT lis_cg_native_reference(LIS_SOLVER);
 extern LIS_INT lis_bicgstab_native_reference(LIS_SOLVER);
 extern LIS_INT lis_gmres_native_reference(LIS_SOLVER);
 extern LIS_INT lis_fgmres_native_reference(LIS_SOLVER);
-static LIS_INT dispatch_linear(LIS_SOLVER solver,LIS_INT (*reference)(LIS_SOLVER))
+static LIS_INT dispatch_linear(LIS_SOLVER solver,LIS_INT method,LIS_INT (*reference)(LIS_SOLVER))
 {
  if(reference_mode)return reference(solver);
- if(external_driver)return external_driver(solver);
- return lis_rci_native_linear_restore_classic(solver);
+ if(external_driver)return external_driver(solver,method);
+ return classic_method(solver,method);
 }
-LIS_INT lis_cg(LIS_SOLVER s){return dispatch_linear(s,lis_cg_native_reference);}
-LIS_INT lis_bicgstab(LIS_SOLVER s){return dispatch_linear(s,lis_bicgstab_native_reference);}
-LIS_INT lis_gmres(LIS_SOLVER s){return dispatch_linear(s,lis_gmres_native_reference);}
-LIS_INT lis_fgmres(LIS_SOLVER s){return dispatch_linear(s,lis_fgmres_native_reference);}
+LIS_INT lis_cg(LIS_SOLVER s){return dispatch_linear(s,LIS_SOLVER_CG,lis_cg_native_reference);}
+LIS_INT lis_bicgstab(LIS_SOLVER s){return dispatch_linear(s,LIS_SOLVER_BICGSTAB,lis_bicgstab_native_reference);}
+LIS_INT lis_gmres(LIS_SOLVER s){return dispatch_linear(s,LIS_SOLVER_GMRES,lis_gmres_native_reference);}
+LIS_INT lis_fgmres(LIS_SOLVER s){return dispatch_linear(s,LIS_SOLVER_FGMRES,lis_fgmres_native_reference);}

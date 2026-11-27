@@ -122,3 +122,9 @@ Cancellation may leave the native iterate partially updated. This is not
 yet a replacement for the existing generic real-double RCI API, nor an
 installed native interface. Precision and native-policy coverage require
 qualification rather than an assumed equivalence.
+
+Native dispatch must use the called function's method, not the solver option:
+FGCRO-DR intentionally calls lis_fgmres directly for its zero-recycle
+fallback. A full-regression failure exposed the distinction. The driver
+now passes an explicit method without mutating solver options, including
+the test-only external dispatcher. Full regression is rerun after this fix.

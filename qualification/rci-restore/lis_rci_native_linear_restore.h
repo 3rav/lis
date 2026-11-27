@@ -30,12 +30,16 @@ typedef struct {
 lis_rci_native_linear_restore *lis_rci_native_linear_restore_create(void);
 void lis_rci_native_linear_restore_destroy(lis_rci_native_linear_restore *);
 int lis_rci_native_linear_restore_start(lis_rci_native_linear_restore *,LIS_SOLVER,int strict,lis_rci_native_linear_request *);
+/* Explicit method for an already prepared native solver. The method must
+ * match the prepared work layout, including native FGCRO-DR -> FGMRES
+ * fallback. It does not alter solver->options. */
+int lis_rci_native_linear_restore_start_method(lis_rci_native_linear_restore *,LIS_SOLVER,LIS_INT method,int strict,lis_rci_native_linear_request *);
 int lis_rci_native_linear_restore_advance(lis_rci_native_linear_restore *,uint64_t,LIS_INT,lis_rci_native_linear_request *);
 int lis_rci_native_linear_restore_cancel(lis_rci_native_linear_restore *,uint64_t);
 int lis_rci_native_linear_restore_status(const lis_rci_native_linear_restore *,LIS_INT *,uint64_t *,uint64_t *);
 LIS_INT lis_rci_native_linear_restore_classic(LIS_SOLVER);
 /* Qualification dispatch hook, per thread, called after native setup. */
-typedef LIS_INT (*lis_rci_native_linear_test_driver)(LIS_SOLVER);
+typedef LIS_INT (*lis_rci_native_linear_test_driver)(LIS_SOLVER,LIS_INT method);
 void lis_rci_native_linear_test_select(int reference,lis_rci_native_linear_test_driver driver);
 #ifdef __cplusplus
 }

@@ -71,10 +71,10 @@ static LIS_SCALAR rhs(int i,int variant)
  if(i+1<N)v+=u*exact_at(i+1,variant);
  return v;
 }
-static LIS_INT external(LIS_SOLVER s)
+static LIS_INT external(LIS_SOLVER s,LIS_INT method)
 {
  lis_rci_native_linear_restore *k=lis_rci_native_linear_restore_create();if(!k)return LIS_ERR_OUT_OF_MEMORY;
- lis_rci_native_linear_request q;int st=lis_rci_native_linear_restore_start(k,s,1,&q);
+ lis_rci_native_linear_request q;int st=lis_rci_native_linear_restore_start_method(k,s,method,1,&q);
  uint64_t last=0;
  while(st>0){
   if(q.token<=last){lis_rci_native_linear_restore_destroy(k);return 99;}

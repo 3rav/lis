@@ -24,12 +24,12 @@ static LIS_INT matvec(void *u,const LIS_SCALAR *x,LIS_SCALAR *y)
 }
 static uint64_t a_count,p_count;
 static int force_cancel,force_incomplete;
-static LIS_INT external(LIS_SOLVER solver)
+static LIS_INT external(LIS_SOLVER solver,LIS_INT method)
 {
  lis_rci_native_linear_restore *K=lis_rci_native_linear_restore_create();
  if(!K)return LIS_ERR_OUT_OF_MEMORY;
  lis_rci_native_linear_request q;
- int s=lis_rci_native_linear_restore_start(K,solver,1,&q);
+ int s=lis_rci_native_linear_restore_start_method(K,solver,method,1,&q);
  uint64_t last=0;int step=0;
  while(s>0){
   if(q.token<=last||lis_rci_native_linear_restore_advance(K,q.token-1,0,&q)!=LIS_RCI_PROTOCOL||q.token<=last){
