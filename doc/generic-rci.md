@@ -203,3 +203,44 @@ Wide intermediates are range-checked before narrowing to double; a finite DOT
 outside the representable range of the dense GMRES Hessenberg storage is
 reported as NONFINITE rather than silently overflowing a cast. This does not
 extend the vector or dense storage representation beyond real double.
+
+
+## Scope relative to the earlier Generic RCI design
+
+The recovered historical design reports eight algorithms: CG, BiCGSTAB,
+GMRES, FGMRES, GCRO-DR, FGCRO-DR, FEAST and Krylov eigensolver. This PR
+implements only the first four, as an independent experimental subset.
+Historical reports and artifact names do not establish that the original
+source files have been recovered or that their results apply to this PR.
+
+The broader non-MPI design is not superseded by this subset:
+
+| Historical design component | Current implementation |
+| --- | --- |
+| Four basic linear methods | Independent real-double RCI |
+| Versioned size-checked request descriptor, opaque vector handles | Not implemented |
+| A/B operators, block RHS, complex shifts, split-complex | Not implemented |
+| Nested contexts, operator generation checks, reusable workspace | Partial (local context reuse only) |
+| Native LIS_SOLVER and lis_psolve adapter | Partial (matrix + identity/Jacobi only) |
+| GCRO-DR U/ZU/C and FGCRO-DR W/Z/C, harmonic recycling | Not implemented |
+| Persistent sequences with transactional recycle commit | Not implemented |
+| FEAST contour projection and outer B-metric Rayleigh-Ritz iteration | Not implemented |
+| Stackless Krylov with A/B/shifted solve continuations | Not implemented |
+| Shared native classic/RCI solver kernels and policies | Not implemented |
+| Complex, extended and binary128 precision | Not implemented |
+| MPI and collective transport | Explicitly outside current scope |
+
+The historical migration approach is to reuse the actual native LIS kernels,
+not to add competing implementations of GCRO-DR, FGCRO-DR, FEAST or Krylov.
+Preserve existing native workspace, recycling keys, convergence criteria,
+residual history, error policies, ABI and operation counts. The planned
+sequence is (1) recover exact historical sources and API layout where possible,
+(2) versioned opaque backend and operator lifetime/dispatch contract,
+(3) native shared linear kernels and recycling, (4) shifted/block projection,
+FEAST and stackless Krylov, (5) full build and differential qualification.
+Avoid advertising any unimplemented algorithm or numerical configuration.
+
+Tracked build inputs for this subset were regenerated with Autoconf 2.72 and
+Automake 1.18.1, retaining the existing Libtool macro/helper set. The clean
+checkout serial/OpenMP build and upstream tracked Automake comparison passed
+in the fork's targeted generator qualification (run 45966766386).
