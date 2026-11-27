@@ -1,0 +1,98 @@
+name: Anchor factor diagnostics native validation
+on:
+  push:
+    branches: ['diagnostics/anchor-factor-20261127']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [release, asan-ubsan]
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool time
+      - name: Build and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags='-O2 -DNDEBUG'
+          link=''
+          if [ '${{ matrix.profile }}' = asan-ubsan ]; then
+            flags='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all'
+            link='-no-pie'
+          fi
+          ./configure --disable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg --disable-test --disable-shared --enable-static CFLAGS="$flags" LDFLAGS="$flags"
+          make -j2
+          for test in test_anchor_pilot test_anchor_single_pass; do
+            cc $flags $link -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c "tools/$test.c" src/.libs/liblis.a -lm -o "$test"
+            LIS_ANCHOR_FACTOR_DIAGNOSTICS=1 "./$test" > "$test.log" 2>&1
+          done
+          grep -Fx 'ANCHOR_PILOT_REGRESSION=PASS' test_anchor_pilot.log
+          grep -Fx 'SINGLE_PASS_REGRESSION=PASS' test_anchor_single_pass.log
+          cc $flags $link -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/test_anchor_pilot_faults.c src/.libs/liblis.a -Wl,--wrap=lis_solver_sequence_prepare_precon,--wrap=lis_solve_kernel,--wrap=lis_matrix_get_generation,--wrap=lis_vector_copy -lm -o faults
+          LIS_ANCHOR_FACTOR_DIAGNOSTICS=1 ./faults > faults.log 2>&1
+          for n in 1 2 3 4 5; do grep -Fx "ROLLING_FAULT_${n}=PASS" faults.log; done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostic-regression-${{ matrix.profile }}
+          path: '*.log'
+          retention-days: 30
+  nist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [bcsstk16, bcsstk17, bcsstk18]
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      OPENBLAS_NUM_THREADS: '1'
+      MATRIX: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool time python3-numpy python3-scipy
+      - name: Build matched native binaries
+        run: |
+          set -euo pipefail
+          mkdir -p evidence data
+          git rev-parse HEAD > evidence/head.txt
+          git show 7851c9046fcb5e8b3bab085cd3822deadfad7953:tools/lis_anchor_pilot.c > evidence/baseline.c
+          ./configure --disable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg --disable-test --disable-shared --enable-static CFLAGS='-O2 -DNDEBUG' > evidence/configure.log 2>&1
+          make -j2 > evidence/build.log 2>&1
+          for variant in baseline instrumented; do
+            src=tools/lis_anchor_pilot.c
+            if [ "$variant" = baseline ]; then src=evidence/baseline.c; fi
+            cc -O2 -DNDEBUG -fopenmp -DHAVE_CONFIG_H -Iinclude -Itools "$src" tools/bench_anchor_pilot.c src/.libs/liblis.a -lm -o "evidence/$variant"
+          done
+      - name: Fetch NIST and paired audit
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 --max-time 300 "https://math.nist.gov/MatrixMarket/data/Harwell-Boeing/bcsstruc2/$MATRIX.mtx.gz" -o "data/$MATRIX.mtx.gz"
+          gzip -dc "data/$MATRIX.mtx.gz" > "data/$MATRIX.mtx"
+          sha256sum "data/$MATRIX.mtx" > evidence/source.sha256
+          /usr/bin/python3 tools/diagnostic_research/run_factor_diagnostics.py evidence/baseline evidence/instrumented "data/$MATRIX.mtx" evidence/public --name "$MATRIX" | tee evidence/public.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: factor-diagnostics-${{ matrix.name }}
+          path: |
+            evidence/
+            !evidence/public/input/*.mtx
+          retention-days: 30

@@ -5,6 +5,10 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#if defined(__linux__)
+#include <sys/resource.h>
+#endif
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -79,15 +83,48 @@ static void unbind(LIS_SOLVER s,LIS_MATRIX P)
     s->A=P;s->b=NULL;s->x=NULL;s->xx=NULL;
     (void)lis_solver_set_monitor(s,NULL,NULL);
 }
-static LIS_INT factor(LIS_MATRIX P,LIS_SOLVER *s,LIS_PRECON *pc,lis_anchor_pilot_report *r)
+/* Opt-in diagnostics, outside the setup timer; no factor or result mutation. */
+static void factor_diagnostics(LIS_MATRIX P,LIS_PRECON pc,LIS_INT rc,
+    double elapsed,const char *role)
+{
+    const char *enabled=getenv("LIS_ANCHOR_FACTOR_DIAGNOSTICS");
+    LIS_INT nl=-1,nu=-1,stats_rc=LIS_ERR_ILL_ARG,swaps=-1;
+    LIS_REAL min_pivot=NAN,max_pivot=NAN;
+    double fill=NAN;
+    long rss_peak_kib=-1;
+    if(!enabled || strcmp(enabled,"1"))return;
+    if(!rc && pc){
+        stats_rc=lis_precon_ilut_factor_stats(pc,&nl,&nu,&min_pivot,&max_pivot);
+        swaps=pc->ilutp_swap_count;
+        if(!stats_rc && P->nnz>0 && nl>=0 && nu>=0)
+            fill=((double)nl+(double)nu+(double)P->n)/(double)P->nnz;
+    }
+#if defined(__linux__)
+    {
+        struct rusage usage;
+        if(getrusage(RUSAGE_SELF,&usage)==0)rss_peak_kib=usage.ru_maxrss;
+    }
+#endif
+    fprintf(stderr,"FACTOR role=%s rc=%lld stats_rc=%lld n=%lld nnz_a=%lld "
+        "nnz_l=%lld nnz_u=%lld swaps=%lld min_pivot=%.17g max_pivot=%.17g "
+        "fill_ratio=%.17g setup_s=%.9f rss_peak_kib=%ld\n",
+        role,(long long)rc,(long long)stats_rc,(long long)P->n,(long long)P->nnz,
+        (long long)nl,(long long)nu,(long long)swaps,(double)min_pivot,
+        (double)max_pivot,fill,elapsed,rss_peak_kib);
+    (void)fflush(stderr);
+}
+static LIS_INT factor(LIS_MATRIX P,LIS_SOLVER *s,LIS_PRECON *pc,
+    lis_anchor_pilot_report *r,const char *role)
 {
     LIS_INT rc=make_solver(s);
-    double start;
+    double start,elapsed;
     if(rc)return rc;
     start=lis_wtime();
     rc=lis_solver_sequence_prepare_precon(P,*s,pc);
-    r->setup_seconds+=lis_wtime()-start;
+    elapsed=lis_wtime()-start;
+    r->setup_seconds+=elapsed;
     if(!rc)r->factorizations++;
+    factor_diagnostics(P,rc?NULL:*pc,rc,elapsed,role);
     return rc;
 }
 static int numerical(LIS_INT status)
@@ -145,7 +182,7 @@ static void monitor(LIS_SOLVER s,LIS_INT iter,LIS_REAL res,LIS_REAL tol,LIS_INT 
 static LIS_INT fresh_attempt(LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR work,LIS_VECTOR residual,lis_anchor_pilot_report *r)
 {
     LIS_SOLVER s=NULL;LIS_PRECON pc=NULL;
-    LIS_INT rc=factor(A,&s,&pc,r);
+    LIS_INT rc=factor(A,&s,&pc,r,"fresh");
     if(!rc)rc=attempt(A,b,work,residual,s,pc,100,1,&r->fresh_iterations,r);
     if(s)lis_solver_destroy(s);
     return rc;
@@ -158,7 +195,7 @@ static LIS_INT create(LIS_MATRIX P,lis_anchor_pilot **out,enum anchor_policy pol
     if(!valid_matrix(P))return LIS_ERR_ILL_ARG;
     ctx=calloc(1,sizeof(*ctx));if(!ctx)return LIS_OUT_OF_MEMORY;
     ctx->P=P;init_report(&r);
-    rc=factor(P,&ctx->solver,&ctx->factor,&r);
+    rc=factor(P,&ctx->solver,&ctx->factor,&r,"anchor_initial");
     if(!rc)rc=lis_matrix_get_generation(P,&ctx->structure,&ctx->values);
     if(rc){lis_anchor_pilot_destroy(ctx);return rc;}
     ctx->valid=1;ctx->policy=policy;*out=ctx;return LIS_SUCCESS;
@@ -205,7 +242,7 @@ static LIS_INT solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR 
         /* A memory-constrained fallback retired the original factor.
          * Generations were checked above, before any lazy reconstruction. */
         if(!ctx->solver){
-            rc=factor(ctx->P,&ctx->solver,&ctx->factor,r);
+            rc=factor(ctx->P,&ctx->solver,&ctx->factor,r,"anchor_rebuild");
             if(rc){retire_anchor(ctx);ctx->valid=0;goto done;}
         }
         if(ctx->policy==SINGLE_PASS){
@@ -258,7 +295,7 @@ static LIS_INT solve(lis_anchor_pilot *ctx,LIS_MATRIX A,LIS_VECTOR b,LIS_VECTOR 
             if(ctx->policy==LOW_MEMORY || ctx->policy==ROLLING)retire_anchor(ctx);
             if(ctx->policy==ROLLING){
                 /* Reuse the fresh factor itself, not just its matrix. */
-                rc=factor(A,&ctx->solver,&ctx->factor,r);
+                rc=factor(A,&ctx->solver,&ctx->factor,r,"rolling_candidate");
                 if(!rc)rc=attempt(A,b,work,residual,ctx->solver,ctx->factor,
                                   100,1,&r->fresh_iterations,r);
                 if(!rc && r->accepted)
