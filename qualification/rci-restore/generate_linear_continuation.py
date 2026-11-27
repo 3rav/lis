@@ -19,6 +19,9 @@ SPECS = [
     ("fgm", "lis_fgmres", "src/solver/lis_solver_gmres.c", "be206b6d00588b60dbc2d6ab4e67925ecbdf0995"),
 ]
 IDS = {name:i+1 for i,(name,*_) in enumerate(SPECS)}
+REAL_ONLY = False
+EXTRA_CALLS = {}
+EXPECTED_COUNTS = {"initial":2,"cg":3,"bi":5,"gm":5,"fgm":4}
 def digest(data):
     return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
 def get_source(path, sha):
@@ -55,7 +58,7 @@ def no_quad(s):
         if m:
             kind,arg=m[1],m[2].strip()
             if kind in ("ifdef","ifndef","if"):
-                known=arg=="USE_QUAD_PRECISION" and kind in ("ifdef","ifndef")
+                known=(arg=="USE_QUAD_PRECISION" or (REAL_ONLY and arg=="_COMPLEX")) and kind in ("ifdef","ifndef")
                 active=(kind=="ifndef") if known else True
                 stack.append((active,known))
                 if parent and not known: out.append(line)
@@ -92,7 +95,7 @@ def frame(name,func,path,sha):
         fields[m[2]]=m[1].strip()
     # Local declarations occupy the beginning of each native function.
     # No initialized automatic object is live only on the C call stack.
-    decl=re.compile(r"^([ \t]*)(LIS_Comm|LIS_MATRIX|LIS_VECTOR|LIS_PRECON|LIS_SCALAR|LIS_REAL|LIS_INT|double)[ \t]+([^;]+);",re.M)
+    decl=re.compile(r"^([ \t]*)(LIS_Comm|LIS_MATRIX|LIS_VECTOR|LIS_PRECON|LIS_SCALAR|LIS_REAL|LIS_INT|LIS_GCRODR_EIG|double)[ \t]+([^;]+);",re.M)
     def hoist(m):
         out=[]
         for v in args(m[3]):
@@ -122,7 +125,8 @@ def frame(name,func,path,sha):
     body="".join(out)+body[pos:]
     # Normal callback statements, including the native initial residual
     # helper, are lowered into continuations with the exact original return.
-    pattern=re.compile(r"^([ \t]*)(F->err\s*=\s*|if\s*\(\s*)(lis_matvec|lis_psolve|lis_solver_get_initial_residual)\s*\(",re.M)
+    calls = "|".join(["lis_matvec","lis_psolve","lis_solver_get_initial_residual",*EXTRA_CALLS])
+    pattern=re.compile(r"^([ \t]*)(F->err\s*=\s*|if\s*\(\s*)("+calls+r")\s*\(",re.M)
     pos=0
     result=[]
     sites=[]
@@ -145,6 +149,19 @@ def frame(name,func,path,sha):
             result.append(body[pos:m.start()])
             result.append(indent+("\n"+indent).join(code)+"\n"+indent+"resume_"+str(site)+": F->pc=0;\n"+indent+"if(K->retval)")
             pos=tail+1
+        elif m[3] in EXTRA_CALLS:
+            child,fields = EXTRA_CALLS[m[3]]
+            assert len(fields)==len(a),(name,m[3],a)
+            for field,val in zip(fields,a):
+                code.append("K->"+child+"."+field+" = "+val+";")
+            code += ["K->"+child+".pc=0; K->"+child+".parent="+str(IDS[name])+";",
+                     "F->pc="+str(site)+"; K->active="+str(IDS[child])+"; return L_STEP_AGAIN;"]
+            tail=end+1
+            while body[tail].isspace(): tail+=1
+            assert body[tail]==";"
+            result.append(body[pos:m.start()])
+            result.append(indent+("\n"+indent).join(code)+"\n"+indent+"resume_"+str(site)+": F->pc=0; F->err=K->retval;")
+            pos=tail+1
         else:
             assert len(a)==3
             op="LIS_RCI_OP_A" if m[3]=="lis_matvec" else "LIS_RCI_OP_PRECON"
@@ -159,7 +176,7 @@ def frame(name,func,path,sha):
             pos=tail+1
         sites.append(site)
     body="".join(result)+body[pos:]
-    assert not re.search(r"\b(lis_matvec|lis_psolve|lis_solver_get_initial_residual)\s*\(",body),name
+    assert not re.search(r"\b("+calls+r")\s*\(",body),name
     body=re.sub(r"\breturn\s+([^;]+);",lambda m:m[0] if m[1]=="L_STEP_AGAIN" or m[1].startswith("linear_suspend(") else "return linear_return(K,F->parent,"+m[1]+");",body)
     # Clear pointers on original terminal cleanup to avoid stale ownership.
     body=body.replace("lis_free(F->h);","lis_free(F->h); F->h=NULL;")
@@ -170,7 +187,7 @@ def generate():
     for spec in SPECS:
         frames[spec[0]]=frame(*spec)
     counts={name:len(f[2]) for name,f in frames.items()}
-    assert counts=={"initial":2,"cg":3,"bi":5,"gm":5,"fgm":4},counts
+    assert counts==EXPECTED_COUNTS,counts
     out=["/* Generated from native LIS solver functions. Copyright notices remain in their source files; LIS BSD terms apply. */"]
     for name,(fields,body,sites) in frames.items():
         out.append("struct linear_frame_"+name+" { int pc,parent;")

@@ -128,3 +128,13 @@ FGCRO-DR intentionally calls lis_fgmres directly for its zero-recycle
 fallback. A full-regression failure exposed the distinction. The driver
 now passes an explicit method without mutating solver options, including
 the test-only external dispatcher. Full regression is rerun after this fix.
+
+Native GCRO-DR qualification now generates continuations from the actual
+GCRO-DR main recurrence, initial residual, recycle refresh, policy assessment
+and harmonic update. The original helper functions remain in the native
+translation unit; no callback is hidden inside those four transformed
+GCRO-DR routines. Cancellation/incomplete output unwinds the original
+error path, which may invalidate the native recycle basis (distinct from
+the transactional generic experiment). This is a real-double-only
+qualification patch, not an installed API. FGCRO-DR native continuation
+and FEAST native continuation remain separate open tasks.
