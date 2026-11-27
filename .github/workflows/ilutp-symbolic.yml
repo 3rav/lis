@@ -73,6 +73,7 @@ jobs:
         if: matrix.mode == 'serial'
         run: |
           set -euo pipefail
+          { uname -a; lscpu; gcc --version; /usr/bin/time --version; } 2>&1 | tee sequence-audit-rss.log
           for rep in 0 1 2; do
             for offset in 0 1 2 3; do
               mode=$(( (rep + offset) % 4 ))

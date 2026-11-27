@@ -90,6 +90,31 @@ for rep in 0 1 2; do
 done
 ```
 
+### Repeated process measurements (25600 DOF)
+
+Three independent processes per mode, rotating the mode order, completed
+on the same optimized serial CI runner at commit `becf65a`
+([CI log](https://github.com/3rav/lis/actions/runs/46006096251/job/140529509005)).
+The table reports medians; brackets give observed min/max values.
+
+| Mode | Sum of six solve times (s) | Mean next five (ms) | Process wall time (s) | Peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: |
+| Legacy | 7.762 | 1284.143 | 7.78 [7.75, 7.79] | 115548 [115408, 115756] |
+| Symbolic | 2.019 | 331.354 | 2.03 [2.02, 2.05] | 115272 [115256, 115272] |
+| Symbolic MD | 0.520 | 85.861 | 0.53 [0.53, 0.56] | 36148 [36076, 36176] |
+| Symbolic MD reuse | 0.296 | 40.752 | 0.30 [0.30, 0.32] | 35460 [35392, 35480] |
+
+Ratios of medians (legacy / MD reuse): 26.25x for the sum of solve
+times, 31.51x for the mean of the five subsequent solves, and 25.93x
+for process wall time (rounded to 0.01 s by GNU time). Median peak
+RSS decreased by 69.31%, from 112.84 to 34.63 MiB. The maximum
+physical relative residual and forward error in all twelve processes
+were below 1.46e-13. Each reuse process performed one creation and
+five refreshes; each other process performed six creations.
+
+These measurements share a single CI runner; they do not quantify
+between-machine variability or establish performance on CCX. The
+runner CPU model was not explicitly recorded in this historical log.
 Use an optimized non-sanitized serial build, record the CPU and compiler,
 and report medians/ranges across repeated processes. Peak RSS includes
 all process allocations, not just LU factors. The private CCX fixture
