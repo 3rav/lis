@@ -108,3 +108,26 @@ This is not an opaque-vector/device-resident or distributed backend interface.
 `test/testrcifull.c` exercises all methods, context reuse, mode isolation,
 stale tokens and both callback failures and incomplete/nonfinite outputs at
 every request position of a deterministic solve.
+
+## Request lifecycle and checked consensus
+
+`lis_rci_get_pending` inspects the active request in any of the three modes.
+`lis_rci_cancel` cancels the current token once the application has stopped
+all workers accessing its request buffers; cancelled solves can reuse their
+context. Cancellation does not roll back partial iterates. A stale token is
+retryable and cannot consume or cancel the live request.
+`lis_rci_get_stats` exposes per-solve issued/accepted-completion counts for
+each operation, last token, cancellation state and consensus error rank.
+Legacy internal DOT/NORM operations are included. Counts reset at start,
+while tokens remain monotonic.
+
+`lis_rci_advance_consensus` is an optional completion path for Extended/Full
+mode. Pack the request token and operation as the tag, merge the records,
+then submit the result and the computed scalar (if applicable). Agreement
+on the pending token and operation is mandatory. A disagreement terminates
+with PROTOCOL; protocol error takes precedence over a selected callback
+error, whose code and rank remain available for diagnostics. A local wrong
+token or malformed record does not consume the pending request. The caller
+must provide truthful records, unique ranks, correct computation and any
+transport; this checks neither arbitrary scalar agreement nor cross-context
+identity. All vectors are still local full-length arrays. No MPI.

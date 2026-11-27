@@ -23,7 +23,7 @@ typedef struct lis_rci_context lis_rci_context;
 typedef enum { LIS_RCI_CG=1, LIS_RCI_BICGSTAB, LIS_RCI_GMRES, LIS_RCI_FGMRES } lis_rci_method;
 typedef enum { LIS_RCI_DONE=0, LIS_RCI_MATVEC=1, LIS_RCI_PRECON=2, LIS_RCI_DOT=3, LIS_RCI_NORM=4, LIS_RCI_AXPBY=5, LIS_RCI_DIVIDE=6, LIS_RCI_MAXITER=-1,
  LIS_RCI_BREAKDOWN=-2, LIS_RCI_BADARG=-3, LIS_RCI_CALLBACK=-4, LIS_RCI_NONFINITE=-5,
- LIS_RCI_STATE=-6, LIS_RCI_PROTOCOL=-7 } lis_rci_status;
+ LIS_RCI_STATE=-6, LIS_RCI_PROTOCOL=-7, LIS_RCI_CANCELLED=-8 } lis_rci_status;
 typedef struct { size_t n, maxiter, restart; double rtol, atol; lis_rci_method method; } lis_rci_options;
 typedef struct { const double *in; double *out; size_t n; } lis_rci_request;
 typedef struct { size_t iterations, matvecs, precons; double residual; int status, callback_code; } lis_rci_info;
@@ -83,6 +83,33 @@ typedef struct {
 int lis_rci_consensus_pack(uint64_t token,uint64_t tag,uint32_t rank,int32_t error,uint64_t words[5]);
 int lis_rci_consensus_merge(uint64_t dst[5],const uint64_t src[5]);
 int lis_rci_consensus_unpack(const uint64_t words[5],lis_rci_consensus_result *result);
+/* Lifecycle and per-solve diagnostics. Counts use operation-1 as index.
+ * Legacy mode includes internally completed DOT/NORM requests. Completed
+ * includes accepted error/nonfinite responses; cancellation does not count
+ * as a completion. Counts reset on start; last_token does not.
+ * error_rank is meaningful only for a nonzero consensus callback error. */
+typedef struct {
+ uint64_t issued[6],completed[6],last_token;
+ uint32_t error_rank;
+ int cancelled;
+} lis_rci_stats;
+int lis_rci_get_stats(const lis_rci_context *c,lis_rci_stats *stats);
+/* Get a copy of the active descriptor in any mode, or STATE with a zero
+ * descriptor. Returned pointers are still borrowed; no thread synchronization. */
+int lis_rci_get_pending(const lis_rci_context *c,lis_rci_request_full *q);
+/* Cancel an outstanding request after its worker has stopped using buffers.
+ * A wrong token leaves it unchanged; a successful cancel returns CANCELLED.
+ * All previously borrowed request pointers become logically invalid. */
+int lis_rci_cancel(lis_rci_context *c,uint64_t token);
+/* Optional checked completion in Extended/Full mode. Pack the outstanding
+ * token and operation as tag, merge one record per participant, then pass
+ * the combined record. A local stale token is retryable; a malformed record
+ * returns BADARG without consuming. A consensus mismatch ends the solve
+ * with PROTOCOL (precedence over callback error); the selected error/rank
+ * remain in info/stats. No transport is provided and no scalar agreement
+ * is implied. The descriptor uses the Full structure in either mode. */
+int lis_rci_advance_consensus(lis_rci_context *c,uint64_t token,
+ const uint64_t words[5],long double scalar,lis_rci_request_full *q);
 #ifdef __cplusplus
 }
 #endif

@@ -24,6 +24,8 @@ struct lis_rci_context {
  size_t j, orth_i, update_i, update_k; long double tol,rho,alpha,omega,work,before,lin_a,lin_b;
  int fresh, orth_pass, external, update_reason, happy;
  uint64_t token;
+ lis_rci_request_ex pending;
+ lis_rci_stats stats;
 };
 static int mul(size_t a,size_t b,size_t *z){if(b && a>SIZE_MAX/b)return 0;*z=a*b;return 1;}
 static int add(size_t a,size_t b,size_t *z){if(a>SIZE_MAX-b)return 0;*z=a+b;return 1;}
@@ -58,6 +60,7 @@ static void axpy(double *a,const double *b,long double k,size_t n){
 static int end(lis_rci_context *c,int status,lis_rci_request_ex *q)
 {
  c->phase=END; c->info.status=status; c->out=NULL; c->lin_dest=NULL;
+ c->pending=(lis_rci_request_ex){0};
  *q=(lis_rci_request_ex){0}; return status;
 }
 static int request(lis_rci_context *c,enum phase p,int status,
@@ -69,6 +72,7 @@ static int request(lis_rci_context *c,enum phase p,int status,
  if(out)for(size_t i=0;i<c->o.n;i++)out[i]=NAN;
  c->phase=p;c->out=out;c->info.status=status;
  *q=(lis_rci_request_ex){++c->token,status,c->o.n,in,in2,out};
+ c->pending=*q;c->stats.issued[status-1]++;c->stats.last_token=c->token;
  if(status==LIS_RCI_MATVEC)c->info.matvecs++;
  if(status==LIS_RCI_PRECON)c->info.precons++;
  return status;
@@ -103,7 +107,7 @@ lis_rci_context *lis_rci_create(const lis_rci_options*o){
  size_t n=o->n,m=0,total,tmp,mp=0;if(!mul(n,11,&total))return NULL;
  if(o->method>=LIS_RCI_GMRES){if(!o->restart)return NULL;m=o->restart;if(m>o->maxiter)m=o->maxiter;if(m>n)m=n;if(!add(m,1,&mp)||!mul(mp,n,&tmp)||!add(total,tmp,&total)||!mul(m,n,&tmp)||!add(total,tmp,&total)||!mul(mp,m,&tmp)||!add(total,tmp,&total)||!mul(m,4,&tmp)||!add(total,tmp,&total)||!add(total,1,&total))return NULL;}
  if(!mul(total,sizeof(double),&tmp))return NULL;
- lis_rci_context*c=calloc(1,sizeof(*c));if(!c)return NULL;c->mem=calloc(total,sizeof(double));if(!c->mem){free(c);return NULL;}c->o=*o;c->o.restart=m;c->info.status=LIS_RCI_STATE;c->info.residual=NAN;
+ lis_rci_context*c=calloc(1,sizeof(*c));if(!c)return NULL;c->mem=calloc(total,sizeof(double));if(!c->mem){free(c);return NULL;}c->o=*o;c->o.restart=m;c->info.status=LIS_RCI_STATE;c->info.residual=NAN;c->stats.error_rank=UINT32_MAX;
  double *d=c->mem;
  c->b=d;d+=n;c->x=d;d+=n;c->r=d;d+=n;c->z=d;d+=n;c->p=d;d+=n;c->v=d;d+=n;c->s=d;d+=n;c->t=d;d+=n;c->shadow=d;d+=n;c->ax=d;d+=n;c->scratch=d;d+=n;
  if(m){c->V=d;d+=mp*n;c->Z=d;d+=m*n;c->H=d;d+=mp*m;c->cs=d;d+=m;c->sn=d;d+=m;c->g=d;d+=mp;c->y=d;}
@@ -138,6 +142,7 @@ static int start_impl(lis_rci_context *c,const double *b,const double *x0,
  if(c->phase!=IDLE&&c->phase!=END)return LIS_RCI_STATE;
  size_t n=c->o.n;
  c->info=(lis_rci_info){.residual=NAN};c->external=external;c->verify_reason=0;
+ c->stats=(lis_rci_stats){.last_token=c->token,.error_rank=UINT32_MAX};
  if(!finite_vec(b,n)||(x0&&!finite_vec(x0,n)))return end(c,LIS_RCI_NONFINITE,q);
  memmove(c->b,b,n*sizeof(double));
  if(x0)memmove(c->x,x0,n*sizeof(double));else memset(c->x,0,n*sizeof(double));
@@ -169,6 +174,7 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
  if(c->phase==IDLE||c->phase==END)return LIS_RCI_STATE;
  /* A stale or duplicate completion must leave the outstanding request intact. */
  if(token!=c->token)return LIS_RCI_PROTOCOL;
+ c->stats.completed[c->info.status-1]++;
  if(code){c->info.callback_code=code;return end(c,LIS_RCI_CALLBACK,q);}
  if(c->info.status==LIS_RCI_DOT||c->info.status==LIS_RCI_NORM){
   if(!isfinite(scalar)||(c->info.status==LIS_RCI_NORM&&scalar<0))
@@ -344,6 +350,52 @@ int lis_rci_advance_full(lis_rci_context *c,uint64_t token,int code,long double 
  if(s!=LIS_RCI_BADARG&&s!=LIS_RCI_STATE&&(s!=LIS_RCI_PROTOCOL||c->phase==END))
   full_request(c,s,&e,q);
  return s;
+}
+/* Pending inspection/cancellation do not consume a numerical completion. */
+int lis_rci_get_pending(const lis_rci_context *c,lis_rci_request_full *q)
+{
+ if(!c||!q)return LIS_RCI_BADARG;
+ if(c->phase==IDLE||c->phase==END){*q=(lis_rci_request_full){0};return LIS_RCI_STATE;}
+ full_request(c,c->info.status,&c->pending,q);
+ return c->info.status;
+}
+int lis_rci_cancel(lis_rci_context *c,uint64_t token)
+{
+ if(!c)return LIS_RCI_BADARG;
+ if(c->phase==IDLE||c->phase==END)return LIS_RCI_STATE;
+ if(token!=c->token)return LIS_RCI_PROTOCOL;
+ c->stats.cancelled=1;
+ lis_rci_request_ex q;
+ return end(c,LIS_RCI_CANCELLED,&q);
+}
+int lis_rci_get_stats(const lis_rci_context *c,lis_rci_stats *stats)
+{
+ if(!c||!stats)return LIS_RCI_BADARG;
+ *stats=c->stats;return LIS_RCI_DONE;
+}
+/* Checked completion with the optional transport-neutral consensus record.
+ * The tag is the pending operation. Protocol disagreement takes precedence
+ * over callback errors; the selected callback error is still recorded. */
+int lis_rci_advance_consensus(lis_rci_context *c,uint64_t token,
+ const uint64_t words[5],long double scalar,lis_rci_request_full *q)
+{
+ if(!c||!words||!q)return LIS_RCI_BADARG;
+ if(c->external==0||c->phase==IDLE||c->phase==END)return LIS_RCI_STATE;
+ if(token!=c->token)return LIS_RCI_PROTOCOL;
+ lis_rci_consensus_result result;
+ int s=lis_rci_consensus_unpack(words,&result);
+ if(s)return s;
+ c->stats.error_rank=result.error_rank;
+ if(result.token_mismatch||result.tag_mismatch||
+    words[0]!=token||words[2]!=(uint64_t)c->info.status){
+  c->stats.completed[c->info.status-1]++;
+  c->info.callback_code=result.error;
+  lis_rci_request_ex e;
+  s=end(c,LIS_RCI_PROTOCOL,&e);full_request(c,s,&e,q);return s;
+ }
+ lis_rci_request_ex e={0};
+ s=advance_impl(c,token,(int)result.error,scalar,&e);
+ full_request(c,s,&e,q);return s;
 }
 /* Compatibility entry points complete scalar reductions with the local backend. */
 static int local_continue(lis_rci_context *c,int status,lis_rci_request_ex *e,lis_rci_request *q)
