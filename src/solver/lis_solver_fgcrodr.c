@@ -6921,7 +6921,14 @@ lis_fgcrodr_flexible_core(
 #undef __FUNC__
 #define __FUNC__ "lis_fgcrodr"
 LIS_INT
+
+#if defined(USE_NATIVE_RCI)
+lis_fgcrodr_native_reference(
+
+#else
 lis_fgcrodr(
+
+#endif /* native RCI */
     LIS_SOLVER solver)
 {
     LIS_INT err;
@@ -7114,6 +7121,12 @@ lis_fgcrodr_quad(
 #endif
 
 
+
+#if defined(USE_NATIVE_RCI)
+#include "../rci_native/lis_rci_native_fgcro_restore.c"
+
+
+#endif /* native RCI */
 #undef FGCRODR_DEFAULT_RECYCLE_DIM
 #undef FGCRODR_DEFAULT_KEEP_QUALITY
 #undef FGCRODR_DEFAULT_REJECT_QUALITY

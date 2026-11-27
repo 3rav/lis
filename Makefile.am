@@ -656,3 +656,32 @@ AUTOMAKE_OPTIONS = dist-zip
 EXTRA_DIST += tools/differential_schur_stdlib.py
 
 EXTRA_DIST += doc/generic-rci.md doc/generic-rci-abi.md
+
+EXTRA_DIST += src/rci_native/feast_native_continuation.inc \
+    src/rci_native/feast_native_continuation_complex.inc \
+    src/rci_native/feast_native_continuation_real.inc \
+    src/rci_native/fgcro_continuation.inc \
+    src/rci_native/fgcro_continuation_complex.inc \
+    src/rci_native/fgcro_continuation_real.inc \
+    src/rci_native/full_feast_continuation.inc \
+    src/rci_native/full_linear_continuation.inc \
+    src/rci_native/gcro_continuation.inc \
+    src/rci_native/gcro_continuation_complex.inc \
+    src/rci_native/gcro_continuation_real.inc \
+    src/rci_native/krylov_continuation.inc \
+    src/rci_native/linear_continuation.inc \
+    src/rci_native/lis_rci_krylov_restore.c \
+    src/rci_native/lis_rci_krylov_restore.h \
+    src/rci_native/lis_rci_native_feast.c \
+    src/rci_native/lis_rci_native_feast.h \
+    src/rci_native/lis_rci_native_fgcro_restore.c \
+    src/rci_native/lis_rci_native_fgcro_restore.h \
+    src/rci_native/lis_rci_native_full.c \
+    src/rci_native/lis_rci_native_full_feast.c \
+    src/rci_native/lis_rci_native_full_internal.h \
+    src/rci_native/lis_rci_native_gcro_restore.c \
+    src/rci_native/lis_rci_native_gcro_restore.h \
+    src/rci_native/lis_rci_native_linear_restore.c \
+    src/rci_native/lis_rci_native_linear_restore.h \
+    src/rci_native/lis_rci_native_session.c \
+    doc/native-rci.md

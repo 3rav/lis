@@ -145,7 +145,14 @@ LIS_INT lis_gmres_malloc_work(LIS_SOLVER solver)
 
 #undef __FUNC__
 #define __FUNC__ "lis_gmres"
+
+#if defined(USE_NATIVE_RCI)
+LIS_INT lis_gmres_native_reference(LIS_SOLVER solver)
+
+#else
 LIS_INT lis_gmres(LIS_SOLVER solver)
+
+#endif /* native RCI */
 {
 	LIS_Comm comm;  
 	LIS_MATRIX A;
@@ -1502,7 +1509,14 @@ LIS_INT lis_fgmres_malloc_work(LIS_SOLVER solver)
 
 #undef __FUNC__
 #define __FUNC__ "lis_fgmres"
+
+#if defined(USE_NATIVE_RCI)
+LIS_INT lis_fgmres_native_reference(LIS_SOLVER solver)
+
+#else
 LIS_INT lis_fgmres(LIS_SOLVER solver)
+
+#endif /* native RCI */
 {
 	LIS_Comm comm;  
 	LIS_MATRIX A;

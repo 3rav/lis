@@ -28,3 +28,14 @@ EXTRA_DIST += lis_camfamg_composite_core.h
 if ENABLE_RCI
 nobase_include_HEADERS += lis_rci.h lis_rci_bridge.h
 endif
+
+if ENABLE_NATIVE_RCI
+nobase_include_HEADERS += lis_rci_status.h lis_rci_native_protocol.h lis_rci_native_session.h
+else
+if ENABLE_RCI
+nobase_include_HEADERS += lis_rci_status.h
+endif
+endif
+if ENABLE_NATIVE_RCI_FULL
+nobase_include_HEADERS += lis_rci_native_full.h
+endif

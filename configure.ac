@@ -31,6 +31,9 @@ AC_ARG_ENABLE(saamg, AS_HELP_STRING([--enable-saamg],[enable SA-AMG precondition
 AC_ARG_ENABLE(mpi, AS_HELP_STRING([--enable-mpi],[build with MPI library [[default=no]]]))
 AC_ARG_ENABLE([rci], AS_HELP_STRING([--enable-rci],[enable experimental real-double serial/OpenMP RCI API [[default=no]]]), [], [enable_rci=no])
 AS_CASE([$enable_rci], [yes|no], [], [AC_MSG_ERROR([--enable-rci accepts yes or no])])
+AC_ARG_ENABLE([native-rci], AS_HELP_STRING([--enable-native-rci],[enable experimental shared native RCI cores [[default=no]]]), [], [enable_native_rci=no])
+AS_CASE([$enable_native_rci], [yes|no], [], [AC_MSG_ERROR([--enable-native-rci accepts yes or no])])
+
 AC_ARG_ENABLE(omp, AS_HELP_STRING([--enable-omp],[build with OpenMP library [[default=no]]]))
 AC_ARG_ENABLE(quad, AS_HELP_STRING([--enable-quad],[enable quadruple precision operations [[default=no]]]))
 AC_ARG_ENABLE(half, AS_HELP_STRING([--enable-half],[enable half precision preconditioner storage support [[default=no]]]))
@@ -1298,7 +1301,7 @@ if test "x$enable_rci" = xyes; then
   fi
   AC_DEFINE([USE_RCI], [1], [Define to 1 when the experimental real-double RCI API is enabled.])
 fi
-if test "x$enable_rci" = xyes; then
+if test "x$enable_rci" = xyes || test "x$enable_native_rci" = xyes; then
   AC_MSG_CHECKING([for nonfinite-aware floating-point compilation required by experimental RCI])
   AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#if defined(__FAST_MATH__) || (defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__ > 0)
 #error unsafe finite-only floating point compilation
@@ -1308,6 +1311,15 @@ if test "x$enable_rci" = xyes; then
   AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <stddef.h>]], [[_Static_assert(_Generic((double)0,double:1,default:0),"C11 required");]])],
     [AC_MSG_RESULT([yes])], [AC_MSG_FAILURE([experimental RCI requires C11 compiler support])])
 fi
+
+if test "x$enable_native_rci" = xyes; then
+  if test "x$enable_mpi" = xyes || test "x$enable_quad" = xyes; then
+    AC_MSG_ERROR([native RCI requires non-MPI LIS without double-double solver mode])
+  fi
+  AC_DEFINE([USE_NATIVE_RCI], [1], [Define to 1 for the experimental shared native RCI cores.])
+fi
+AM_CONDITIONAL([ENABLE_NATIVE_RCI], [test "x$enable_native_rci" = xyes])
+AM_CONDITIONAL([ENABLE_NATIVE_RCI_FULL], [test "x$enable_native_rci" = xyes && test "x$enable_complex" != xyes && test "x$enable_longdouble" != xyes])
 AM_CONDITIONAL([ENABLE_RCI], [test "x$enable_rci" = xyes])
 AM_CONDITIONAL(ENABLE_OMP, test x"$enable_omp" = xyes)
 AM_CONDITIONAL(ENABLE_QUAD, test x$enable_quad = xyes)

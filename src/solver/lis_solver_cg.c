@@ -127,7 +127,14 @@ LIS_INT lis_cg_malloc_work(LIS_SOLVER solver)
 
 #undef __FUNC__
 #define __FUNC__ "lis_cg"
+
+#if defined(USE_NATIVE_RCI)
+LIS_INT lis_cg_native_reference(LIS_SOLVER solver)
+
+#else
 LIS_INT lis_cg(LIS_SOLVER solver)
+
+#endif /* native RCI */
 {
 	LIS_Comm comm;  
 	LIS_MATRIX A;
@@ -1506,3 +1513,11 @@ callback_failure:
 	return err;
 }
 
+
+#if defined(USE_NATIVE_RCI)
+
+#include "../rci_native/lis_rci_native_linear_restore.c"
+
+#include "../rci_native/lis_rci_native_session.c"
+
+#endif /* native RCI */

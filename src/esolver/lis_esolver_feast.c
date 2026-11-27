@@ -3538,8 +3538,15 @@ LIS_INT lis_efeast_malloc_work(
 #undef __FUNC__
 #define __FUNC__ "lis_efeast"
 
+
+#if defined(USE_NATIVE_RCI)
+LIS_INT lis_efeast_native_reference(LIS_ESOLVER esolver)
+
+#else
 LIS_INT lis_efeast(
         LIS_ESOLVER esolver)
+
+#endif /* native RCI */
 {
         LIS_MATRIX A;
         LIS_MATRIX B;
@@ -4194,3 +4201,9 @@ cleanup:
         LIS_DEBUG_FUNC_OUT;
         return err;
 }
+
+#if defined(USE_NATIVE_RCI)
+
+#include "../rci_native/lis_rci_native_feast.c"
+
+#endif /* native RCI */

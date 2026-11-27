@@ -22,9 +22,7 @@ extern "C" {
  * No API/ABI stability promise is made for this experimental interface. */
 typedef struct lis_rci_context lis_rci_context;
 typedef enum { LIS_RCI_CG=1, LIS_RCI_BICGSTAB, LIS_RCI_GMRES, LIS_RCI_FGMRES } lis_rci_method;
-typedef enum { LIS_RCI_DONE=0, LIS_RCI_MATVEC=1, LIS_RCI_PRECON=2, LIS_RCI_DOT=3, LIS_RCI_NORM=4, LIS_RCI_AXPBY=5, LIS_RCI_DIVIDE=6, LIS_RCI_MAXITER=-1,
- LIS_RCI_BREAKDOWN=-2, LIS_RCI_BADARG=-3, LIS_RCI_CALLBACK=-4, LIS_RCI_NONFINITE=-5,
- LIS_RCI_STATE=-6, LIS_RCI_PROTOCOL=-7, LIS_RCI_CANCELLED=-8 } lis_rci_status;
+#include "lis_rci_status.h"
 typedef struct { size_t n, maxiter, restart; double rtol, atol; lis_rci_method method; } lis_rci_options;
 typedef struct { const double *in; double *out; size_t n; } lis_rci_request;
 typedef struct { size_t iterations, matvecs, precons; double residual; int status, callback_code; } lis_rci_info;

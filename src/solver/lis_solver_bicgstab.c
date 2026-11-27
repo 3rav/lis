@@ -135,7 +135,14 @@ LIS_INT lis_bicgstab_malloc_work(LIS_SOLVER solver)
 
 #undef __FUNC__
 #define __FUNC__ "lis_bicgstab"
+
+#if defined(USE_NATIVE_RCI)
+LIS_INT lis_bicgstab_native_reference(LIS_SOLVER solver)
+
+#else
 LIS_INT lis_bicgstab(LIS_SOLVER solver)
+
+#endif /* native RCI */
 {
 	LIS_Comm comm;  
 	LIS_MATRIX A;

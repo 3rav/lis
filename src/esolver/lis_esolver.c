@@ -2946,3 +2946,9 @@ LIS_INT lis_esolver_get_esolvername(LIS_INT esolver, char *esolvername)
 	return LIS_SUCCESS;
 }
 
+
+#if defined(USE_NATIVE_RCI) && !defined(_COMPLEX) && !defined(_LONG__DOUBLE)
+
+#include "../rci_native/lis_rci_native_full_feast.c"
+
+#endif /* native RCI */
