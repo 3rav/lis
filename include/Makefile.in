@@ -91,7 +91,7 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 target_triplet = @target@
-@ENABLE_RCI_TRUE@am__append_1 = lis_rci.h lis_rci_bridge.h
+@ENABLE_RCI_TRUE@am__append_1 = lis_rci.h lis_rci_bridge.h lis_rci_native.h
 subdir = include
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
@@ -132,7 +132,7 @@ am__nobase_include_HEADERS_DIST = lis_config.h lis.h lisf.h lis_abi.h \
 	lis_omp_capacity.h lis_matrix_graph.h lis_matrix_split_view.h \
 	lis_matrix_materialize.h lis_matrix_operator.h lis_snapshot.h \
 	lis_krylov.h lis_condense_core.h lis_condense_lis.h lis_rci.h \
-	lis_rci_bridge.h
+	lis_rci_bridge.h lis_rci_native.h
 am__vpath_adj_setup = srcdirstrip=`echo "$(srcdir)" | sed 's|.|.|g'`;
 am__vpath_adj = case $$p in \
     $(srcdir)/*) f=`echo "$$p" | sed "s|^$$srcdirstrip/||"`;; \
