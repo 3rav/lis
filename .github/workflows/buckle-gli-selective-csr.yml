@@ -1,0 +1,87 @@
+name: Isolated shifted CSR validation
+on:
+  push:
+    branches: [ci/buckle-gli-selective-csr]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: serial
+            options: ''
+            cflags: '-O2 -g'
+            ldflags: ''
+          - mode: openmp
+            options: '--enable-omp'
+            cflags: '-O2 -g'
+            ldflags: '-fopenmp'
+          - mode: sanitizer
+            options: ''
+            cflags: '-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
+            ldflags: '-fsanitize=address,undefined'
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+      LIS_MFAMG_SPARSE_TERMINAL: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin time
+      - name: Build isolated patch
+        env:
+          CONFIGURE_OPTIONS: ${{ matrix.options }}
+          CFLAGS: ${{ matrix.cflags }}
+          LDFLAGS: ${{ matrix.ldflags }}
+        run: |
+          ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-shared $CONFIGURE_OPTIONS
+          make -j2
+          gcc $CFLAGS $LDFLAGS -Iinclude test/rc32_shifted_csr_observe.c src/.libs/liblis.a -Wl,--wrap=lis_esolver_rebuild_precon -lm -o shifted-csr-test
+      - name: Full legacy regression
+        run: make -j2 check
+      - name: Observe actual shifted matrix selection and physical eigenpair residuals
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          for transform in buckling shift_invert; do
+            for pre in none jacobi mfamg mfamg_ilutp ilutp; do
+              /usr/bin/time -f 'TIME wall=%e rss_KiB=%M exit=%x' ./shifted-csr-test "$pre" "$transform" patched 2>&1 | tee "results/patch_${pre}_${transform}.log"
+            done
+          done
+      - name: Baseline comparison (same fixture and options, non-sanitized serial only)
+        if: matrix.mode == 'serial'
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/baseline" 3b511e15fd775274675cb837e75c7d74f03a9b62
+          cd "$RUNNER_TEMP/baseline"
+          ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-shared
+          make -j2
+          gcc -O2 -g -Iinclude "$GITHUB_WORKSPACE/test/rc32_shifted_csr_observe.c" src/.libs/liblis.a -Wl,--wrap=lis_esolver_rebuild_precon -lm -o shifted-csr-baseline
+          cd "$GITHUB_WORKSPACE"
+          for transform in buckling shift_invert; do
+            for pre in none jacobi mfamg mfamg_ilutp ilutp; do
+              rc=0
+              /usr/bin/time -f 'TIME wall=%e rss_KiB=%M exit=%x' "$RUNNER_TEMP/baseline/shifted-csr-baseline" "$pre" "$transform" baseline > "results/base_${pre}_${transform}.log" 2>&1 || rc=$?
+              echo "BASELINE $pre $transform exit=$rc" | tee -a results/baseline-status.txt
+              cat "results/base_${pre}_${transform}.log"
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shifted-csr-${{ matrix.mode }}
+          path: |
+            results/
+            test/test-suite.log
+          if-no-files-found: ignore
