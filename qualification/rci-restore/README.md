@@ -91,3 +91,11 @@ is A-sigma B. Qualification compares against lis_krylov_symmetric_ex64,
 including callback input/output byte traces, results, native/extended stats,
 errors, cancel and budget/workspace reuse. This is not yet integrated into
 the installed library or the native classical entry point.
+
+The qualification-only synchronous driver now invokes the same stackless
+session through the existing native callback ABI. Three-way comparison
+covers the original classical implementation, external RCI, and the
+blocking driver. An interleaved-session probe cancels one context while
+the other continues; a 32768-vector test crosses the native OpenMP
+threshold with four threads. No existing classical entry point is
+redirected yet.

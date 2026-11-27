@@ -29,6 +29,10 @@ jobs:
           cmp "$RUNNER_TEMP/krylov_continuation.inc" qualification/rci-restore/krylov_continuation.inc
           "${{ matrix.cc }}" "${flags[@]}" -Iinclude -Iqualification/rci-restore/ qualification/rci-restore/lis_rci_krylov_restore.c qualification/rci-restore/test_krylov_restore.c -lm -o "$RUNNER_TEMP/krylov"
           ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "$RUNNER_TEMP/krylov"
+          if [ "${{ matrix.cc }}" = gcc ]; then
+            gcc "${flags[@]}" -fopenmp -Iinclude -Iqualification/rci-restore/ qualification/rci-restore/lis_rci_krylov_restore.c qualification/rci-restore/test_krylov_restore.c -lm -o "$RUNNER_TEMP/krylov-omp"
+            OMP_NUM_THREADS=4 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "$RUNNER_TEMP/krylov-omp"
+          fi
   native:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

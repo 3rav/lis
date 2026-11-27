@@ -100,3 +100,27 @@ int lis_rci_krylov_restore_status(const lis_rci_krylov_restore *K,int *native,li
  if(!K||!native||!counts)return LIS_RCI_BADARG;
  *native=K->native_code;*counts=K->counts;return K->status;
 }
+
+int lis_rci_krylov_restore_classic64(const lis_krylov_problem64 *p,const lis_krylov_options *o,
+ const lis_krylov_ext_options *ext,lis_krylov_workspace *reuse,const lis_krylov_budget *budget,
+ double *values,double *vectors,double *residuals,lis_krylov_stats *stats,lis_krylov_ext_stats *extra,
+ lis_krylov_budget_stats *counts)
+{
+ if(counts)memset(counts,0,sizeof(*counts));
+ if(budget&&(budget->struct_size<sizeof(*budget)||budget->version!=LIS_KRYLOV_BUDGET_VERSION))
+  return LIS_KRYLOV_BAD_ARGUMENT;
+ lis_rci_krylov_restore *K=lis_rci_krylov_restore_create();
+ if(!K)return LIS_KRYLOV_NO_MEMORY;
+ lis_rci_krylov_restore_request q;
+ int st=lis_rci_krylov_restore_start(K,p,o,ext,reuse,budget,values,vectors,residuals,stats,extra,&q);
+ while(st>0){
+  lis_krylov_matvec64 fn=q.operation==LIS_RCI_OP_A?p->apply_a:
+   q.operation==LIS_RCI_OP_B?p->apply_b:p->solve;
+  int e=fn(p->ctx,q.n,q.in,q.out);
+  st=lis_rci_krylov_restore_advance(K,q.token,e,&q);
+ }
+ int native=K->native_code;
+ if(counts)*counts=K->counts;
+ lis_rci_krylov_restore_destroy(K);
+ return native;
+}
