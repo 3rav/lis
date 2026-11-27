@@ -8,6 +8,19 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+/* LIS maps sqrt to complex sqrt in complex builds; physical norms
+ * remain real and must use the matching real scalar intrinsic. */
+#undef sqrt
+static LIS_REAL real_sqrt(LIS_REAL v)
+{
+#if defined(_LONG__DOUBLE) && defined(HAVE_QUADMATH_H)
+ return sqrtq(v);
+#elif defined(_LONG__DOUBLE)
+ return sqrtl(v);
+#else
+ return sqrt(v);
+#endif
+}
 #define N 4
 #define C(x) do{if(!(x)){fprintf(stderr,"FEAST FULL FAIL %d: %s\n",__LINE__,#x);rc=1;goto cleanup;}}while(0)
 typedef struct {LIS_INT nev,iter[4],iter2[4];LIS_SCALAR value[4],vectors[16];LIS_REAL resid[4];} answer;
@@ -89,7 +102,7 @@ static int solve(int mode,int generalized,int fail,int fault,answer *a)
    LIS_REAL am=fabs(ax),bm=fabs(bx),dm=fabs(ax-a->value[i]*bx);
    ax2+=am*am;bx2+=bm*bm;r2+=dm*dm;
   }
-  C(sqrt(r2)/(sqrt(ax2)+fabs(a->value[i])*sqrt(bx2))<1e-7);
+  C(real_sqrt(r2)/(real_sqrt(ax2)+fabs(a->value[i])*real_sqrt(bx2))<1e-7);
  }
  C((fabs(a->value[0]-2)<1e-6&&fabs(a->value[1]-4)<1e-6)||(fabs(a->value[0]-4)<1e-6&&fabs(a->value[1]-2)<1e-6));
 cleanup:
