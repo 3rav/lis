@@ -46,6 +46,10 @@ int lis_rci_recycle_restore_get(const lis_rci_recycle_restore *,lis_rci_recycle_
  * Disjoint arrays required; result is staged and committed only if finite. */
 int lis_rci_recycle_restore_project(lis_rci_recycle_restore *,uint64_t a,uint64_t p,double *x,double *r);
 int lis_rci_recycle_restore_direction(lis_rci_recycle_restore *,uint64_t a,uint64_t p,double *w,double *z,double *az);
+/* Commit a known Arnoldi relation without extra MATVEC/PRECON. The caller
+ * guarantees image=A*physical and, in fixed mode, physical=M^-1*domain.
+ * All arrays are copied before any transformation. Rank failure preserves old basis. */
+int lis_rci_recycle_restore_commit_images(lis_rci_recycle_restore *,size_t count,const double *domain,const double *physical,const double *image,uint64_t a,uint64_t p);
 #ifdef __cplusplus
 }
 #endif

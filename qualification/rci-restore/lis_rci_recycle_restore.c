@@ -150,3 +150,21 @@ int lis_rci_recycle_restore_direction(lis_rci_recycle_restore *s,uint64_t a,uint
  for(size_t k=0;k<3;k++)memcpy(arr[k],dst[k],n*sizeof(double));
  return 0;
 }
+
+int lis_rci_recycle_restore_commit_images(lis_rci_recycle_restore *s,size_t k,const double *w,const double *z,const double *az,uint64_t a,uint64_t p)
+{
+ if(!s||!k||k>s->k||!w||!z||!az)return LIS_RCI_BADARG;
+ if(s->stage)return LIS_RCI_STATE;
+ size_t size=k*s->n;
+ if(!finite_vec(w,size)||!finite_vec(z,size)||!finite_vec(az,size))return LIS_RCI_NONFINITE;
+ memmove(staged(s,0,0),w,size*sizeof(double));
+ memmove(staged(s,1,0),z,size*sizeof(double));
+ memmove(staged(s,2,0),az,size*sizeof(double));
+ s->rank=0;s->code=0;
+ for(s->j=0;s->j<k;s->j++){
+  int e=process_column(s);if(e)return fail(s,e,NULL);
+ }
+ if(!s->rank)return fail(s,LIS_RCI_BREAKDOWN,NULL);
+ s->active=1-s->active;s->committed=s->rank;s->a=a;s->p=p;
+ return fail(s,0,NULL);
+}

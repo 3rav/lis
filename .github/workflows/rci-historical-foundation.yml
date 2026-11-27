@@ -51,3 +51,6 @@ jobs:
           cc "${flags[@]}" -Iinclude -Iqualification/rci-restore/ qualification/rci-restore/lis_rci_restore.c qualification/rci-restore/lis_rci_split_restore.c qualification/rci-restore/lis_rci_native_restore.c qualification/rci-restore/lis_rci_feast_restore.c qualification/rci-restore/test_feast.c -Lsrc/.libs -Wl,-rpath,"$PWD/src/.libs" -llis -lm -o "$RUNNER_TEMP/feast"
           OMP_NUM_THREADS=1 "$RUNNER_TEMP/feast"
           if [ "${{ matrix.mode }}" = openmp ]; then OMP_NUM_THREADS=4 "$RUNNER_TEMP/feast"; fi
+          cc "${flags[@]}" -Iinclude -Iqualification/rci-restore/ qualification/rci-restore/lis_rci_native_restore.c qualification/rci-restore/lis_rci_recycle_restore.c qualification/rci-restore/lis_rci_augmented_restore.c qualification/rci-restore/test_augmented.c -Lsrc/.libs -Wl,-rpath,"$PWD/src/.libs" -llis -lm -o "$RUNNER_TEMP/augmented"
+          OMP_NUM_THREADS=1 "$RUNNER_TEMP/augmented"
+          if [ "${{ matrix.mode }}" = openmp ]; then OMP_NUM_THREADS=4 "$RUNNER_TEMP/augmented"; fi

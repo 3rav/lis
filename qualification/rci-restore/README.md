@@ -66,3 +66,16 @@ fixed/flexible policy, and all request-phase faults. This is a building
 block, NOT complete GCRO-DR/FGCRO-DR: native harmonic Ritz selection,
 automatic integration into the augmented Arnoldi/restart recurrence and
 differential native qualification remain open.
+
+The augmented linear sequence now drives the existing GMRES/FGMRES RCI
+recurrence cycle-by-cycle. It projects residuals and preconditioned
+directions against a compatible committed recycle basis, retains the
+U/ZU/C or W/Z/C augmented Arnoldi relation, and uses the actual native
+GCRO-DR small QR/extraction/inverse-iteration routines for harmonic
+selection. It commits transformed physical/image bases without new A/M
+calls. Selection failure is nonfatal; stale operator/preconditioner
+generations are conservatively not reused. The native dense selector can
+allocate and is qualification-only. This is an experimental augmented
+sequence, not yet differential equivalence to classical GCRO-DR/FGCRO-DR
+or shared native classic recurrence. Initial coarse projection incurs one
+extra true MATVEC before child verification; no duplicated Arnoldi MATVEC.
