@@ -1,0 +1,1236 @@
+--- a/include/lis_esolver.h
++++ b/include/lis_esolver.h
+@@ -64,6 +64,9 @@
+         LIS_REAL tolerance);
+ extern LIS_SCALAR lis_esolver_shift_perturbation(
+         LIS_SCALAR shift);
++extern LIS_INT lis_esolver_apply_inner_near_nullspace(LIS_ESOLVER esolver,LIS_SOLVER solver);
++extern LIS_INT lis_esolver_copy_inner_near_nullspace(LIS_ESOLVER src,LIS_ESOLVER dst);
++extern LIS_INT lis_esolver_create_shifted_operator(LIS_MATRIX A,LIS_MATRIX B,LIS_SCALAR shift,LIS_SOLVER solver,LIS_MATRIX *out);
+ extern LIS_INT lis_esolver_rebuild_precon(
+         LIS_MATRIX A,
+         LIS_SOLVER solver,
+--- a/include/lis.h
++++ b/include/lis.h
+@@ -1257,6 +1257,8 @@
+          * 4 = -delta inner solve, 8 = both perturbations exhausted.
+          * A non-converged outer iteration alone cannot set bit 8. */
+         LIS_INT inverse_recovery_shift_mask;
++        /* Owned application near-nullspace for transformed GLI/GII. */
++        LIS_SOLVER inner_near_nullspace_owner;
+ };
+ typedef struct LIS_ESOLVER_STRUCT *LIS_ESOLVER;
+ 
+@@ -1667,6 +1669,7 @@
+ 	extern LIS_INT lis_esolver_set_option(char *text, LIS_ESOLVER esolver);
+ 	extern LIS_INT lis_esolver_set_optionC(LIS_ESOLVER esolver);
+ 	extern LIS_INT lis_esolver_set_linear_options(const char *text, LIS_ESOLVER esolver);
++        extern LIS_INT lis_esolver_set_inner_near_nullspace(LIS_ESOLVER esolver, LIS_INT nvec, LIS_VECTOR vectors[]);
+ 	extern LIS_INT lis_esolver_set_refine_linear_options(const char *text, LIS_ESOLVER esolver);
+ 	extern LIS_INT lis_esolver_set_refine_gap_fraction(LIS_REAL fraction, LIS_ESOLVER esolver);
+ 	extern LIS_INT lis_esolve(LIS_MATRIX A, LIS_VECTOR x, LIS_SCALAR *evalue0, LIS_ESOLVER esolver);
+--- a/src/esolver/lis_esolver_li.c
++++ b/src/esolver/lis_esolver_li.c
+@@ -51,6 +51,7 @@
+ 	#include <mpi.h>
+ #endif
+ #include "lislib.h"
++#include "lis_matrix_materialize.h"
+ 
+ /***************************************
+  * Lanczos Iteration                   *
+@@ -3193,9 +3194,8 @@
+ 
+         trial_operator = NULL;
+ 
+-        err = lis_matrix_create_operator(
+-                1.0,A,-shift,B,
+-                &trial_operator);
++        err = lis_esolver_create_shifted_operator(
++                A,B,shift,solver,&trial_operator);
+         if( err )
+         {
+                 return err;
+@@ -3555,16 +3555,6 @@
+ 		tr[i] = 0.0;
+ 	}
+ 
+-	if( oshift!=0.0 )
+-	{
+-		err = lis_matrix_create_operator(
+-			1.0,A,-oshift,B,&Sop);
+-
+-		if( err ) goto cleanup;
+-
+-		S = Sop;
+-	}
+-
+ 	err = lis_solver_create(&solver);
+ 	if( err ) goto cleanup;
+ 
+@@ -3578,6 +3568,15 @@
+ 
+ 	err = lis_solver_set_optionC(solver);
+ 	if( err ) goto cleanup;
++        err = lis_esolver_apply_inner_near_nullspace(esolver,solver);
++        if( err ) goto cleanup;
++
++	if( oshift!=0.0 )
++	{
++		err = lis_esolver_create_shifted_operator(A,B,oshift,solver,&Sop);
++		if( err ) goto cleanup;
++		S = Sop;
++	}
+ 
+ 	lis_solver_get_solver(solver,&nsol);
+ 	lis_solver_get_precon(solver,&precon_type);
+@@ -3980,6 +3979,9 @@
+ 	resid0 = 0.0;
+ 
+ 	err = lis_esolver_create(&esolver2);
++        if( err ) goto cleanup;
++        err = lis_esolver_copy_inner_near_nullspace(esolver,esolver2);
++        if( err ) goto cleanup;
+ 
+ 			if( esolver->refine_linear_options &&
+ 			    esolver->refine_linear_options[0] )
+@@ -6636,13 +6638,20 @@
+         esolver->resid[i] =
+             cert_resid;
+ 
++        /* Only explicitly requested Ritz pairs determine convergence. */
+         if( cert_resid>cert_tol &&
++            (!esolver->requested_nev_active ||
++             esolver->requested_nev<=0 || i<esolver->requested_nev) &&
+             final_status==LIS_SUCCESS )
+         {
+             final_status =
+                 LIS_MAXITER;
+         }
+     }
++
++    if( esolver->requested_nev_active &&
++        esolver->requested_nev>projected_dim )
++        final_status = LIS_MAXITER;
+ 
+     esolver->retcode =
+         final_status;
+@@ -7006,21 +7015,6 @@
+         block_rank[i] = 0;
+     }
+ 
+-    if( requested_shift!=0.0 )
+-    {
+-        err = lis_matrix_create_operator(
+-            1.0,
+-            A,
+-            -requested_shift,
+-            B,
+-            &Sop);
+-
+-        if( err )
+-            goto cleanup;
+-
+-        S = Sop;
+-    }
+-
+     err = lis_solver_create(
+         &solver);
+ 
+@@ -7031,17 +7025,30 @@
+         "-i bicg -p none",
+         solver);
+ 
++    if( esolver->linear_options && esolver->linear_options[0] )
++    {
++        err = lis_solver_set_option(esolver->linear_options,solver);
++        if( err ) goto cleanup;
++    }
++
+     err = lis_solver_set_optionC(
+         solver);
+ 
+     if( err )
+         goto cleanup;
+ 
+-    solver->A = S;
+-
+-    err = lis_precon_create(
+-        solver,
+-        &precon);
++    err = lis_esolver_apply_inner_near_nullspace(esolver,solver);
++    if( err ) goto cleanup;
++
++    if( requested_shift!=0.0 )
++    {
++        err = lis_esolver_create_shifted_operator(
++            A,B,requested_shift,solver,&Sop);
++        if( err ) goto cleanup;
++        S = Sop;
++    }
++
++    err = lis_esolver_rebuild_precon(S,solver,&precon);
+ 
+     if( err )
+         goto cleanup;
+--- a/src/esolver/lis_esolver_ii.c
++++ b/src/esolver/lis_esolver_ii.c
+@@ -332,12 +332,8 @@
+                         base_shift+perturbation :
+                         base_shift-perturbation;
+ 
+-                err = lis_matrix_create_operator(
+-                        1.0,
+-                        physical_A,
+-                        -trial_shift,
+-                        B,
+-                        &trial_operator);
++                err = lis_esolver_create_shifted_operator(
++                        physical_A,B,trial_shift,solver,&trial_operator);
+                 if( err )
+                 {
+                         return err;
+@@ -813,8 +809,10 @@
+ 	}
+   }
+ 
+-  lis_solver_create(&solver);
+-  lis_solver_set_option("-i bicg -p none",solver);
++  err = lis_solver_create(&solver);
++  if( err ) return err;
++  err = lis_solver_set_option("-i bicg -p none",solver);
++  if( err ) { lis_solver_destroy(solver); return err; }
+ 
+   if( esolver->linear_options && esolver->linear_options[0] )
+     {
+@@ -827,7 +825,9 @@
+         }
+     }
+   err = lis_solver_set_optionC(solver);
+-  CHKERR(err);
++  if( err ) { lis_solver_destroy(solver); return err; }
++  err = lis_esolver_apply_inner_near_nullspace(esolver,solver);
++  if( err ) { lis_solver_destroy(solver); return err; }
+   lis_solver_get_solver(solver, &nsol);
+   lis_solver_get_precon(solver, &precon_type);
+   lis_solver_get_solvername(nsol, solvername);
+@@ -835,7 +835,7 @@
+ 
+   if( oshift != 0.0 )
+     {
+-      err = lis_matrix_create_operator(1.0, esolver->A, -oshift, B, &Aop);
++      err = lis_esolver_create_shifted_operator(esolver->A,B,oshift,solver,&Aop);
+       if( err )
+         {
+           lis_solver_destroy(solver);
+--- a/src/esolver/lis_esolver.c
++++ b/src/esolver/lis_esolver.c
+@@ -49,6 +49,7 @@
+ 	#include <mpi.h>
+ #endif
+ #include "lislib.h"
++#include "lis_matrix_materialize.h"
+ 
+ /************************************************
+  * lis_esolver_init
+@@ -471,13 +472,11 @@
+                 return LIS_ERR_ILL_ARG;
+         }
+ 
+-        if( *precon )
+-        {
+-                if( solver->precon==*precon ) solver->precon = NULL;
+-                lis_precon_destroy(*precon);
+-                *precon = NULL;
+-        }
+-
++        /* Preserve original destruction order unless reuse is explicitly enabled. */
++        if(*precon && (solver->options[LIS_OPTIONS_PRECON]!=LIS_PRECON_TYPE_ILUT || !getenv("LIS_EXPERIMENT_ILUTP_REUSE"))) {
++            if(solver->precon==*precon)solver->precon=NULL;
++            lis_precon_destroy(*precon);*precon=NULL;
++        }
+         lis_solver_work_destroy(solver);
+         solver->A = A;
+         solver->retcode = LIS_SUCCESS;
+@@ -498,6 +497,10 @@
+                 }
+                 else if( err!=LIS_ERR_NOT_IMPLEMENTED )
+                 {
++                        if(*precon) {
++                            if(solver->precon==*precon)solver->precon=NULL;
++                            lis_precon_destroy(*precon);*precon=NULL;
++                        }
+                         solver->retcode = err;
+                         return err;
+                 }
+@@ -505,6 +508,17 @@
+         }
+ 
+         solver->A = build_matrix;
++        if(*precon) {
++            extern LIS_INT lis_ilutp_refresh_attached(LIS_SOLVER,LIS_PRECON);
++            if(precon_type==LIS_PRECON_TYPE_ILUT && getenv("LIS_EXPERIMENT_ILUTP_REUSE") &&
++               lis_ilutp_refresh_attached(solver,*precon)==LIS_SUCCESS) {
++                solver->A=A;
++                if(pc_matrix)lis_matrix_destroy(pc_matrix);
++                return LIS_SUCCESS;
++            }
++            if(solver->precon==*precon)solver->precon=NULL;
++            lis_precon_destroy(*precon);*precon=NULL;
++        }
+         err = lis_precon_create(solver,precon);
+         solver->A = A;
+ 
+@@ -712,6 +726,7 @@
+ 	esolver->requested_nev_active = LIS_FALSE;
+ 	esolver->block_size = 1;
+ 	esolver->linear_options = NULL;
++        esolver->inner_near_nullspace_owner = NULL;
+ 	esolver->refine_linear_options = NULL;
+ 	esolver->refine_gap_fraction = 0.01;
+ 	esolver->subspace_retry_max = 0;
+@@ -903,6 +918,8 @@
+                         esolver->refine_linear_options = NULL;
+                 }
+ 
++                lis_solver_destroy(esolver->inner_near_nullspace_owner);
++                esolver->inner_near_nullspace_owner=NULL;
+ 		lis_free(esolver);
+ 	}
+ 
+@@ -953,6 +970,94 @@
+         return LIS_SUCCESS;
+ }
+ 
++
++/* Serial real-double prototype: own a copy of the application's basis.
++ * Reuse the linear solver's existing validated transactional copy routine.
++ * nvec == 0 clears the configuration. No global state. */
++LIS_INT lis_esolver_set_inner_near_nullspace(
++        LIS_ESOLVER esolver,LIS_INT nvec,LIS_VECTOR vectors[])
++{
++        LIS_SOLVER owner=NULL;
++        LIS_INT i,j,err;
++        if( esolver==NULL || nvec<0 ) return LIS_ERR_ILL_ARG;
++        if( nvec==0 )
++        {
++                lis_solver_destroy(esolver->inner_near_nullspace_owner);
++                esolver->inner_near_nullspace_owner=NULL;
++                return LIS_SUCCESS;
++        }
++#if defined(USE_MPI) || defined(_COMPLEX)
++        return LIS_ERR_NOT_IMPLEMENTED;
++#endif
++        if( vectors==NULL ) return LIS_ERR_ILL_ARG;
++        for(i=0;i<nvec;i++)
++        {
++                LIS_VECTOR v=vectors[i];
++                if( v==NULL || v->label!=LIS_LABEL_VECTOR ||
++                    v->value==NULL || v->n<nvec || v->nprocs!=1 ||
++                    v->precision!=LIS_PRECISION_DOUBLE ) return LIS_ERR_ILL_ARG;
++                for(j=0;j<v->n;j++)
++                        if( !lis_esolver_is_finite_scalar(v->value[j]) )
++                                return LIS_ERR_ILL_ARG;
++        }
++        err=lis_solver_create(&owner);
++        if( err ) return err;
++        err=lis_solver_set_near_nullspace(owner,nvec,vectors);
++        if( err ) { lis_solver_destroy(owner); return err; }
++        lis_solver_destroy(esolver->inner_near_nullspace_owner);
++        esolver->inner_near_nullspace_owner=owner;
++        return LIS_SUCCESS;
++}
++
++LIS_INT lis_esolver_copy_inner_near_nullspace(LIS_ESOLVER src,LIS_ESOLVER dst)
++{
++        LIS_SOLVER owner=src->inner_near_nullspace_owner;
++        if( owner==NULL ) return LIS_SUCCESS;
++        return lis_esolver_set_inner_near_nullspace(dst,
++                owner->near_nullspace_dim,owner->near_nullspace);
++}
++
++LIS_INT lis_esolver_apply_inner_near_nullspace(LIS_ESOLVER esolver,LIS_SOLVER solver)
++{
++        LIS_SOLVER owner=esolver->inner_near_nullspace_owner;
++        LIS_INT p=solver->options[LIS_OPTIONS_PRECON];
++        if( owner==NULL || (p!=LIS_PRECON_TYPE_MFAMG &&
++                            p!=LIS_PRECON_TYPE_MFAMG_ILUTP) ) return LIS_SUCCESS;
++        return lis_solver_set_near_nullspace(solver,
++                owner->near_nullspace_dim,owner->near_nullspace);
++}
++
++
++/* Keep the owned shifted CSR alive as long as its preconditioner.
++ * Do not materialize for operator-capable preconditioners, or change
++ * the existing distributed operator path. */
++LIS_INT
++lis_esolver_create_shifted_operator(
++        LIS_MATRIX A,LIS_MATRIX B,LIS_SCALAR shift,
++        LIS_SOLVER solver,LIS_MATRIX *out)
++{
++        LIS_INT err, type;
++        LIS_MATRIX op = NULL;
++
++        *out = NULL;
++        err = lis_matrix_create_operator(1.0,A,-shift,B,&op);
++        if( err ) return err;
++
++        type = solver->options[LIS_OPTIONS_PRECON];
++        if( op->nprocs==1 &&
++            (type==LIS_PRECON_TYPE_MFAMG ||
++             type==LIS_PRECON_TYPE_MFAMG_ILUTP ||
++             (type==LIS_PRECON_TYPE_ILUT &&
++              solver->ilutp_enabled)) )
++        {
++                err = lis_matrix_materialize_csr_owned(op,out);
++                lis_matrix_destroy(op);
++                return err;
++        }
++
++        *out = op;
++        return LIS_SUCCESS;
++}
+ 
+ #undef __FUNC__
+ #define __FUNC__ "lis_esolver_set_linear_options"
+@@ -1169,6 +1274,26 @@
+ 		LIS_SETERR1(LIS_ERR_ILL_ARG,"Size n(=%D) of matrix B is less than 0\n",B->gn);
+ 		return LIS_ERR_ILL_ARG;
+ 	}
++
++        if( esolver->inner_near_nullspace_owner )
++        {
++                LIS_SOLVER owner=esolver->inner_near_nullspace_owner;
++                LIS_VECTOR v=owner->near_nullspace[0];
++                LIS_INT method=esolver->options[LIS_EOPTIONS_ESOLVER];
++                if( B==NULL ||
++                    (method==LIS_ESOLVER_GLI && esolver->transform==LIS_EIGEN_TRANSFORM_AUTO) ||
++                    (method!=LIS_ESOLVER_GLI && method!=LIS_ESOLVER_GII) ||
++                    esolver->options[LIS_EOPTIONS_PRECISION]!=LIS_PRECISION_DOUBLE )
++                        { esolver->retcode=LIS_ERR_NOT_IMPLEMENTED; return LIS_ERR_NOT_IMPLEMENTED; }
++                if( method==LIS_ESOLVER_GLI && esolver->block_size==1 &&
++                    !esolver->options[LIS_EOPTIONS_RVAL] &&
++                    esolver->options[LIS_EOPTIONS_INNER_GENERALIZED_ESOLVER]!=LIS_ESOLVER_GII )
++                        { esolver->retcode=LIS_ERR_NOT_IMPLEMENTED; return LIS_ERR_NOT_IMPLEMENTED; }
++                if( v->gn!=x->gn || v->n!=x->n || v->is!=x->is ||
++                    v->ie!=x->ie || v->origin!=x->origin ||
++                    v->precision!=x->precision || v->nprocs!=x->nprocs )
++                        { esolver->retcode=LIS_ERR_ILL_ARG; return LIS_ERR_ILL_ARG; }
++        }
+ 
+ 	nesolver = esolver->options[LIS_EOPTIONS_ESOLVER];
+ 	niesolver = esolver->options[LIS_EOPTIONS_INNER_ESOLVER];
+--- a/src/precon/lis_precon.c
++++ b/src/precon/lis_precon.c
+@@ -881,10 +881,11 @@
+ 
+     /* The MFAMG+ILUTP built-in owns this slot. Exposing or overwriting
+      * it through the public user-data API would corrupt child ownership. */
+-    if( precon->precon_type==LIS_PRECON_TYPE_MFAMG_ILUTP )
++    if( precon->precon_type==LIS_PRECON_TYPE_MFAMG_ILUTP ||
++        (precon->precon_type==LIS_PRECON_TYPE_ILUT && precon->user_destroy) )
+     {
+         LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+-                   "MFAMG_ILUTP user_data is reserved for built-in state\n");
++                   "Built-in preconditioner user_data is reserved for built-in state\n");
+         return LIS_ERR_NOT_IMPLEMENTED;
+     }
+ 
+@@ -913,10 +914,11 @@
+ 
+     /* Never expose the composite's owned child/state pointer as
+      * arbitrary application-controlled preconditioner user_data. */
+-    if( precon->precon_type==LIS_PRECON_TYPE_MFAMG_ILUTP )
++    if( precon->precon_type==LIS_PRECON_TYPE_MFAMG_ILUTP ||
++        (precon->precon_type==LIS_PRECON_TYPE_ILUT && precon->user_destroy) )
+     {
+         LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+-                   "MFAMG_ILUTP user_data is reserved for built-in state\n");
++                   "Built-in preconditioner user_data is reserved for built-in state\n");
+         return LIS_ERR_NOT_IMPLEMENTED;
+     }
+ 
+--- a/src/precon/lis_precon_ilut.c
++++ b/src/precon/lis_precon_ilut.c
+@@ -68,6 +68,7 @@
+ 
+ /* Fixed-pattern numerical refactorization is shared with ILU(k). */
+ LIS_INT lis_numerical_fact_csr(LIS_SOLVER solver, LIS_PRECON precon);
++LIS_INT lis_ilutp_refresh_attached(LIS_SOLVER solver,LIS_PRECON precon);
+ 
+ /* Isolated opt-in ILUTP implementation, compiled with the ILUT module. */
+ #include "lis_precon_ilutp.inc"
+@@ -238,6 +239,8 @@
+      * Keep the first implementation conservative: fall back to the normal
+      * sequence rebuild instead of reconstructing those arrays here.
+      */
++    if(solver->ilutp_enabled && getenv("LIS_EXPERIMENT_ILUTP_REUSE"))
++        return lis_ilutp_refresh_attached(solver,precon);
+     /* Frozen ILUT does not transport the ILUTP column permutation. */
+     if(solver->ilutp_enabled || precon->ilutp_colperm ||
+        solver->ilut_equil || precon->ilut_col_scale || precon->ilut_perm)
+@@ -301,6 +304,12 @@
+  * sparsity graph, so it is also defined for nonsymmetric FEA matrices.
+  * This is not hypre's ddPQ pivot matching or a distributed RAS solver.
+  */
++#if !defined(_COMPLEX) && !defined(USE_COMPLEX)
++#include "lis_ilut_min_degree.inc"
++#include "lis_ilutp_refactor.inc"
++#else
++LIS_INT lis_ilutp_refresh_attached(LIS_SOLVER s,LIS_PRECON p) { (void)s;(void)p;return LIS_ERR_NOT_IMPLEMENTED; }
++#endif
+ static LIS_INT
+ lis_ilut_ordered_create(LIS_SOLVER solver, LIS_PRECON precon)
+ {
+@@ -319,6 +328,7 @@
+     LIS_INT *perm=NULL;
+     LIS_SCALAR *weights=NULL,*colweights=NULL;
+     LIS_REAL *colmax=NULL;
++    int md=getenv("LIS_EXPERIMENT_ILUTP_MD")!=NULL;
+ 
+     if(A->nprocs!=1 || A->is!=0 || A->n!=A->gn ||
+        A->matrix_type!=LIS_MATRIX_CSR ||
+@@ -359,7 +369,14 @@
+     }
+ 
+ 
+-    if(solver->ilut_rcm)
++    if(md) {
++        uint64_t limit=(uint64_t)A->nnz*20;
++        if(limit>INT32_MAX)limit=INT32_MAX;
++        if(limit<(uint64_t)n*4)limit=(uint64_t)n*4;
++        if(!solver->ilutp_enabled || !solver->ilutp_full || solver->ilutp_threshold!=0.0 || solver->ilut_rcm || solver->ilutp_full_limit<0 || !getenv("LIS_EXPERIMENT_ILUTP_SYMBOLIC")) {err=LIS_ERR_NOT_IMPLEMENTED;goto cleanup;}
++        if(solver->ilutp_full_limit)limit=(uint64_t)solver->ilutp_full_limit;
++        err=lis_ilut_min_degree(A,perm,limit);if(err)goto cleanup;
++    } else if(solver->ilut_rcm)
+     {
+         degree=(LIS_INT *)lis_malloc((size_t)n*sizeof(LIS_INT),"ILUT RCM degrees");
+         graphptr=(LIS_INT *)lis_malloc(((size_t)n+1)*sizeof(LIS_INT),"ILUT RCM ptr");
+@@ -497,6 +514,9 @@
+         }
+     }
+ 
++    if(md) {
++        err=lis_ilut_md_permute(A,P,perm,inv,weights,colweights);if(err)goto cleanup;
++    } else {
+     for(i=0;i<n;i++)
+     {
+         old=perm[i];
+@@ -514,6 +534,7 @@
+     }
+     err=lis_matrix_assemble(P);
+     if(err) goto cleanup;
++    }
+ 
+     solver->A=P;
+     err=solver->ilutp_enabled ?
+@@ -590,6 +611,7 @@
+ 
+ 	LIS_DEBUG_FUNC_IN;
+ 
++    if(getenv("LIS_EXPERIMENT_ILUTP_MD") && (!solver->ilutp_enabled || !solver->ilutp_full || solver->ilutp_threshold!=0.0 || solver->ilut_rcm || solver->ilut_ras_overlap>=0 || solver->ilut_schur || solver->A->matrix_type!=LIS_MATRIX_CSR)) return LIS_ERR_NOT_IMPLEMENTED;
+ 	if(solver->ilut_ras_overlap>=0 || solver->ilut_schur)
+ 	{
+ 		if(solver->ilut_ras_overlap<0) return LIS_ERR_ILL_ARG;
+@@ -670,6 +692,9 @@
+ 		precon);
+ 
+ 	if( err ) return err;
++#if !defined(USE_MPI) && !defined(_COMPLEX) && !defined(USE_COMPLEX)
++    err=reuse_attach(solver,precon);if(err)return err;
++#endif
+ 
+ 	LIS_DEBUG_FUNC_OUT;
+     return LIS_SUCCESS;
+@@ -1458,6 +1483,17 @@
+  * Workspace ownership is per preconditioner; concurrent applies to
+  * the SAME preconditioner must be externally serialized.
+  */
++#if !defined(_COMPLEX) && !defined(USE_COMPLEX)
++/* Four independent reduction chains; experimental reassociation. */
++static inline LIS_SCALAR lis_ilutp_dot4(LIS_SCALAR v,LIS_INT n,const LIS_INT *idx,const LIS_SCALAR *a,const LIS_SCALAR *x)
++{
++    LIS_INT k=0; LIS_SCALAR p0=0,p1=0,p2=0,p3=0;
++    for(;k+3<n;k+=4) {p0+=a[k]*x[idx[k]];p1+=a[k+1]*x[idx[k+1]];p2+=a[k+2]*x[idx[k+2]];p3+=a[k+3]*x[idx[k+3]];}
++    v-=(p0+p1)+(p2+p3);
++    for(;k<n;k++) v-=a[k]*x[idx[k]];
++    return v;
++}
++#endif
+ static LIS_INT
+ lis_ilut_ordered_apply(LIS_SOLVER solver, LIS_VECTOR B, LIS_VECTOR X,
+                        LIS_INT adjoint)
+@@ -1471,7 +1507,8 @@
+ #ifdef _OPENMP
+     /* Changing OMP_NUM_THREADS after ILUTP construction must not silently
+      * apply a permutation through the block-parallel ILUT kernels. */
+-    if(pc->ilutp_colperm && omp_get_max_threads()!=1)
++    if(pc->ilutp_colperm && omp_get_max_threads()!=1 &&
++       !(solver->ilutp_full && solver->ilutp_threshold==0.0 && getenv("LIS_EXPERIMENT_ILUTP_SYMBOLIC") && getenv("LIS_EXPERIMENT_ILUTP_SERIAL_APPLY")))
+     {
+         LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+             "ILUTP apply requires one active OpenMP thread");
+@@ -1493,10 +1530,32 @@
+         rhs->value[i]=B->value[pc->ilut_perm[j]] *
+             (adjoint ? colscale : pc->ilut_row_scale[i]);
+     }
+-    pc->ilut_apply_active=1;
+-    err=adjoint ? lis_psolveh_ilut_csr(solver,rhs,sol) :
+-                  lis_psolve_ilut_csr(solver,rhs,sol);
+-    pc->ilut_apply_active=0;
++    /* Global factors must never be applied by the block-local OMP kernels.
++     * The experimental path keeps both triangular substitutions serial;
++     * the outer solver's SpMV, dot products and vector ops can use threads. */
++#if !defined(_COMPLEX) && !defined(USE_COMPLEX)
++    if(pc->ilutp_colperm && solver->ilutp_full && solver->ilutp_threshold==0.0 && getenv("LIS_EXPERIMENT_ILUTP_SYMBOLIC") && getenv("LIS_EXPERIMENT_ILUTP_SERIAL_APPLY")) {
++        LIS_INT k; LIS_SCALAR *x=sol->value; LIS_MATRIX_ILU L=pc->L,U=pc->U;
++        memcpy(x,rhs->value,(size_t)n*sizeof(*x));
++        if(!adjoint && getenv("LIS_EXPERIMENT_ILUTP_DOT4")) {
++            for(i=0;i<n;i++) x[i]=lis_ilutp_dot4(x[i],L->nnz[i],L->index[i],L->value[i],x);
++            for(i=n;i-->0;) x[i]=pc->D->value[i]*lis_ilutp_dot4(x[i],U->nnz[i],U->index[i],U->value[i],x);
++        } else if(!adjoint) {
++            for(i=0;i<n;i++) {LIS_SCALAR v=x[i];for(k=0;k<L->nnz[i];k++) v-=L->value[i][k]*x[L->index[i][k]];x[i]=v;}
++            for(i=n;i-->0;) {LIS_SCALAR v=x[i];for(k=0;k<U->nnz[i];k++) v-=U->value[i][k]*x[U->index[i][k]];x[i]=pc->D->value[i]*v;}
++        } else {
++            for(i=0;i<n;i++) {x[i]*=pc->D->value[i];for(k=0;k<U->nnz[i];k++) x[U->index[i][k]]-=U->value[i][k]*x[i];}
++            for(i=n;i-->0;) for(k=0;k<L->nnz[i];k++) x[L->index[i][k]]-=L->value[i][k]*x[i];
++        }
++        err=LIS_SUCCESS;
++    } else
++#endif
++    {
++        pc->ilut_apply_active=1;
++        err=adjoint ? lis_psolveh_ilut_csr(solver,rhs,sol) :
++                      lis_psolve_ilut_csr(solver,rhs,sol);
++        pc->ilut_apply_active=0;
++    }
+     if(err) return err;
+     for(i=0;i<n;i++)
+     {
+--- a/src/precon/lis_precon_ilutp.inc
++++ b/src/precon/lis_precon_ilutp.inc
+@@ -109,6 +109,373 @@
+     a[i]=last;
+     return first;
+ }
++
++/* Experimental fixed-pattern full LU for symmetric CSR structure.
++ * Numeric values need not be symmetric. No pivoting or dropping.
++ * Separate symbolic reach allows a marker-free numeric scatter.
++ */
++#if !defined(_COMPLEX) && !defined(USE_COMPLEX)
++static int lis_ilutp_cmp_index(const void *a,const void *b)
++{
++    LIS_INT x=*(const LIS_INT*)a,y=*(const LIS_INT*)b;
++    return (x>y)-(x<y);
++}
++/* Each row writes its own factors, reads only completed dependency rows. */
++static LIS_INT lis_ilutp_numeric_row(LIS_MATRIX A,LIS_MATRIX_ILU L,LIS_MATRIX_ILU U,LIS_VECTOR D,
++  LIS_INT i,LIS_SCALAR *w,const unsigned char *pairable,const LIS_INT *sp,const LIS_INT *se,
++  int runs,int pairs,int groups,int group8,uint64_t *pairs_used,uint64_t *groups3,uint64_t *groups4,uint64_t *groups8,const LIS_INT *perm,const LIS_INT *inv)
++{
++    LIS_INT n=A->n,j,k,t,c; LIS_SCALAR f,pivot;
++        if(perm) {
++            LIS_INT old=perm[i];
++            for(k=A->ptr[old];k<A->ptr[old+1];k++) {
++                LIS_SCALAR v=A->value[k];
++                if(!isfinite((double)v))return LIS_ERR_ILL_ARG;
++                w[inv[A->index[k]]]=v;
++            }
++        } else {
++            for(k=A->ptr[i];k<A->ptr[i+1];k++) w[A->index[k]]=A->value[k];
++        }
++        for(t=0;t<L->nnz[i];t++) {
++            j=L->index[i][t]; f=w[j]*D->value[j];
++            if(!isfinite((double)f)) {return LIS_BREAKDOWN;}
++            L->value[i][t]=f; w[j]=0;
++            /* Eight-row fused update, with the same sequential arithmetic. */
++            if(group8 && groups && pairs && f!=0 && j+7<n && t+7<L->nnz[i] &&
++               pairable[j+0] && pairable[j+1] && pairable[j+2] && pairable[j+3] && pairable[j+4] && pairable[j+5] && pairable[j+6] &&
++               L->index[i][t+1]==j+1 && L->index[i][t+2]==j+2 && L->index[i][t+3]==j+3 && L->index[i][t+4]==j+4 && L->index[i][t+5]==j+5 && L->index[i][t+6]==j+6 && L->index[i][t+7]==j+7) {
++                const LIS_SCALAR *v0=U->value[j+0]; const LIS_SCALAR *v1=U->value[j+1]; const LIS_SCALAR *v2=U->value[j+2]; const LIS_SCALAR *v3=U->value[j+3]; const LIS_SCALAR *v4=U->value[j+4]; const LIS_SCALAR *v5=U->value[j+5]; const LIS_SCALAR *v6=U->value[j+6]; const LIS_SCALAR *v7=U->value[j+7];
++                LIS_SCALAR f1,f2,f3,f4,f5,f6,f7;
++                const LIS_INT *idx=U->index[j+7]; LIS_INT len=U->nnz[j+7];
++                w[j+1]-=f*v0[0];
++                f1=w[j+1]*D->value[j+1];
++                if(!isfinite((double)f1)) {return LIS_BREAKDOWN;}
++                L->value[i][t+1]=f1; w[j+1]=0;
++                w[j+2]-=f*v0[1];
++                if(f1!=0) w[j+2]-=f1*v1[0];
++                f2=w[j+2]*D->value[j+2];
++                if(!isfinite((double)f2)) {return LIS_BREAKDOWN;}
++                L->value[i][t+2]=f2; w[j+2]=0;
++                w[j+3]-=f*v0[2];
++                if(f1!=0) w[j+3]-=f1*v1[1];
++                if(f2!=0) w[j+3]-=f2*v2[0];
++                f3=w[j+3]*D->value[j+3];
++                if(!isfinite((double)f3)) {return LIS_BREAKDOWN;}
++                L->value[i][t+3]=f3; w[j+3]=0;
++                w[j+4]-=f*v0[3];
++                if(f1!=0) w[j+4]-=f1*v1[2];
++                if(f2!=0) w[j+4]-=f2*v2[1];
++                if(f3!=0) w[j+4]-=f3*v3[0];
++                f4=w[j+4]*D->value[j+4];
++                if(!isfinite((double)f4)) {return LIS_BREAKDOWN;}
++                L->value[i][t+4]=f4; w[j+4]=0;
++                w[j+5]-=f*v0[4];
++                if(f1!=0) w[j+5]-=f1*v1[3];
++                if(f2!=0) w[j+5]-=f2*v2[2];
++                if(f3!=0) w[j+5]-=f3*v3[1];
++                if(f4!=0) w[j+5]-=f4*v4[0];
++                f5=w[j+5]*D->value[j+5];
++                if(!isfinite((double)f5)) {return LIS_BREAKDOWN;}
++                L->value[i][t+5]=f5; w[j+5]=0;
++                w[j+6]-=f*v0[5];
++                if(f1!=0) w[j+6]-=f1*v1[4];
++                if(f2!=0) w[j+6]-=f2*v2[3];
++                if(f3!=0) w[j+6]-=f3*v3[2];
++                if(f4!=0) w[j+6]-=f4*v4[1];
++                if(f5!=0) w[j+6]-=f5*v5[0];
++                f6=w[j+6]*D->value[j+6];
++                if(!isfinite((double)f6)) {return LIS_BREAKDOWN;}
++                L->value[i][t+6]=f6; w[j+6]=0;
++                w[j+7]-=f*v0[6];
++                if(f1!=0) w[j+7]-=f1*v1[5];
++                if(f2!=0) w[j+7]-=f2*v2[4];
++                if(f3!=0) w[j+7]-=f3*v3[3];
++                if(f4!=0) w[j+7]-=f4*v4[2];
++                if(f5!=0) w[j+7]-=f5*v5[1];
++                if(f6!=0) w[j+7]-=f6*v6[0];
++                f7=w[j+7]*D->value[j+7];
++                if(!isfinite((double)f7)) {return LIS_BREAKDOWN;}
++                L->value[i][t+7]=f7; w[j+7]=0;
++                t+=7; (*groups8)++;
++                if(f1!=0 && f2!=0 && f3!=0 && f4!=0 && f5!=0 && f6!=0 && f7!=0) for(c=0;c<len;c++) { LIS_SCALAR z=w[idx[c]];
++                    z-=f*v0[c+7];
++                    z-=f1*v1[c+6];
++                    z-=f2*v2[c+5];
++                    z-=f3*v3[c+4];
++                    z-=f4*v4[c+3];
++                    z-=f5*v5[c+2];
++                    z-=f6*v6[c+1];
++                    z-=f7*v7[c+0];
++                    w[idx[c]]=z;
++                } else for(c=0;c<len;c++) { LIS_SCALAR z=w[idx[c]];
++                    z-=f*v0[c+7];
++                    if(f1!=0) z-=f1*v1[c+6];
++                    if(f2!=0) z-=f2*v2[c+5];
++                    if(f3!=0) z-=f3*v3[c+4];
++                    if(f4!=0) z-=f4*v4[c+3];
++                    if(f5!=0) z-=f5*v5[c+2];
++                    if(f6!=0) z-=f6*v6[c+1];
++                    if(f7!=0) z-=f7*v7[c+0];
++                    w[idx[c]]=z;
++                }
++                continue;
++            }
++            /* Fused three/four-row updates: chain of identical trailing
++             * patterns, and consecutive entries in this lower row. */
++            if(groups && pairs && f!=0 && j+2<n && t+2<L->nnz[i] &&
++               pairable[j] && pairable[j+1] && L->index[i][t+2]==j+2 && L->index[i][t+1]==j+1) {
++                const LIS_SCALAR *v1=U->value[j],*v2=U->value[j+1],*v3=U->value[j+2];
++                const LIS_INT *idx; LIS_INT len; LIS_SCALAR g,h;
++                w[j+1]-=f*v1[0]; g=w[j+1]*D->value[j+1];
++                w[j+2]-=f*v1[1]; if(g!=0) w[j+2]-=g*v2[0]; h=w[j+2]*D->value[j+2];
++                if(!isfinite((double)g)||!isfinite((double)h)) {return LIS_BREAKDOWN;}
++                L->value[i][++t]=g; L->value[i][++t]=h; w[j+1]=0; w[j+2]=0;
++                if(j+3<n && t+1<L->nnz[i] && pairable[j+2] && L->index[i][t+1]==j+3) {
++                    const LIS_SCALAR *v4=U->value[j+3]; LIS_SCALAR q;
++                    w[j+3]-=f*v1[2]; if(g!=0) w[j+3]-=g*v2[1]; if(h!=0) w[j+3]-=h*v3[0]; q=w[j+3]*D->value[j+3];
++                    if(!isfinite((double)q)) {return LIS_BREAKDOWN;}
++                    L->value[i][++t]=q; w[j+3]=0; (*groups4)++;
++                    idx=U->index[j+3]; len=U->nnz[j+3];
++                    if(g!=0 && h!=0 && q!=0) for(c=0;c<len;c++) {LIS_SCALAR z=w[idx[c]];z-=f*v1[c+3];z-=g*v2[c+2];z-=h*v3[c+1];z-=q*v4[c];w[idx[c]]=z;}
++                    else for(c=0;c<len;c++) {LIS_SCALAR z=w[idx[c]];z-=f*v1[c+3];if(g!=0) z-=g*v2[c+2];if(h!=0) z-=h*v3[c+1];if(q!=0) z-=q*v4[c];w[idx[c]]=z;}
++                } else {
++                    (*groups3)++; idx=U->index[j+2]; len=U->nnz[j+2];
++                    if(g!=0 && h!=0) for(c=0;c<len;c++) {LIS_SCALAR z=w[idx[c]];z-=f*v1[c+2];z-=g*v2[c+1];z-=h*v3[c];w[idx[c]]=z;}
++                    else for(c=0;c<len;c++) {LIS_SCALAR z=w[idx[c]];z-=f*v1[c+2];if(g!=0) z-=g*v2[c+1];if(h!=0) z-=h*v3[c];w[idx[c]]=z;}
++                }
++                continue;
++            }
++            if(pairs && pairable[j] && t+1<L->nnz[i] && L->index[i][t+1]==j+1 && f!=0) {
++                const LIS_SCALAR *v1=U->value[j],*v2=U->value[j+1];
++                const LIS_INT *idx=U->index[j+1]; LIS_INT len=U->nnz[j+1];
++                LIS_SCALAR g;
++                w[j+1]-=f*v1[0]; g=w[j+1]*D->value[j+1];
++                if(!isfinite((double)g)) {return LIS_BREAKDOWN;}
++                L->value[i][++t]=g; w[j+1]=0; (*pairs_used)++;
++                if(g!=0) for(c=0;c<len;c++) {LIS_SCALAR z=w[idx[c]]; z-=f*v1[c+1]; z-=g*v2[c]; w[idx[c]]=z;}
++                else for(c=0;c<len;c++) w[idx[c]]-=f*v1[c+1];
++                continue;
++            }
++            if(f!=0) {
++                LIS_INT len=U->nnz[j]; const LIS_INT *idx=U->index[j]; const LIS_SCALAR *val=U->value[j];
++                if(runs) {
++                    LIS_INT seg,beg=0,stop;
++                    for(seg=sp[j];seg<sp[j+1];seg++) {
++                        stop=se[seg];
++                        if(stop>0) {
++                            LIS_SCALAR *dst=w+idx[beg]; const LIS_SCALAR *src=val+beg;
++                            LIS_INT count_run=stop-beg;
++                            #pragma omp simd
++                            for(c=0;c<count_run;c++) dst[c]-=f*src[c];
++                        } else {
++                            stop=-stop;
++                            for(c=beg;c<stop;c++) w[idx[c]]-=f*val[c];
++                        }
++                        beg=stop;
++                    }
++                } else for(c=0;c<len;c++) w[idx[c]]-=f*val[c];
++            }
++        }
++        pivot=w[i]; w[i]=0;
++        if(!isfinite((double)pivot)||pivot==0||!isfinite(1.0/(double)pivot)) {return LIS_BREAKDOWN;}
++        D->value[i]=1.0/pivot;
++        for(t=0;t<U->nnz[i];t++) {
++            j=U->index[i][t]; f=w[j]; w[j]=0;
++            if(!isfinite((double)f)) {return LIS_BREAKDOWN;}
++            U->value[i][t]=f;
++        }
++    return LIS_SUCCESS;
++}
++static LIS_INT lis_ilutp_full_symbolic(LIS_MATRIX A,LIS_PRECON precon,uint64_t limit)
++{
++    LIS_INT n=A->n,i,j,k,t,m,lo,hi,mid,err=LIS_SUCCESS;
++    LIS_INT *parent=NULL,*mark=NULL,*reach=NULL,*count=NULL,*perm=NULL;
++    LIS_MATRIX_ILU L=NULL,U=NULL;
++    LIS_VECTOR D=NULL;
++    LIS_SCALAR *w=NULL;
++    uint64_t used=0,segments=0,contiguous=0;
++    LIS_INT *sp=NULL,*se=NULL,si,start,end,sc,k0;
++    double clock0=lis_wtime(),validate_time=0,symbolic_time=0,segment_time=0,numeric_time=0;
++    unsigned char *pairable=NULL;
++    uint64_t pairs_used=0,pairs_possible=0,groups4=0,groups3=0,groups8=0;
++    int group8=getenv("LIS_EXPERIMENT_ILUTP_GROUP8")!=NULL;
++    int groups=getenv("LIS_EXPERIMENT_ILUTP_GROUPS")!=NULL;
++    int pairs=getenv("LIS_EXPERIMENT_ILUTP_PAIRS")!=NULL;
++    int runs=getenv("LIS_EXPERIMENT_ILUTP_RUNS")!=NULL;
++    /* Only sorted, duplicate-free, structurally symmetric CSR is supported.
++     * Validate all rows before binary-searching transposed entries. */
++    for(i=0;i<n;i++) {
++        if(A->ptr[i]<0 || A->ptr[i+1]<A->ptr[i] || A->ptr[i+1]>A->nnz)
++            return LIS_ERR_ILL_ARG;
++        for(k=A->ptr[i];k<A->ptr[i+1];k++) {
++            j=A->index[k];
++            if(j<0 || j>=n || !isfinite((double)A->value[k])) return LIS_ERR_ILL_ARG;
++            if(k>A->ptr[i] && A->index[k-1]>=j) return LIS_ERR_NOT_IMPLEMENTED;
++        }
++    }
++    for(i=0;i<n;i++) for(k=A->ptr[i];k<A->ptr[i+1];k++) {
++        j=A->index[k]; if(j==i) continue;
++        lo=A->ptr[j]; hi=A->ptr[j+1];
++        while(lo<hi) {mid=lo+(hi-lo)/2; if(A->index[mid]<i) lo=mid+1; else hi=mid;}
++        if(lo==A->ptr[j+1] || A->index[lo]!=i) return LIS_ERR_NOT_IMPLEMENTED;
++    }
++    validate_time=lis_wtime()-clock0; clock0=lis_wtime();
++    parent=lis_malloc((size_t)n*sizeof(*parent),"symbolic LU parent");
++    mark=lis_malloc((size_t)n*sizeof(*mark),"symbolic LU mark");
++    reach=lis_malloc((size_t)n*sizeof(*reach),"symbolic LU reach");
++    count=lis_malloc((size_t)n*sizeof(*count),"symbolic LU count");
++    perm=lis_malloc((size_t)n*sizeof(*perm),"symbolic LU identity");
++    w=lis_malloc((size_t)n*sizeof(*w),"symbolic LU workspace");
++    if(!parent||!mark||!reach||!count||!perm||!w) {err=LIS_OUT_OF_MEMORY;goto done;}
++    for(i=0;i<n;i++) {parent[i]=-1; mark[i]=-1; count[i]=0; perm[i]=i; w[i]=0;}
++    if((err=lis_matrix_ilu_create(n,1,&L)) || (err=lis_matrix_ilu_create(n,1,&U)) ||
++       (err=lis_matrix_ilu_setCR(L)) || (err=lis_matrix_ilu_setCR(U)) ||
++       (err=lis_vector_duplicate(A,&D))) goto done;
++    /* Compute elimination tree and each lower row pattern. Every visited
++     * node is a structural lower entry. Parent always exceeds child. */
++    for(i=0;i<n;i++) {
++        m=0; mark[i]=i;
++        for(k=A->ptr[i];k<A->ptr[i+1] && A->index[k]<i;k++) {
++            j=A->index[k];
++            while(mark[j]!=i) {
++                mark[j]=i; reach[m++]=j;
++                if(parent[j]<0) parent[j]=i;
++                j=parent[j];
++            }
++        }
++        if((uint64_t)m>(limit-used)/2) {err=LIS_OUT_OF_MEMORY;goto done;}
++        used+=2*(uint64_t)m;
++        if(m) {
++            qsort(reach,(size_t)m,sizeof(*reach),lis_ilutp_cmp_index);
++            L->index[i]=malloc((size_t)m*sizeof(LIS_INT));
++            L->value[i]=malloc((size_t)m*sizeof(LIS_SCALAR));
++            if(!L->index[i]||!L->value[i]) {L->nnz[i]=m;err=LIS_OUT_OF_MEMORY;goto done;}
++            L->nnz[i]=m;
++            memcpy(L->index[i],reach,(size_t)m*sizeof(*reach));
++            for(t=0;t<m;t++) count[reach[t]]++;
++        }
++    }
++    for(i=0;i<n;i++) if(count[i]) {
++        U->index[i]=malloc((size_t)count[i]*sizeof(LIS_INT));
++        U->value[i]=malloc((size_t)count[i]*sizeof(LIS_SCALAR));
++        U->nnz[i]=count[i];
++        if(!U->index[i]||!U->value[i]) {err=LIS_OUT_OF_MEMORY;goto done;}
++    }
++    memset(count,0,(size_t)n*sizeof(*count));
++    for(i=0;i<n;i++) for(t=0;t<L->nnz[i];t++) {
++        j=L->index[i][t]; U->index[j][count[j]++]=i;
++    }
++    symbolic_time=lis_wtime()-clock0; clock0=lis_wtime();
++    if(runs) {
++        sp=lis_malloc((size_t)(n+1)*sizeof(*sp),"LU segment offsets");
++        if(!sp) {err=LIS_OUT_OF_MEMORY;goto done;}
++        /* Group adjacent columns into vectorizable runs; combine remaining
++         * indices into scatter segments. Positive end=contiguous, negative=scatter. */
++        for(sc=0;sc<2;sc++) {
++            si=0;
++            for(i=0;i<n;i++) {
++                const LIS_INT *idx=U->index[i]; LIS_INT len=U->nnz[i];
++                sp[i]=si; k0=0; start=0;
++                while(start<len) {
++                    end=start+1;
++                    while(end<len && idx[end]==idx[end-1]+1) end++;
++                    if(end-start>=4) {
++                        if(k0<start) {if(sc) se[si]=-start;si++;}
++                        if(sc) se[si]=end;si++;
++                        if(!sc) contiguous+=(uint64_t)(end-start);
++                        k0=end;
++                    }
++                    start=end;
++                }
++                if(k0<len) {if(sc) se[si]=-len;si++;}
++            }
++            sp[n]=si;
++            if(!sc) {
++                segments=si; se=lis_malloc((size_t)(si?si:1)*sizeof(*se),"LU segment boundaries");
++                if(!se) {err=LIS_OUT_OF_MEMORY;goto done;}
++            }
++        }
++    }
++    if(pairs) {
++        pairable=lis_malloc((size_t)n,"LU adjacent row flags");
++        if(!pairable) {err=LIS_OUT_OF_MEMORY;goto done;}
++        memset(pairable,0,(size_t)n);
++        for(j=0;j<n-1;j++) {
++            LIS_INT len=U->nnz[j];
++            if(len>=2 && U->index[j][0]==j+1 && len==U->nnz[j+1]+1 &&
++               !memcmp(U->index[j]+1,U->index[j+1],(size_t)(len-1)*sizeof(LIS_INT))) {
++                pairable[j]=1; pairs_possible++;
++            }
++        }
++    }
++    segment_time=lis_wtime()-clock0; clock0=lis_wtime();
++    /* Numeric LU: symbolic reach guarantees every touched entry belongs
++     * to this row's L/diagonal/U. Clear all those entries after use.
++     * Check finite coefficients and pivots before exposing the factors. */
++#ifdef _OPENMP
++    if(getenv("LIS_EXPERIMENT_ILUTP_PARALLEL_NUMERIC") && omp_get_max_threads()>1) {
++        LIS_INT *level=parent,*order=reach,*offset=NULL,*cursor=NULL,depth=0,lev,nt=omp_get_max_threads();
++        LIS_SCALAR *work=NULL;
++        uint64_t work_total=0,work_critical=0;
++        /* Symbolic arrays are no longer needed. Compute longest dependency depth. */
++        for(i=0;i<n;i++) {
++            lev=0;
++            for(t=0;t<L->nnz[i];t++) { j=L->index[i][t]; if(lev<level[j]+1) lev=level[j]+1; }
++            level[i]=lev; if(depth<lev+1) depth=lev+1;
++        }
++        offset=calloc((size_t)depth+1,sizeof(*offset)); cursor=calloc((size_t)depth,sizeof(*cursor));
++        if(!offset||!cursor || (size_t)nt>SIZE_MAX/sizeof(*work)/(size_t)n || !(work=calloc((size_t)nt*n,sizeof(*work)))) {
++            free(offset);free(cursor);free(work);err=LIS_OUT_OF_MEMORY;goto done;
++        }
++        for(i=0;i<n;i++) offset[level[i]+1]++;
++        for(lev=0;lev<depth;lev++) {offset[lev+1]+=offset[lev];cursor[lev]=offset[lev];}
++        for(i=0;i<n;i++) order[cursor[level[i]]++]=i;
++        for(lev=0;lev<depth;lev++) {
++            uint64_t maxcost=0;
++            for(k=offset[lev];k<offset[lev+1];k++) {
++                uint64_t cost=0; i=order[k];
++                for(t=0;t<L->nnz[i];t++) cost+=(uint64_t)U->nnz[L->index[i][t]];
++                work_total+=cost;if(cost>maxcost)maxcost=cost;
++            } work_critical+=maxcost;
++        }
++        fprintf(stderr,"LU_LEVELS depth=%d max_threads=%d work=%llu critical=%llu\n",(int)depth,(int)nt,(unsigned long long)work_total,(unsigned long long)work_critical);
++        /* Implicit barriers enforce dependencies between adjacent levels.
++         * A failure is reduced across the whole level before exiting. */
++        #pragma omp parallel reduction(+:pairs_used,groups3,groups4,groups8)
++        {
++            LIS_SCALAR *local=work+(size_t)omp_get_thread_num()*n;
++            for(LIS_INT l=0;l<depth;l++) {
++                #pragma omp for schedule(dynamic,4) reduction(max:err)
++                for(LIS_INT pos=offset[l];pos<offset[l+1];pos++) {
++                    LIS_INT e=lis_ilutp_numeric_row(A,L,U,D,order[pos],local,pairable,sp,se,runs,pairs,groups,group8,&pairs_used,&groups3,&groups4,&groups8,NULL,NULL);
++                    if(e>err) err=e;
++                }
++                if(err!=LIS_SUCCESS) break;
++            }
++        }
++        free(offset);free(cursor);free(work);
++        if(err!=LIS_SUCCESS) goto done;
++    } else
++#endif
++    for(i=0;i<n;i++) {
++        err=lis_ilutp_numeric_row(A,L,U,D,i,w,pairable,sp,se,runs,pairs,groups,group8,
++                                 &pairs_used,&groups3,&groups4,&groups8,NULL,NULL);
++        if(err) goto done;
++    }
++    numeric_time=lis_wtime()-clock0;
++    fprintf(stderr,"LU_PROFILE runs=%d validation=%.6f symbolic=%.6f segment=%.6f numeric=%.6f segments=%llu contiguous=%llu upper=%llu\n",runs,validate_time,symbolic_time,segment_time,numeric_time,(unsigned long long)segments,(unsigned long long)contiguous,(unsigned long long)(used/2));
++    fprintf(stderr,"LU_PAIRS mode=%d possible=%llu used=%llu\n",pairs,(unsigned long long)pairs_possible,(unsigned long long)pairs_used);
++    fprintf(stderr,"LU_GROUPS mode=%d triples=%llu quads=%llu\n",groups,(unsigned long long)groups3,(unsigned long long)groups4);
++    fprintf(stderr,"LU_GROUP8 mode=%d used=%llu\n",group8,(unsigned long long)groups8);
++    precon->L=L;L=NULL;precon->U=U;U=NULL;precon->D=D;D=NULL;
++    precon->ilutp_colperm=perm;perm=NULL;precon->ilutp_swap_count=0;
++ done:
++    lis_matrix_ilu_destroy(L);lis_matrix_ilu_destroy(U);lis_vector_destroy(D);
++    lis_free(sp);lis_free(se);lis_free(pairable);
++    lis_free(parent);lis_free(mark);lis_free(reach);lis_free(count);lis_free(perm);lis_free(w);
++    return err;
++}
++#endif
+ 
+ #undef __FUNC__
+ #define __FUNC__ "lis_precon_create_ilutp_csr"
+@@ -133,7 +500,7 @@
+     uint64_t fill_used=0,fill_limit=0;
+ #ifdef _OPENMP
+     /* Existing ILU triangular kernels partition factors by OpenMP rank. */
+-    if(omp_get_max_threads()!=1)
++    if(omp_get_max_threads()!=1 && !(full && getenv("LIS_EXPERIMENT_ILUTP_SYMBOLIC") && getenv("LIS_EXPERIMENT_ILUTP_SERIAL_APPLY")))
+     {
+         LIS_SETERR(LIS_ERR_NOT_IMPLEMENTED,
+             "ILUTP requires one solver OpenMP thread");
+@@ -210,6 +577,19 @@
+         LIS_SETERR(LIS_ERR_ILL_ARG,"ILUTP requires a fresh preconditioner");
+         return LIS_ERR_ILL_ARG;
+     }
++    if(full && tau==0.0 && getenv("LIS_EXPERIMENT_ILUTP_SYMBOLIC"))
++    {
++        err=lis_ilutp_full_symbolic(A,precon,fill_limit);
++        if(err==LIS_SUCCESS) fprintf(stderr,"ILUTP_SYMBOLIC full LU selected\n");
++        else if(err==LIS_ERR_NOT_IMPLEMENTED) fprintf(stderr,"ILUTP_SYMBOLIC fallback to dynamic LU\n");
++        if(err!=LIS_ERR_NOT_IMPLEMENTED) return err;
++        /* A general CSR falls back to the original dynamic algorithm. */
++    }
++#ifdef _OPENMP
++    /* Only the fixed-pattern no-pivot path is extended to multi-thread
++     * outer solvers. Never enter a legacy block factorization here. */
++    if(omp_get_max_threads()!=1) return LIS_ERR_NOT_IMPLEMENTED;
++#endif
+     /* The no-pivot case is precisely legacy ILUT, including drop/fill
+      * selection and floating-point evaluation order. */
+     if(tau==0.0 && !full)
+--- /dev/null
++++ b/src/precon/lis_ilut_min_degree.inc
+@@ -0,0 +1,75 @@
++/* Experimental, serial exact minimum degree, 32-bit indices. All state
++ * belongs to this call. Input sorted, unique, structurally symmetric CSR.
++ * Permutation new -> old; lower-bound heap, quotient graph.
++ */
++typedef struct { LIS_INT *a,n,cap; } MDVec;
++typedef struct { LIS_INT *heap,*pos,hn; int64_t *key; } MDHeap;
++static int md_less(MDHeap *h,LIS_INT a,LIS_INT b) {
++    return h->key[a]<h->key[b] || (h->key[a]==h->key[b] && a>b);
++}
++static void md_swap(MDHeap *h,LIS_INT a,LIS_INT b) {
++    LIS_INT v=h->heap[a],u=h->heap[b]; h->heap[a]=u;h->heap[b]=v;h->pos[u]=a;h->pos[v]=b;
++}
++static void md_up(MDHeap *h,LIS_INT i) {
++    while(i && md_less(h,h->heap[i],h->heap[(i-1)/2])) {LIS_INT j=(i-1)/2;md_swap(h,i,j);i=j;}
++}
++static void md_down(MDHeap *h,LIS_INT i) {
++    while(i<h->hn/2) {LIS_INT l=2*i+1;if(l+1<h->hn && md_less(h,h->heap[l+1],h->heap[l])) ++l;
++        if(!md_less(h,h->heap[l],h->heap[i])) break;md_swap(h,i,l);i=l;}
++}
++static LIS_INT md_pop(MDHeap *h) {
++    LIS_INT v=h->heap[0];--h->hn;if(h->hn){h->heap[0]=h->heap[h->hn];h->pos[h->heap[0]]=0;md_down(h,0);}h->pos[v]=-1;return v;
++}
++static LIS_INT md_push(MDVec *v,LIS_INT x,MDVec *el) {
++    if(v->n==v->cap) { LIS_INT j=0,i,newcap; LIS_INT *p;
++        for(i=0;i<v->n;i++) if(el[v->a[i]].a) v->a[j++]=v->a[i];v->n=j;
++        if(v->n==v->cap) {if(v->cap>INT32_MAX/2) return LIS_OUT_OF_MEMORY;newcap=v->cap?2*v->cap:4;
++            p=realloc(v->a,(size_t)newcap*sizeof(*p));if(!p)return LIS_OUT_OF_MEMORY;v->a=p;v->cap=newcap;}
++    }v->a[v->n++]=x;return LIS_SUCCESS;
++}
++static LIS_INT lis_ilut_min_degree(LIS_MATRIX A,LIS_INT *perm,uint64_t limit) {
++    LIS_INT n=A->n,i,k,j,v,u,l,r,m,d,step,q,stamp=0,err=LIS_SUCCESS;
++    const LIS_INT *p=A->ptr,*idx=A->index; MDVec *el=NULL,*inc=NULL;MDHeap h={0};
++    LIS_INT *seen=NULL,*mark=NULL,*neighbors=NULL;uint64_t lower=0,checks=0;double t=lis_wtime();
++    if(sizeof(LIS_INT)!=4 || n<=0 || n>=INT32_MAX || !p || !idx || p[0] || p[n]!=A->nnz) return LIS_ERR_ILL_ARG;
++    if((size_t)n>SIZE_MAX/sizeof(MDVec) || (size_t)n>SIZE_MAX/sizeof(int64_t)) return LIS_OUT_OF_MEMORY;
++    for(i=0;i<n;i++) {if(p[i]<0||p[i+1]<p[i]||p[i+1]>A->nnz)return LIS_ERR_ILL_ARG;
++        for(k=p[i];k<p[i+1];k++) if(idx[k]<0||idx[k]>=n||(k>p[i]&&idx[k-1]>=idx[k]))return LIS_ERR_ILL_ARG;}
++    for(i=0;i<n;i++) for(k=p[i];k<p[i+1];k++) {v=idx[k];l=p[v];r=p[v+1];while(l<r){m=l+(r-l)/2;if(idx[m]<i)l=m+1;else r=m;}
++        if(l==p[v+1]||idx[l]!=i)return LIS_ERR_NOT_IMPLEMENTED;}
++    el=calloc((size_t)n,sizeof(*el));inc=calloc((size_t)n,sizeof(*inc));h.heap=malloc((size_t)n*sizeof(*h.heap));h.pos=malloc((size_t)n*sizeof(*h.pos));h.key=malloc((size_t)n*sizeof(*h.key));seen=calloc((size_t)n,sizeof(*seen));mark=malloc((size_t)n*sizeof(*mark));neighbors=malloc((size_t)n*sizeof(*neighbors));
++    if(!el||!inc||!h.heap||!h.pos||!h.key||!seen||!mark||!neighbors){err=LIS_OUT_OF_MEMORY;goto done;}
++    h.hn=n;for(i=0;i<n;i++){h.heap[i]=h.pos[i]=i;mark[i]=-1;h.key[i]=0;for(k=p[i];k<p[i+1];k++)if(idx[k]!=i)h.key[i]++;}for(i=n/2;i-->0;)md_down(&h,i);
++    for(step=0;step<n;step++) {
++        for(;;){v=h.heap[0];d=0;if(++stamp==INT32_MAX){memset(seen,0,(size_t)n*sizeof(*seen));stamp=1;}seen[v]=stamp;
++            for(k=p[v];k<p[v+1];k++){u=idx[k];if(h.pos[u]>=0&&seen[u]!=stamp){seen[u]=stamp;d++;}}
++            for(k=0;k<inc[v].n;k++){MDVec *e=&el[inc[v].a[k]];if(!e->a)continue;for(q=0;q<e->n;q++){u=e->a[q];if(h.pos[u]>=0&&seen[u]!=stamp){seen[u]=stamp;d++;}}}
++            checks++;if(d<h.key[v]){err=LIS_ERR_ILL_ARG;goto done;}if(d==h.key[v])break;h.key[v]=d;md_down(&h,0);
++        }
++        v=md_pop(&h);d=0;perm[step]=v;
++        for(k=p[v];k<p[v+1];k++){u=idx[k];if(h.pos[u]>=0&&mark[u]!=v){mark[u]=v;neighbors[d++]=u;}}
++        for(k=0;k<inc[v].n;k++){MDVec *e=&el[inc[v].a[k]];if(!e->a)continue;for(q=0;q<e->n;q++){u=e->a[q];if(h.pos[u]>=0&&mark[u]!=v){mark[u]=v;neighbors[d++]=u;}}free(e->a);e->a=NULL;e->n=e->cap=0;}
++        free(inc[v].a);inc[v].a=NULL;inc[v].n=inc[v].cap=0;lower+=(uint64_t)d;
++        if(lower>limit/2){err=LIS_OUT_OF_MEMORY;goto done;}
++        if(d==h.hn){for(k=step+1;k<n;k++){perm[k]=md_pop(&h);lower+=(uint64_t)(n-k-1);}if(lower>limit/2)err=LIS_OUT_OF_MEMORY;break;}
++        if(d){el[v].a=malloc((size_t)d*sizeof(*el[v].a));if(!el[v].a){err=LIS_OUT_OF_MEMORY;goto done;}memcpy(el[v].a,neighbors,(size_t)d*sizeof(*neighbors));el[v].n=el[v].cap=d;}
++        for(q=0;q<d;q++){int64_t old;u=neighbors[q];old=h.key[u];h.key[u]=old-1>d-1?old-1:d-1;if((err=md_push(&inc[u],v,el)))goto done;if(h.key[u]<old)md_up(&h,h.pos[u]);else md_down(&h,h.pos[u]);}
++    }
++    if(!err) fprintf(stderr,"ILUT_MD n=%d fill=%llu checks=%llu wall=%.6f\n",(int)n,(unsigned long long)(2*lower),(unsigned long long)checks,lis_wtime()-t);
++done:
++    if(el)for(i=0;i<n;i++)free(el[i].a);if(inc)for(i=0;i<n;i++)free(inc[i].a);free(el);free(inc);free(h.heap);free(h.pos);free(h.key);free(seen);free(mark);free(neighbors);return err;
++}
++/* Construct sorted permuted CSR without the per-entry matrix insertion API. */
++typedef struct { LIS_INT j; LIS_SCALAR v; } MDEntry;
++static int md_entry_cmp(const void *a,const void *b){LIS_INT x=((const MDEntry*)a)->j,y=((const MDEntry*)b)->j;return (x>y)-(x<y);}
++static LIS_INT lis_ilut_md_permute(LIS_MATRIX A,LIS_MATRIX P,const LIS_INT *perm,const LIS_INT *inv,const LIS_SCALAR *weights,const LIS_SCALAR *colweights) {
++    LIS_INT i,k,j,m=0,old,len,off=0,err;LIS_INT *rp=NULL,*rj=NULL;LIS_SCALAR *rv=NULL;MDEntry *tmp=NULL;
++    for(i=0;i<A->n;i++)if(A->ptr[i+1]-A->ptr[i]>m)m=A->ptr[i+1]-A->ptr[i];
++    if((size_t)m>SIZE_MAX/sizeof(*tmp))return LIS_OUT_OF_MEMORY;
++    tmp=malloc((size_t)(m?m:1)*sizeof(*tmp));if(!tmp)return LIS_OUT_OF_MEMORY;
++    err=lis_matrix_malloc_csr(A->n,A->nnz,&rp,&rj,&rv);if(err){free(tmp);return err;}
++    rp[0]=0;for(i=0;i<A->n;i++){old=perm[i];len=A->ptr[old+1]-A->ptr[old];for(k=0;k<len;k++){j=A->ptr[old]+k;tmp[k].j=inv[A->index[j]];tmp[k].v=weights[i]*A->value[j];if(colweights)tmp[k].v*=colweights[tmp[k].j];if(!isfinite((double)tmp[k].v)){err=LIS_ERR_ILL_ARG;goto done;}}
++        qsort(tmp,(size_t)len,sizeof(*tmp),md_entry_cmp);for(k=0;k<len;k++){rj[off]=tmp[k].j;rv[off++]=tmp[k].v;}rp[i+1]=off;}
++    err=lis_matrix_set_csr(A->nnz,rp,rj,rv,P);if(!err){rp=NULL;rj=NULL;rv=NULL;err=lis_matrix_assemble(P);}
++done:free(tmp);lis_free(rp);lis_free(rj);lis_free(rv);return err;
++}
+--- /dev/null
++++ b/src/precon/lis_ilutp_refactor.inc
+@@ -0,0 +1,121 @@
++/* Experimental caller-owned session for fixed-pattern full ILUTP.
++ * No change to public LIS structures. No shared cache. The session owns
++ * its factors and a byte-exact copy of the original CSR pattern.
++ * Any failed refresh invalidates the factors; destroy/recreate session.
++ * Solver and matrices must remain serial real-double CSR. No scaling.
++ */
++#if !defined(USE_MPI) && !defined(_COMPLEX) && !defined(USE_COMPLEX)
++typedef struct LIS_ILUTP_REUSE_STRUCT {
++    LIS_INT n, nnz;
++    LIS_INT *ptr, *index;
++    LIS_PRECON factors;
++} *LIS_ILUTP_REUSE;
++
++static int reuse_config(LIS_SOLVER s) {
++    return s && sizeof(LIS_INT)==4 && sizeof(LIS_SCALAR)==8 &&
++        s->options[LIS_OPTIONS_PRECON]==LIS_PRECON_TYPE_ILUT &&
++        s->options[LIS_OPTIONS_PRECISION]==LIS_PRECISION_DOUBLE &&
++        s->options[LIS_OPTIONS_SCALE]==LIS_SCALE_NONE &&
++        !s->options[LIS_OPTIONS_ADDS] && s->ilutp_enabled && s->ilutp_full &&
++        s->ilutp_threshold==0 && !s->ilut_rcm && !s->ilut_row_scale &&
++        !s->ilut_equil && s->ilut_ras_overlap<0 && !s->ilut_schur &&
++        s->precon_half_mode==LIS_PRECON_HALF_OFF &&
++        getenv("LIS_EXPERIMENT_ILUTP_MD") && getenv("LIS_EXPERIMENT_ILUTP_SYMBOLIC");
++}
++static int reuse_matrix(LIS_MATRIX A) {
++    return A && A->matrix_type==LIS_MATRIX_CSR && A->nprocs==1 && A->is==0 &&
++        A->n==A->gn && A->n>0 && A->nnz>0 && A->ptr && A->index && A->value &&
++        A->ptr[0]==0 && A->ptr[A->n]==A->nnz;
++}
++void lis_ilutp_reuse_destroy(LIS_ILUTP_REUSE c) {
++    if(!c)return;
++    if(c->factors)lis_precon_destroy(c->factors);
++    free(c->ptr);free(c->index);free(c);
++}
++LIS_INT lis_ilutp_reuse_create(LIS_SOLVER s,LIS_MATRIX A,LIS_ILUTP_REUSE *out) {
++    LIS_ILUTP_REUSE c; LIS_INT err; LIS_MATRIX old;
++    if(!out)return LIS_ERR_ILL_ARG;
++    *out=NULL;
++    if(!reuse_config(s)||!reuse_matrix(A))return LIS_ERR_NOT_IMPLEMENTED;
++    c=calloc(1,sizeof(*c));if(!c)return LIS_OUT_OF_MEMORY;
++    c->n=A->n;c->nnz=A->nnz;
++    c->ptr=malloc(((size_t)c->n+1)*sizeof(LIS_INT));
++    c->index=malloc((size_t)c->nnz*sizeof(LIS_INT));
++    if(!c->ptr||!c->index){lis_ilutp_reuse_destroy(c);return LIS_OUT_OF_MEMORY;}
++    memcpy(c->ptr,A->ptr,((size_t)c->n+1)*sizeof(LIS_INT));
++    memcpy(c->index,A->index,(size_t)c->nnz*sizeof(LIS_INT));
++    old=s->A;s->A=A;err=lis_precon_create(s,&c->factors);s->A=old;
++    /* lis_precon_create destroys its output on failure in this version. */
++    if(err){c->factors=NULL;lis_ilutp_reuse_destroy(c);return err;}
++    if(!c->factors->ilut_perm||!c->factors->ilutp_colperm||c->factors->ilutp_swap_count||!c->factors->L||!c->factors->U||!c->factors->D){lis_ilutp_reuse_destroy(c);return LIS_ERR_NOT_IMPLEMENTED;}
++    *out=c;return LIS_SUCCESS;
++}
++LIS_PRECON lis_ilutp_reuse_factors(LIS_ILUTP_REUSE c){return c?c->factors:NULL;}
++static LIS_INT reuse_refresh_impl(LIS_ILUTP_REUSE c,LIS_SOLVER s,LIS_MATRIX A) {
++    LIS_INT err=LIS_ERR_ILL_ARG,i,j,n,*inv=NULL;
++    LIS_PRECON p;
++    LIS_SCALAR *w=NULL;unsigned char *pairable=NULL;
++    uint64_t fill=0,pairs_used=0,g3=0,g4=0,g8=0,limit;
++    int pairs=getenv("LIS_EXPERIMENT_ILUTP_PAIRS")!=NULL;
++    int groups=getenv("LIS_EXPERIMENT_ILUTP_GROUPS")!=NULL;
++    int group8=getenv("LIS_EXPERIMENT_ILUTP_GROUP8")!=NULL;
++    double t=lis_wtime(),verify=0,permute=0,numeric=0;
++    if(!c||!(p=c->factors))return LIS_ERR_ILL_ARG;
++    n=c->n;
++    if(!reuse_config(s)||!reuse_matrix(A)||A->n!=n||A->nnz!=c->nnz||s->ilutp_full_limit<0)goto done;
++    if(memcmp(c->ptr,A->ptr,((size_t)n+1)*sizeof(LIS_INT))||memcmp(c->index,A->index,(size_t)c->nnz*sizeof(LIS_INT)))goto done;
++    for(i=0;i<n;i++)fill+=(uint64_t)p->L->nnz[i]+p->U->nnz[i];
++    limit=s->ilutp_full_limit?(uint64_t)s->ilutp_full_limit:(uint64_t)c->nnz*20;
++    if(!s->ilutp_full_limit){if(limit>INT32_MAX)limit=INT32_MAX;if(limit<(uint64_t)n*4)limit=(uint64_t)n*4;}
++    if(fill>limit){err=LIS_OUT_OF_MEMORY;goto done;}
++    verify=lis_wtime()-t;t=lis_wtime();
++    inv=malloc((size_t)n*sizeof(*inv));w=calloc((size_t)n,sizeof(*w));pairable=calloc((size_t)n,1);
++    if(!inv||!w||!pairable){err=LIS_OUT_OF_MEMORY;goto done;}
++    for(i=0;i<n;i++)inv[p->ilut_perm[i]]=i;
++    if(pairs)for(j=0;j<n-1;j++){
++        LIS_INT len=p->U->nnz[j];
++        if(len>=2 && p->U->index[j][0]==j+1 && len==p->U->nnz[j+1]+1 &&
++           !memcmp(p->U->index[j]+1,p->U->index[j+1],(size_t)(len-1)*sizeof(LIS_INT)))pairable[j]=1;
++    }
++    permute=lis_wtime()-t;t=lis_wtime();
++    /* Reuse complete symbolic pattern; sequential row kernel, no RUNS. */
++    for(i=0;i<n;i++)if((err=lis_ilutp_numeric_row(A,p->L,p->U,p->D,i,w,pairable,NULL,NULL,0,pairs,groups,group8,&pairs_used,&g3,&g4,&g8,p->ilut_perm,inv)))goto done;
++    numeric=lis_wtime()-t;
++    fprintf(stderr,"REUSE verify=%.6f permute=%.6f numeric=%.6f fill=%llu\n",verify,permute,numeric,(unsigned long long)fill);
++ done:
++    free(inv);free(w);free(pairable);
++    return err;
++}
++LIS_INT lis_ilutp_reuse_refresh(LIS_ILUTP_REUSE c,LIS_SOLVER s,LIS_MATRIX A) {
++    LIS_INT err=reuse_refresh_impl(c,s,A);
++    if(err && c && c->factors){if(s && s->precon==c->factors)s->precon=NULL;lis_precon_destroy(c->factors);c->factors=NULL;}
++    return err;
++}
++/* The built-in ILUT preconditioner owns its snapshot; no factor ownership
++ * cycle. Public user-data access must reject this reserved state. */
++static LIS_INT reuse_attached_destroy(LIS_PRECON p) {
++    LIS_ILUTP_REUSE c=p->user_data;
++    p->user_data=NULL;p->user_destroy=NULL;
++    if(c){c->factors=NULL;lis_ilutp_reuse_destroy(c);}
++    return LIS_SUCCESS;
++}
++static LIS_INT reuse_attach(LIS_SOLVER s,LIS_PRECON p) {
++    LIS_MATRIX A=s->A; LIS_ILUTP_REUSE c;
++    if(!getenv("LIS_EXPERIMENT_ILUTP_REUSE") || !reuse_config(s) || !reuse_matrix(A))return LIS_SUCCESS;
++    if(p->precon_type!=LIS_PRECON_TYPE_ILUT || p->user_data || p->user_destroy || !p->ilut_perm || !p->ilutp_colperm || p->ilutp_swap_count || p->half)return LIS_SUCCESS;
++    c=calloc(1,sizeof(*c));if(!c)return LIS_OUT_OF_MEMORY;
++    c->n=A->n;c->nnz=A->nnz;
++    c->ptr=malloc(((size_t)c->n+1)*sizeof(LIS_INT));c->index=malloc((size_t)c->nnz*sizeof(LIS_INT));
++    if(!c->ptr||!c->index){lis_ilutp_reuse_destroy(c);return LIS_OUT_OF_MEMORY;}
++    memcpy(c->ptr,A->ptr,((size_t)c->n+1)*sizeof(LIS_INT));memcpy(c->index,A->index,(size_t)c->nnz*sizeof(LIS_INT));
++    c->factors=p;p->user_data=c;p->user_destroy=reuse_attached_destroy;
++    return LIS_SUCCESS;
++}
++LIS_INT lis_ilutp_refresh_attached(LIS_SOLVER s,LIS_PRECON p) {
++    if(!getenv("LIS_EXPERIMENT_ILUTP_REUSE") || !p || p->user_destroy!=reuse_attached_destroy || !p->user_data)return LIS_ERR_NOT_IMPLEMENTED;
++    /* Caller must destroy this preconditioner if update fails. */
++    return reuse_refresh_impl(p->user_data,s,s->A);
++}
++#else
++LIS_INT lis_ilutp_refresh_attached(LIS_SOLVER s,LIS_PRECON p) { (void)s;(void)p;return LIS_ERR_NOT_IMPLEMENTED; }
++#endif
+--- a/src/precon/Makefile.am
++++ b/src/precon/Makefile.am
+@@ -32,5 +32,5 @@
+ 	$(AM_CFLAGS) $(CFLAGS)
+ 
+ # Included by lis_precon_mfamg.c; distribute with release archives.
+-EXTRA_DIST = lis_mfamg_star_schur.inc lis_precon_ilutp.inc
++EXTRA_DIST = lis_mfamg_star_schur.inc lis_precon_ilutp.inc lis_ilut_min_degree.inc lis_ilutp_refactor.inc
+ 
+--- a/src/precon/Makefile.in
++++ b/src/precon/Makefile.in
+@@ -378,7 +378,7 @@
+ 
+ 
+ # Included by lis_precon_mfamg.c; distribute with release archives.
+-EXTRA_DIST = lis_mfamg_star_schur.inc lis_precon_ilutp.inc
++EXTRA_DIST = lis_mfamg_star_schur.inc lis_precon_ilutp.inc lis_ilut_min_degree.inc lis_ilutp_refactor.inc
+ all: all-am
+ 
+ .SUFFIXES:
