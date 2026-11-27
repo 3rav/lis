@@ -559,3 +559,12 @@ testrcirange_LDADD = $(LDADD) -lm
 TESTS += testrci$(EXEEXT) testrcibridge$(EXEEXT) testrcilarge$(EXEEXT) testrciext$(EXEEXT) testrcifull$(EXEEXT) testrcistate$(EXEEXT) testrcifaults$(EXEEXT) testrcipoisson$(EXEEXT) testrcisweep$(EXEEXT) testrcimodel$(EXEEXT) testrcirange$(EXEEXT)
 endif
 EXTRA_DIST += testrciabi.c testrcicxx.cpp
+
+if ENABLE_NATIVE_RCI_FULL
+test_PROGRAMS += testrcinativefull testrcinativenested
+testrcinativefull_SOURCES = testrcinativefull.c
+testrcinativenested_SOURCES = testrcinativenested.c
+testrcinativefull_LDADD = $(LDADD) -lm
+testrcinativenested_LDADD = $(LDADD) -lm
+TESTS += testrcinativefull$(EXEEXT) testrcinativenested$(EXEEXT)
+endif

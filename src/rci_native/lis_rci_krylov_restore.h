@@ -2,6 +2,7 @@
  * Proposed for inclusion under LIS terms in COPYING, subject to contributor confirmation. */
 #ifndef LIS_RCI_KRYLOV_RESTORE_H
 #define LIS_RCI_KRYLOV_RESTORE_H
+#include "lis_rci_native_visibility.h"
 #include "lis_rci_native_protocol.h"
 #include "lis_krylov.h"
 #ifdef __cplusplus
@@ -27,23 +28,23 @@ typedef struct {
  double *out;
  double sigma;
 } lis_rci_krylov_restore_request;
-lis_rci_krylov_restore *lis_rci_krylov_restore_create(void);
-void lis_rci_krylov_restore_destroy(lis_rci_krylov_restore *);
-int lis_rci_krylov_restore_start(lis_rci_krylov_restore *,const lis_krylov_problem64 *,const lis_krylov_options *,
+LIS_RCI_PRIVATE lis_rci_krylov_restore *lis_rci_krylov_restore_create(void);
+LIS_RCI_PRIVATE void lis_rci_krylov_restore_destroy(lis_rci_krylov_restore *);
+LIS_RCI_PRIVATE int lis_rci_krylov_restore_start(lis_rci_krylov_restore *,const lis_krylov_problem64 *,const lis_krylov_options *,
  const lis_krylov_ext_options *,lis_krylov_workspace *,const lis_krylov_budget *,
  double *,double *,double *,lis_krylov_stats *,lis_krylov_ext_stats *,lis_rci_krylov_restore_request *);
-int lis_rci_krylov_restore_advance(lis_rci_krylov_restore *,uint64_t,int,lis_rci_krylov_restore_request *);
-int lis_rci_krylov_restore_cancel(lis_rci_krylov_restore *,uint64_t);
-int lis_rci_krylov_restore_status(const lis_rci_krylov_restore *,int *,lis_krylov_budget_stats *);
+LIS_RCI_PRIVATE int lis_rci_krylov_restore_advance(lis_rci_krylov_restore *,uint64_t,int,lis_rci_krylov_restore_request *);
+LIS_RCI_PRIVATE int lis_rci_krylov_restore_cancel(lis_rci_krylov_restore *,uint64_t);
+LIS_RCI_PRIVATE int lis_rci_krylov_restore_status(const lis_rci_krylov_restore *,int *,lis_krylov_budget_stats *);
 /* Blocking driver over the very same continuation core, using the native
  * callback ABI. Returns native LIS_KRYLOV_* status. The existing classical
  * entry points are not redirected by this qualification experiment. */
-int lis_rci_krylov_restore_classic64(const lis_krylov_problem64 *,const lis_krylov_options *,
+LIS_RCI_PRIVATE int lis_rci_krylov_restore_classic64(const lis_krylov_problem64 *,const lis_krylov_options *,
  const lis_krylov_ext_options *,lis_krylov_workspace *,const lis_krylov_budget *,
  double *,double *,double *,lis_krylov_stats *,lis_krylov_ext_stats *,lis_krylov_budget_stats *);
 #ifdef LIS_RCI_KRYLOV_NATIVE_LIBRARY
 /* Test-only direct original reference, available in the patched native build. */
-int lis_rci_krylov_restore_reference64(const lis_krylov_problem64 *,const lis_krylov_options *,
+LIS_RCI_PRIVATE int lis_rci_krylov_restore_reference64(const lis_krylov_problem64 *,const lis_krylov_options *,
  const lis_krylov_ext_options *,lis_krylov_workspace *,double *,double *,double *,
  lis_krylov_stats *,lis_krylov_ext_stats *);
 #endif

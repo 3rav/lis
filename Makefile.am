@@ -685,3 +685,5 @@ EXTRA_DIST += src/rci_native/feast_native_continuation.inc \
     src/rci_native/lis_rci_native_linear_restore.h \
     src/rci_native/lis_rci_native_session.c \
     doc/native-rci.md
+
+EXTRA_DIST += src/rci_native/lis_rci_native_visibility.h

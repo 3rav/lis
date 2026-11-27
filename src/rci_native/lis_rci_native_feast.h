@@ -2,6 +2,7 @@
  * subject to contributor confirmation. Qualification only. */
 #ifndef LIS_RCI_NATIVE_FEAST_H
 #define LIS_RCI_NATIVE_FEAST_H
+#include "lis_rci_native_visibility.h"
 #include "lis.h"
 #include <stdint.h>
 #ifdef __cplusplus
@@ -29,14 +30,14 @@ typedef struct {
  * remain unchanged until terminal; destruction is forbidden while borrowed.
  * Cancellation exposes no certified eigenpairs.
  * This is not an installed API. Real-double non-MPI only. */
-lis_rci_native_feast *lis_rci_native_feast_create(void);
-void lis_rci_native_feast_destroy(lis_rci_native_feast *);
-int lis_rci_native_feast_start(lis_rci_native_feast *,LIS_ESOLVER,int,lis_rci_native_feast_request *);
-int lis_rci_native_feast_advance(lis_rci_native_feast *,uint64_t,LIS_INT,lis_rci_native_feast_request *);
-int lis_rci_native_feast_cancel(lis_rci_native_feast *,uint64_t);
-LIS_INT lis_rci_native_feast_native(const lis_rci_native_feast *);
+LIS_RCI_PRIVATE lis_rci_native_feast *lis_rci_native_feast_create(void);
+LIS_RCI_PRIVATE void lis_rci_native_feast_destroy(lis_rci_native_feast *);
+LIS_RCI_PRIVATE int lis_rci_native_feast_start(lis_rci_native_feast *,LIS_ESOLVER,int,lis_rci_native_feast_request *);
+LIS_RCI_PRIVATE int lis_rci_native_feast_advance(lis_rci_native_feast *,uint64_t,LIS_INT,lis_rci_native_feast_request *);
+LIS_RCI_PRIVATE int lis_rci_native_feast_cancel(lis_rci_native_feast *,uint64_t);
+LIS_RCI_PRIVATE LIS_INT lis_rci_native_feast_native(const lis_rci_native_feast *);
 typedef LIS_INT (*lis_rci_native_feast_test_driver)(LIS_ESOLVER);
-void lis_rci_native_feast_test_select(int,lis_rci_native_feast_test_driver);
+LIS_RCI_PRIVATE void lis_rci_native_feast_test_select(int,lis_rci_native_feast_test_driver);
 #ifdef __cplusplus
 }
 #endif
