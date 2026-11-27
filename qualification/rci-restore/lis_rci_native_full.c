@@ -44,13 +44,14 @@ static int full_child_result(lis_rci_native_full *S,int st,lis_rci_native_sessio
 {
  if(st<=0){
   lis_rci_native_session_status(S->child,&S->completion);
+  if(st<0&&S->completion==LIS_SUCCESS)S->completion=st==LIS_RCI_BADARG?LIS_ERR_ILL_ARG:LIS_BREAKDOWN;
   if(st==LIS_RCI_NONFINITE||st==LIS_RCI_CANCELLED||st==LIS_RCI_PROTOCOL||st==LIS_RCI_NATIVE_STALE)
    full_force(S,st,LIS_BREAKDOWN);
   if(S->forced)S->completion=S->forced_code;
   return FULL_AGAIN;
  }
  S->child_token=q->token;
- if(S->token==UINT64_MAX||!full_current(S)){
+ if(S->forced||S->token==UINT64_MAX||!full_current(S)){
   full_force(S,S->token==UINT64_MAX?LIS_RCI_PROTOCOL:LIS_RCI_NATIVE_STALE,LIS_BREAKDOWN);
   (void)lis_rci_native_session_cancel(S->child,S->child_token);
   S->completion=S->forced_code;return FULL_AGAIN;
