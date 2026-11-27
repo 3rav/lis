@@ -60,8 +60,14 @@ static int solve(int mode,int generalized,int fail,int fault,answer *a)
  stop=fail;kind=fault;terminal=0;observed=0;
  lis_rci_native_feast_test_select(mode==0,mode==2?external:NULL);
  LIS_INT err=B?lis_gesolve(A,B,x,&value,e):lis_esolve(A,x,&value,e);
- if(fail){C(err!=LIS_SUCCESS&&e->nev==0);C(terminal==(fault==1?NF_CANCELLED:fault==2?NF_NONFINITE:NF_ERROR));goto cleanup;}
- C(!err);C(e->nev==2);
+ if(fail){
+  /* lis_gesolve reports dispatch/setup errors directly; numerical status
+   * is stored in esolver->retcode even when its public return is SUCCESS. */
+  if(e->retcode==LIS_SUCCESS||e->nev!=0)fprintf(stderr,"FEAST fault gen=%d site=%d kind=%d api=%lld native=%lld nev=%lld terminal=%d\n",generalized,fail,fault,(long long)err,(long long)e->retcode,(long long)e->nev,terminal);
+  C(e->retcode==(fault==3?LIS_ERR_ILL_ARG:LIS_BREAKDOWN)&&e->nev==0);
+  C(terminal==(fault==1?NF_CANCELLED:fault==2?NF_NONFINITE:NF_ERROR));goto cleanup;
+ }
+ C(!err&&e->retcode==LIS_SUCCESS);C(e->nev==2);
  a->nev=e->nev;
  for(LIS_INT i=0;i<e->nev;i++){
   a->value[i]=e->evalue[i];a->resid[i]=e->resid[i];a->iter[i]=e->iter[i];a->iter2[i]=e->iter2[i];
