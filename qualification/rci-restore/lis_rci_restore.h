@@ -82,6 +82,25 @@ const lis_rci_handle *lis_rci_projector_restore_result(const lis_rci_projector_r
 int lis_rci_nested_restore_run(lis_rci_context *child,
  const lis_rci_opaque_request *parent,size_t bytes,size_t n,
  const lis_rci_opaque_backend *backend,int *child_code);
+
+/* Split-complex adapter: each opaque handle identifies two disjoint real
+ * arrays of length n. Only this backend dereferences those vector handles.
+ * A and B are real operators; B is identity for standard problems.
+ * Shifted solves use a persistent doubled-real core (BiCGSTAB/GMRES/FGMRES),
+ * identity preconditioning, and real MATVEC callbacks. No new solver kernel.
+ * Apply must completely fill out, must not modify in, and return 0 on success.
+ * This backend is not reentrant. A user-defined callback code is retained in
+ * split_error; backend operation failures are otherwise returned as RCI status.
+ */
+typedef struct { size_t n; double *real,*imag; } lis_rci_split_vector;
+typedef int (*lis_rci_real_apply)(void *,uint32_t,size_t,const double *,double *);
+typedef struct lis_rci_split_restore lis_rci_split_restore;
+lis_rci_split_restore *lis_rci_split_restore_create(size_t n,int generalized,
+ const lis_rci_options *child_options,void *user,lis_rci_real_apply apply,
+ lis_rci_generation_read generations);
+void lis_rci_split_restore_destroy(lis_rci_split_restore *);
+int lis_rci_split_restore_backend(lis_rci_split_restore *,lis_rci_opaque_backend *);
+int lis_rci_split_restore_error(const lis_rci_split_restore *,int *callback_code);
 #ifdef __cplusplus
 }
 #endif

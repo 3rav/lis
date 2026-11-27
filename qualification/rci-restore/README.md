@@ -22,5 +22,14 @@ incompatible child context. Keep this branch separate from the upstream PR until
 the new API design and qualification have been reviewed.
 
 Not yet FEAST outer iteration, shared classic solver kernels, GCRO-DR/FGCRO-DR,
-stackless Krylov, split-complex bridge or extended precision LIS builds. Complex
+stackless Krylov or extended precision LIS builds. Complex
 coefficients/opaque vectors are not equivalent to full complex LIS support.
+
+The split-complex adapter now implements (zB-A) with two real planes and a
+persistent doubled-real linear context. It supports BiCGSTAB, GMRES, FGMRES
+with identity preconditioning, not CG (complex shifts need not be SPD).
+Standard/generalized non-diagonal 3x3 tests compare the actual nested solves
+and two-RHS contour projection against independent complex Gaussian
+elimination. Input and output planes must be disjoint; the caller owns them.
+Callback failure preserves the current column's output; earlier columns
+may already have changed. No full complex LIS ABI support is claimed.
