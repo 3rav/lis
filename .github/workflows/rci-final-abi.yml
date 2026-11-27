@@ -1,0 +1,88 @@
+name: RCI final API ABI and existing solver regression
+on:
+  push:
+    branches: ['qualification/rci-reconstructed-native-20261127']
+    paths: ['.github/workflows/rci-final-abi.yml', 'src/lis_rci*', 'include/lis_rci*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  abi:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        index: [int32, int64]
+    env:
+      OMP_NUM_THREADS: '2'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in gcc g++ make autoconf automake autoreconf libtoolize nm readelf; do command -v "$tool"; done
+      - name: Build pre-RCI and integrated LIS
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/base" 917c57c21c5ac2eaf0082b60c9942f27733ca09c
+          opts=(--enable-shared --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg --disable-quad)
+          if [ "${{ matrix.index }}" = int64 ]; then opts+=(--enable-longlong); fi
+          build() {
+            local dir="$1" prefix="$2"; shift 2
+            (cd "$dir"; autoreconf -fiv; ./configure "${opts[@]}" --prefix="$prefix" "$@"; make -C src -j2; make -C include install; make -C src install)
+          }
+          build "$RUNNER_TEMP/base" "$RUNNER_TEMP/old"
+          build "$PWD" "$RUNNER_TEMP/new" --enable-rci
+      - name: Compare existing headers and exported symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          old="$RUNNER_TEMP/old"
+          new="$RUNNER_TEMP/new"
+          for h in "$old"/include/*.h; do
+            name=$(basename "$h")
+            if [ "$name" != lis_config.h ]; then cmp "$h" "$new/include/$name"; fi
+          done
+          # Configuration header is expected to differ by the opt-in feature.
+          diff -u "$old/include/lis_config.h" "$new/include/lis_config.h" > "$RUNNER_TEMP/config.diff" || test "$?" = 1
+          cat "$RUNNER_TEMP/config.diff"
+          sym() { nm -D --defined-only "$1" | awk 'NF==3 {print $3,$2}' | LC_ALL=C sort -u; }
+          sym "$old/lib/liblis.so" > "$RUNNER_TEMP/old.sym"
+          sym "$new/lib/liblis.so" > "$RUNNER_TEMP/new.sym"
+          LC_ALL=C comm -23 "$RUNNER_TEMP/old.sym" "$RUNNER_TEMP/new.sym" > "$RUNNER_TEMP/removed"
+          LC_ALL=C comm -13 "$RUNNER_TEMP/old.sym" "$RUNNER_TEMP/new.sym" > "$RUNNER_TEMP/added"
+          test ! -s "$RUNNER_TEMP/removed"
+          cat "$RUNNER_TEMP/added"
+          awk '{print $1}' "$RUNNER_TEMP/added" > "$RUNNER_TEMP/added.names"
+          printf '%s\n' lis_rci_advance lis_rci_bridge_check_abi lis_rci_bridge_create lis_rci_bridge_destroy lis_rci_bridge_solve lis_rci_create lis_rci_destroy lis_rci_get_info lis_rci_solution lis_rci_start | LC_ALL=C sort > "$RUNNER_TEMP/expected"
+          cmp "$RUNNER_TEMP/added.names" "$RUNNER_TEMP/expected"
+          readelf -d "$old/lib/liblis.so" | grep SONAME > "$RUNNER_TEMP/old.soname"
+          readelf -d "$new/lib/liblis.so" | grep SONAME > "$RUNNER_TEMP/new.soname"
+          cmp "$RUNNER_TEMP/old.soname" "$RUNNER_TEMP/new.soname"
+          echo "EXISTING_HEADERS_SYMBOLS_SONAME PASS"
+      - name: Old binary consumers against both libraries and new C++ consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          old="$RUNNER_TEMP/old"; new="$RUNNER_TEMP/new"; base="$RUNNER_TEMP/base"
+          flags=(-std=gnu11 -O2 -g -DHAVE_CONFIG_H -fopenmp)
+          if [ "${{ matrix.index }}" = int64 ]; then flags+=(-D_LONG__LONG); fi
+          # Build old native regression programs once with the old headers/library.
+          for name in testabi testsolvercallbackcert testsolvercallbackpaths testkrylovrobust testpreconreuse testwarmstart; do
+            cc "${flags[@]}" -I"$old/include" -I"$base/include" "$base/test/$name.c" -L"$old/lib" -llis -lm -o "$RUNNER_TEMP/$name"
+            for version in old new; do
+              prefix="$RUNNER_TEMP/$version"
+              LD_LIBRARY_PATH="$prefix/lib" ldd "$RUNNER_TEMP/$name" > "$RUNNER_TEMP/ldd"
+              grep -F "$prefix/lib/liblis.so" "$RUNNER_TEMP/ldd"
+              LD_LIBRARY_PATH="$prefix/lib" timeout 120 "$RUNNER_TEMP/$name"
+              echo "OLD_CONSUMER $name $version PASS"
+            done
+          done
+          g++ -std=c++11 -O2 -I"$new/include" qualification/rci-reconstructed/final_consumer.cpp -L"$new/lib" -Wl,-rpath,"$new/lib" -llis -lm -o "$RUNNER_TEMP/final_consumer"
+          "$RUNNER_TEMP/final_consumer"
