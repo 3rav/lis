@@ -60,6 +60,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
 #ifdef _COMPLEX
 #include <complex.h>
 #endif
@@ -73,6 +74,17 @@
 
 #define GCRODR_NWORK 4
 #define GCRODR_TINY ((LIS_REAL)1.0e-14)
+/* The restart residual is unnormalized: a fixed double-scale cutoff
+ * prevents binary128 convergence even when the Arnoldi basis is sound.
+ * Preserve the historic cutoff in double; use working epsilon in
+ * extended scalar builds. Do not change harmonic/rank thresholds. */
+#if defined(_LONG__DOUBLE) && defined(HAVE_QUADMATH_H)
+#define GCRODR_RESID_TINY ((LIS_REAL)64 * (LIS_REAL)FLT128_EPSILON)
+#elif defined(_LONG__DOUBLE)
+#define GCRODR_RESID_TINY ((LIS_REAL)64 * (LIS_REAL)LDBL_EPSILON)
+#else
+#define GCRODR_RESID_TINY GCRODR_TINY
+#endif
 #define GCRODR_REORTH_TINY ((LIS_REAL)1.0e-12)
 #define GCRODR_DEFAULT_RECYCLE_DIM ((LIS_INT)8)
 
@@ -1502,7 +1514,7 @@ LIS_INT lis_gcrodr(LIS_SOLVER solver)
         memset(bcoef,0,(size_t)_max(1,kmax)*m*sizeof(LIS_SCALAR));
 
         lis_vector_nrm2(v[0],&rnorm);
-        if( rnorm<=GCRODR_TINY || rnorm!=rnorm )
+        if( rnorm<=GCRODR_RESID_TINY || rnorm!=rnorm )
         {
             nrm2 = rnorm*bnrm;
             err = (nrm2<=tol) ? LIS_SUCCESS : LIS_BREAKDOWN;
@@ -1879,3 +1891,4 @@ done:
 #undef GCRODR_NWORK
 #undef GCRODR_TINY
 #undef GCRODR_REORTH_TINY
+#undef GCRODR_RESID_TINY

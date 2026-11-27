@@ -2,7 +2,7 @@
 """Generate native real GCRO-DR, including all recycle callback sites."""
 import generate_linear_continuation as g
 p="src/solver/lis_solver_gcrodr.c"
-sha="4801f40031c48c14ea359e67f5b4aeb5a8bd6c24"
+sha="4b35b3bc7264730802d52535340ddfb2315bcf8e"
 g.SPECS=[g.SPECS[0],
     ("refresh","lis_gcrodr_refresh_recycle",p,sha),
     ("assess","lis_gcrodr_assess_refresh_recycle",p,sha),

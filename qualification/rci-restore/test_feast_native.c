@@ -8,9 +8,22 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+/* LIS maps sqrt to complex sqrt in complex builds; physical norms
+ * remain real and must use the matching real scalar intrinsic. */
+#undef sqrt
+static LIS_REAL real_sqrt(LIS_REAL v)
+{
+#if defined(_LONG__DOUBLE) && defined(HAVE_QUADMATH_H)
+ return sqrtq(v);
+#elif defined(_LONG__DOUBLE)
+ return sqrtl(v);
+#else
+ return sqrt(v);
+#endif
+}
 #define N 4
 #define C(x) do{if(!(x)){fprintf(stderr,"FEAST FULL FAIL %d: %s\n",__LINE__,#x);rc=1;goto cleanup;}}while(0)
-typedef struct {LIS_INT nev,iter[4],iter2[4];LIS_REAL value[4],resid[4],vectors[16];} answer;
+typedef struct {LIS_INT nev,iter[4],iter2[4];LIS_SCALAR value[4],vectors[16];LIS_REAL resid[4];} answer;
 static int stop,kind,observed,terminal;
 static int first[5],last_request[5],seen[5];
 static LIS_INT external(LIS_ESOLVER e)
@@ -79,17 +92,17 @@ static int solve(int mode,int generalized,int fail,int fault,answer *a)
  for(LIS_INT i=0;i<e->nev;i++){
   a->value[i]=e->evalue[i];a->resid[i]=e->resid[i];a->iter[i]=e->iter[i];a->iter2[i]=e->iter2[i];
   C(e->evector[i]);memcpy(a->vectors+N*i,e->evector[i]->value,N*sizeof(LIS_SCALAR));
-  printf("FEAST pair gen=%d mode=%d index=%lld value=%.17g residual=%.17g\n",generalized,mode,(long long)i,(double)a->value[i],(double)a->resid[i]);
+  printf("FEAST pair gen=%d mode=%d index=%lld value=%.17g residual=%.17g\n",generalized,mode,(long long)i,(double)creal(a->value[i]),(double)a->resid[i]);
   C((fabs(a->value[i]-2)<1e-6||fabs(a->value[i]-4)<1e-6)&&a->resid[i]<=1e-7);
   /* Independent physical residual, not an echo of LIS certification. */
-  double ax2=0,bx2=0,r2=0;
+  LIS_REAL ax2=0,bx2=0,r2=0;
   for(int j=0;j<N;j++){
    double bj=generalized?1+.2*j:1;
-   double bx=bj*a->vectors[N*i+j],ax=lambda[j]*bx;
-   ax2+=ax*ax;bx2+=bx*bx;
-   double delta=ax-a->value[i]*bx;r2+=delta*delta;
+   LIS_SCALAR bx=bj*a->vectors[N*i+j],ax=lambda[j]*bx;
+   LIS_REAL am=fabs(ax),bm=fabs(bx),dm=fabs(ax-a->value[i]*bx);
+   ax2+=am*am;bx2+=bm*bm;r2+=dm*dm;
   }
-  C(sqrt(r2)/(sqrt(ax2)+fabs(a->value[i])*sqrt(bx2))<1e-7);
+  C(real_sqrt(r2)/(real_sqrt(ax2)+fabs(a->value[i])*real_sqrt(bx2))<1e-7);
  }
  C((fabs(a->value[0]-2)<1e-6&&fabs(a->value[1]-4)<1e-6)||(fabs(a->value[0]-4)<1e-6&&fabs(a->value[1]-2)<1e-6));
 cleanup:
@@ -103,7 +116,9 @@ int main(int argc,char **argv)
  for(int gen=0;gen<=1;gen++){
   memset(first,0,sizeof(first));memset(last_request,0,sizeof(last_request));memset(seen,0,sizeof(seen));
   C(!solve(0,gen,0,0,&a));C(!solve(1,gen,0,0,&b));C(!solve(2,gen,0,0,&c));
-  C(!memcmp(&a,&b,sizeof(a))&&!memcmp(&a,&c,sizeof(a)));
+  C(a.nev==b.nev&&a.nev==c.nev);
+  for(int j=0;j<a.nev;j++){C(a.iter[j]==b.iter[j]&&a.iter[j]==c.iter[j]&&a.iter2[j]==b.iter2[j]&&a.iter2[j]==c.iter2[j]);C(a.value[j]==b.value[j]&&a.value[j]==c.value[j]&&a.resid[j]==b.resid[j]&&a.resid[j]==c.resid[j]);}
+  for(int j=0;j<N*a.nev;j++)C(a.vectors[j]==b.vectors[j]&&a.vectors[j]==c.vectors[j]);
   int n=observed;C(n>0);
   C(seen[0]>0&&seen[2]>0&&seen[4]>0);
   C(gen?(seen[1]>0&&seen[3]>0):(!seen[1]&&!seen[3]));

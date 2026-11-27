@@ -3,6 +3,8 @@
 #include "lis_config.h"
 #endif
 #include "lis_rci_native_linear_restore.h"
+#include "lis_rci_native_gcro_restore.h"
+#include "lis_rci_native_fgcro_restore.h"
 #include "lislib.h"
 #include <stdio.h>
 #include <float.h>
@@ -86,6 +88,36 @@ static LIS_INT external(LIS_SOLVER s,LIS_INT method)
  if(!a||!p)native=98;
  lis_rci_native_linear_restore_destroy(k);return native;
 }
+static LIS_INT external_gcro(LIS_SOLVER s)
+{
+ lis_rci_native_gcro_restore *k=lis_rci_native_gcro_restore_create();if(!k)return LIS_ERR_OUT_OF_MEMORY;
+ lis_rci_native_linear_request q;int st=lis_rci_native_gcro_restore_start(k,s,1,&q);
+ uint64_t last=0;
+ while(st>0){
+  if(q.token<=last){lis_rci_native_gcro_restore_destroy(k);return 99;}
+  last=q.token;
+  LIS_INT err=q.operation==LIS_RCI_OP_A?lis_matvec(q.A,q.in,q.out):lis_psolve(q.solver,q.in,q.out);
+  st=lis_rci_native_gcro_restore_advance(k,q.token,err,&q);
+ }
+ LIS_INT native=0;uint64_t a=0,p=0;lis_rci_native_gcro_restore_status(k,&native,&a,&p);
+ if(!a||!p)native=98;
+ lis_rci_native_gcro_restore_destroy(k);return native;
+}
+static LIS_INT external_fgcro(LIS_SOLVER s)
+{
+ lis_rci_native_fgcro_restore *k=lis_rci_native_fgcro_restore_create();if(!k)return LIS_ERR_OUT_OF_MEMORY;
+ lis_rci_native_linear_request q;int st=lis_rci_native_fgcro_restore_start(k,s,1,&q);
+ uint64_t last=0;
+ while(st>0){
+  if(q.token<=last){lis_rci_native_fgcro_restore_destroy(k);return 99;}
+  last=q.token;
+  LIS_INT err=q.operation==LIS_RCI_OP_A?lis_matvec(q.A,q.in,q.out):lis_psolve(q.solver,q.in,q.out);
+  st=lis_rci_native_fgcro_restore_advance(k,q.token,err,&q);
+ }
+ LIS_INT native=0;uint64_t a=0,p=0;lis_rci_native_fgcro_restore_status(k,&native,&a,&p);
+ if(!a||!p)native=98;
+ lis_rci_native_fgcro_restore_destroy(k);return native;
+}
 static int solve(const char *method,int mode,int variant,answer *out)
 {
  LIS_MATRIX A=NULL;LIS_VECTOR b=NULL,x=NULL;LIS_SOLVER s=NULL;
@@ -99,8 +131,13 @@ static int solve(const char *method,int mode,int variant,answer *out)
  C(!lis_matrix_set_type(A,LIS_MATRIX_CSR));C(!lis_matrix_assemble(A));
  C(!lis_vector_duplicate(A,&b));C(!lis_vector_duplicate(A,&x));C(!lis_solver_create(&s));
  for(LIS_INT i=0;i<N;i++){C(!lis_vector_set_value(LIS_INS_VALUE,i,rhs(i,variant),b));C(!lis_vector_set_value(LIS_INS_VALUE,i,(LIS_REAL).125,x));}
- char opts[160];snprintf(opts,sizeof(opts),"-i %s -p jacobi -tol %s -maxiter 200 -restart 9 -initx_zeros false -print mem",method,tol_text());
+ char opts[256];
+ int recycle=!strcmp(method,"gcrodr")||!strcmp(method,"fgcrodr");
+ const char *extra=!strcmp(method,"gcrodr")?" -gcrodr_keep 2":!strcmp(method,"fgcrodr")?" -fgcrodr_k 2":"";
+ snprintf(opts,sizeof(opts),"-i %s -p jacobi -tol %s -maxiter 200 -restart %d -initx_zeros false -print mem%s",method,tol_text(),recycle?5:9,extra);
  C(!lis_solver_set_option(opts,s));lis_rci_native_linear_test_select(mode==0,mode==2?external:NULL);
+ lis_rci_native_gcro_test_select(mode==0,mode==2?external_gcro:NULL);
+ lis_rci_native_fgcro_test_select(mode==0,mode==2?external_fgcro:NULL);
  (void)lis_solve(A,b,x,s);
  C(!lis_solver_get_status(s,&out->status));C(!lis_solver_get_iter(s,&out->iter));C(!lis_solver_get_residualnorm(s,&out->residual));C(!lis_vector_get_values(x,0,N,out->x));
  LIS_INT count=out->iter;if(count>200)count=200;
@@ -114,6 +151,7 @@ static int solve(const char *method,int mode,int variant,answer *out)
  }
 cleanup:
  lis_rci_native_linear_test_select(0,NULL);
+ lis_rci_native_gcro_test_select(0,NULL);lis_rci_native_fgcro_test_select(0,NULL);
  if(s)lis_solver_destroy(s);if(x)lis_vector_destroy(x);if(b)lis_vector_destroy(b);if(A)lis_matrix_destroy(A);return rc;
 }
 static int compare(const char *method,int variant,int *converged)
@@ -147,8 +185,8 @@ int main(int argc,char **argv)
 #if defined(_LONG__DOUBLE)
  if((LIS_REAL)(1+tiny())==(LIS_REAL)1)return 1;
 #endif
- const char *methods[]={"cg","bicgstab","gmres","fgmres"};int rc=0,n=0,converged=0;
- for(int m=0;m<4;m++){
+ const char *methods[]={"cg","bicgstab","gmres","fgmres","gcrodr","fgcrodr"};int rc=0,n=0,converged=0;
+ for(int m=0;m<6;m++){
   rc|=compare(methods[m],0,&converged);n++;
 #ifdef _COMPLEX
   rc|=compare(methods[m],1,&converged);n++;
