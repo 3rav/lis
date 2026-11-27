@@ -1,7 +1,10 @@
 name: Native Generic RCI RC3 final qualification
 on:
   push:
-    branches: ['qualification/rci-native-rc3-final-20261127']
+    branches: ['qualification/rci-native-rc3-final-20261127', 'release-candidate/rci-reconstructed-v1.0-serial-openmp']
+  pull_request:
+    branches: [develop]
+    paths: ['configure*', '**/Makefile.am', '**/Makefile.in', 'src/**', 'include/**', 'qualification/rci-restore/**', '.github/workflows/rci-native-rc3-final.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,6 +29,8 @@ jobs:
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
       - shell: bash
         run: |
           set -euo pipefail
@@ -45,7 +50,7 @@ jobs:
           fi
           export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 OMP_NUM_THREADS=1
           base_rci="$rci"; if [ "$rci" = native ]; then base_rci=no; fi
-          git fetch --no-tags --depth=1 origin 1fc495871559928f0ab8bafe445d7e301d8b9e67
+          git cat-file -e 1fc495871559928f0ab8bafe445d7e301d8b9e67^{commit}
           git worktree add --detach "$RUNNER_TEMP/base" 1fc495871559928f0ab8bafe445d7e301d8b9e67
           (cd "$RUNNER_TEMP/base"; ./configure "${opts[@]}" --enable-rci="$base_rci"; make -C src -j2)
           base="$RUNNER_TEMP/base"
@@ -101,6 +106,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
       - shell: bash
         run: |
           set -euo pipefail
