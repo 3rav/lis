@@ -1,35 +1,20 @@
 name: Native RCI release gate
 on:
   push:
-    branches: ['qualification/rci-rc3-pr267-ready-20261127']
+    branches: ['qualification/rci-rc3-pr267-ready-20261127', 'release-candidate/rci-reconstructed-v1.0-serial-openmp']
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'test/**'
+      - '**/Makefile.am'
+      - '**/Makefile.in'
+      - 'configure*'
+      - '.github/workflows/rci-native.yml'
 permissions:
   contents: read
 jobs:
-  regenerate:
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    outputs:
-      commit: ${{ steps.regen.outputs.commit }}
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          fetch-depth: 0
-      - id: regen
-        shell: bash
-        run: |
-          set -euo pipefail
-          autoreconf -fi
-          git add -u
-          if ! git diff --cached --quiet; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'Regenerate Autotools with native RCI public tests'
-            git push origin HEAD:refs/heads/qualification/rci-rc3-pr267-ready-20261127
-          fi
-          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   qualify:
-    needs: regenerate
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -37,8 +22,6 @@ jobs:
         mode: [serial, openmp, asan, complex, extended, binary128, complex-extended, complex-binary128]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ needs.regenerate.outputs.commit }}
       - shell: bash
         run: |
           set -euo pipefail
@@ -95,12 +78,9 @@ jobs:
           fi
           echo "NATIVE RELEASE QUALIFICATION PASS ${{ matrix.mode }}"
   abi:
-    needs: regenerate
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ needs.regenerate.outputs.commit }}
       - shell: bash
         run: |
           set -euo pipefail
@@ -135,12 +115,9 @@ jobs:
           done
           echo 'NATIVE ABI EXACT 17 ADDITIONS PASS'
   reject:
-    needs: regenerate
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ needs.regenerate.outputs.commit }}
       - shell: bash
         run: |
           set -euo pipefail
