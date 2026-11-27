@@ -329,6 +329,26 @@ int main(int argc,char **argv)
     LIS_VECTOR b=NULL,x=NULL,t=NULL,r=NULL;
     LIS_INT i,status,rc;
     int before_create,before_refresh,before_errors,failed=1;
+    /* Isolate each case in a fresh process for external wall/RSS
+     * measurements. No benchmark arguments are passed to LIS. */
+    if(argc>1 && !strcmp(argv[1],"--benchmark")) {
+        LIS_INT width;
+        int mode,bench_argc=1;
+        char *bench_args[]={argv[0],NULL};
+        char **bench_argv=bench_args;
+        if(argc!=4 ||
+           (strcmp(argv[2],"40") && strcmp(argv[2],"80") && strcmp(argv[2],"160")) ||
+           strlen(argv[3])!=1 || argv[3][0]<'0' || argv[3][0]>'3') {
+            fprintf(stderr,"usage: %s --benchmark {40|80|160} {0|1|2|3}\n",argv[0]);
+            return 2;
+        }
+        width=!strcmp(argv[2],"40")?40:(!strcmp(argv[2],"80")?80:160);
+        mode=argv[3][0]-'0';
+        if(lis_initialize(&bench_argc,&bench_argv)!=LIS_SUCCESS)return 1;
+        failed=benchmark_grid(mode,width);
+        lis_finalize();
+        return failed;
+    }
     OK(lis_initialize(&argc,&argv));
     OK(make_matrix(&A,0)); OK(make_matrix(&B,1));
     OK(setup(&s));

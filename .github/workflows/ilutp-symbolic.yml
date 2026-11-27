@@ -69,6 +69,17 @@ jobs:
             OMP_NUM_THREADS=4 ./sequence-audit 2>&1 | tee sequence-audit-omp4.log
             grep -q '^PASS sequence option snapshot rebuild' sequence-audit-omp4.log
           fi
+      - name: Isolated process timings and peak RSS
+        if: matrix.mode == 'serial'
+        run: |
+          set -euo pipefail
+          for rep in 0 1 2; do
+            for offset in 0 1 2 3; do
+              mode=$(( (rep + offset) % 4 ))
+              echo "BENCH_PROCESS rep=$rep mode=$mode" | tee -a sequence-audit-rss.log
+              /usr/bin/time -f 'BENCH_PROCESS elapsed_s=%e peak_rss_kib=%M' ./sequence-audit --benchmark 160 "$mode" 2>&1 | tee -a sequence-audit-rss.log
+            done
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

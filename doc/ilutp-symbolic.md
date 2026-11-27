@@ -33,5 +33,64 @@ remain in the historical RC32 branch and are not included here.
 No performance claim for the private CCX fixture is made.
 The focused CI compares known solutions, fresh factors and sequence
 solutions, checks state and user-data isolation, and exercises failure
-recovery. Broader structural patterns and measured performance are still
+recovery. Broader structural patterns and independent performance validation are still
 needed before production acceptance.
+
+## Synthetic grid scaling (informational)
+
+The focused test generates sorted, structurally symmetric five-point CSR
+grids with nonsymmetric, strictly diagonally dominant values. Six systems
+per mode have the same pattern, slightly changing values and known
+solutions. All four modes use FGMRES, threshold zero, the same fill cap
+per grid size, a zero initial guess and tolerance 1e-12. The test checks
+physical relative residual < 1e-11, relative forward error < 1e-10 and
+actual factor creation/refresh counts.
+
+Example optimized serial runner results (commit `5fce708`,
+[CI log](https://github.com/3rav/lis/actions/runs/46005530008/job/140527601101)):
+
+| DOF | Mode | First solve (ms) | Mean next 5 (ms) | L+U off-diagonal entries |
+| ---: | --- | ---: | ---: | ---: |
+| 1600 | Legacy | 7.881 | 6.810 | 124878 |
+| 1600 | Symbolic | 2.843 | 3.080 | 124878 |
+| 1600 | Symbolic MD | 2.791 | 2.861 | 39808 |
+| 1600 | Symbolic MD reuse | 2.769 | 0.482 | 39808 |
+| 6400 | Legacy | 104.017 | 97.504 | 1011358 |
+| 6400 | Symbolic | 31.871 | 32.308 | 1011358 |
+| 6400 | Symbolic MD | 15.192 | 15.592 | 242400 |
+| 6400 | Symbolic MD reuse | 15.309 | 4.674 | 242400 |
+| 25600 | Legacy | 1671.699 | 1642.695 | 8141118 |
+| 25600 | Symbolic | 600.311 | 578.190 | 8141118 |
+| 25600 | Symbolic MD | 140.821 | 138.145 | 1429828 |
+| 25600 | Symbolic MD reuse | 139.902 | 81.290 | 1429828 |
+
+At 25600 DOF the reuse mode took about 0.546 s for six solves vs
+9.885 s for legacy (18.09x); factor entry count fell by 82.44%.
+All tested cases passed; maximum relative residual and forward error
+were below 1.46e-13. Reuse performed one creation and five numerical
+refreshes; the other modes performed six creations.
+
+These are single-run illustrative timings, not stable performance
+estimates. For example, two optimized CI runs at 6400 DOF yielded
+20.86x and 39.28x for mean subsequent solves. No performance threshold
+is used in CI. Entry counts are not peak process memory; do not
+extrapolate these synthetic results to CCX or general indefinite systems.
+
+After building the focused test as in the CI workflow, measure each
+case in a fresh process (mode 0 = legacy, 1 = symbolic, 2 = symbolic
+MD, 3 = symbolic MD reuse; width 40, 80 or 160):
+
+```sh
+for rep in 0 1 2; do
+  for offset in 0 1 2 3; do
+    mode=$(( (rep + offset) % 4 ))
+    OMP_NUM_THREADS=1 /usr/bin/time -f 'elapsed_s=%e peak_rss_kib=%M' \
+      ./sequence-audit --benchmark 160 "$mode"
+  done
+done
+```
+
+Use an optimized non-sanitized serial build, record the CPU and compiler,
+and report medians/ranges across repeated processes. Peak RSS includes
+all process allocations, not just LU factors. The private CCX fixture
+and ABI acceptance remain outstanding.
