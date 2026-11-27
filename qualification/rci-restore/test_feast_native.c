@@ -11,6 +11,17 @@
 #define N 4
 #define C(x) do{if(!(x)){fprintf(stderr,"FEAST FULL FAIL %d: %s\n",__LINE__,#x);rc=1;goto cleanup;}}while(0)
 typedef struct {LIS_INT nev,iter[4],iter2[4];LIS_REAL value[4],resid[4],vectors[16];} answer;
+static int equal_answer(const answer *a,const answer *b)
+{
+ if(a->nev!=b->nev)return 0;
+ for(size_t i=0;i<4;i++)if(a->iter[i]!=b->iter[i])return 0;
+ for(size_t i=0;i<4;i++)if(a->iter2[i]!=b->iter2[i])return 0;
+ for(size_t i=0;i<4;i++)if(a->value[i]!=b->value[i])return 0;
+ for(size_t i=0;i<4;i++)if(a->resid[i]!=b->resid[i])return 0;
+ for(size_t i=0;i<16;i++)if(a->vectors[i]!=b->vectors[i])return 0;
+ return 1;
+}
+
 static int stop,kind,observed,terminal;
 static int first[5],last_request[5],seen[5];
 static LIS_INT external(LIS_ESOLVER e)
@@ -103,7 +114,7 @@ int main(int argc,char **argv)
  for(int gen=0;gen<=1;gen++){
   memset(first,0,sizeof(first));memset(last_request,0,sizeof(last_request));memset(seen,0,sizeof(seen));
   C(!solve(0,gen,0,0,&a));C(!solve(1,gen,0,0,&b));C(!solve(2,gen,0,0,&c));
-  C(!memcmp(&a,&b,sizeof(a))&&!memcmp(&a,&c,sizeof(a)));
+  C(equal_answer(&a,&b)&&equal_answer(&a,&c));
   int n=observed;C(n>0);
   C(seen[0]>0&&seen[2]>0&&seen[4]>0);
   C(gen?(seen[1]>0&&seen[3]>0):(!seen[1]&&!seen[3]));

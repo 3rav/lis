@@ -1,7 +1,7 @@
 /* Qualification-only native full FEAST continuation. */
 #include "lis_rci_native_feast.h"
-#if defined(USE_MPI)||defined(USE_QUAD_PRECISION)||defined(_COMPLEX)||defined(_LONG__DOUBLE)
-#error "native FEAST continuation requires real double non-MPI"
+#if defined(USE_MPI)||defined(USE_QUAD_PRECISION)||defined(_COMPLEX)
+#error "native FEAST continuation candidate requires real non-MPI without quad solver mode"
 #endif
 #include "feast_native_continuation.inc"
 static int nf_return(lis_rci_native_feast *K,int parent,LIS_INT rc)

@@ -1,8 +1,8 @@
 /* AI-assisted continuation reconstruction from the actual native LIS sources.
  * Proposed for inclusion under LIS terms in COPYING, subject to contributor confirmation. */
 #include "lis_rci_native_fgcro_restore.h"
-#if defined(USE_MPI)||defined(USE_QUAD_PRECISION)||defined(_COMPLEX)||defined(_LONG__DOUBLE)
-#error "native FGCRO continuation is qualified only in real double"
+#if defined(USE_MPI)||defined(USE_QUAD_PRECISION)||defined(_COMPLEX)
+#error "native FGCRO continuation candidate requires real non-MPI without quad solver mode"
 #endif
 #include "fgcro_continuation.inc"
 /* forced_status uses the otherwise unused generated method field. */

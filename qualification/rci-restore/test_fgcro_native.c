@@ -16,6 +16,14 @@ typedef struct {
  LIS_REAL residual,quality,minquality,orth,relation;
  LIS_SCALAR x[N],basis[3*3*N];
 } answer;
+static int equal_answer(const answer *a,const answer *b)
+{
+ if(a->native!=b->native||a->iter!=b->iter||a->dim!=b->dim||a->action!=b->action||a->residual!=b->residual||a->quality!=b->quality||a->minquality!=b->minquality||a->orth!=b->orth||a->relation!=b->relation)return 0;
+ for(size_t i=0;i<N;i++)if(a->x[i]!=b->x[i])return 0;
+ for(size_t i=0;i<3*3*N;i++)if(a->basis[i]!=b->basis[i])return 0;
+ return 1;
+}
+
 static uint64_t stop, observed;
 static int fault, terminal, stale;
 static LIS_INT external(LIS_SOLVER s)
@@ -104,7 +112,7 @@ int main(int argc,char **argv)
  C(!sequence(2,c,-1,0,0,counts));
  for(int i=0;i<3;i++){
   C(counts[i]>0);
-  C(!memcmp(a+i,b+i,sizeof(answer))&&!memcmp(a+i,c+i,sizeof(answer)));
+  C(equal_answer(a+i,b+i)&&equal_answer(a+i,c+i));
  }
  for(int rep=0;rep<2;rep++)for(uint64_t f=1;f<=counts[rep];f++)
   for(int kind=1;kind<=2;kind++){C(!sequence(2,scratch,rep,f,kind,NULL));faults++;}
