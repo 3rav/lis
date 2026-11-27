@@ -6,6 +6,9 @@
 
 #include <stdio.h>
 #include <math.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "lis.h"
 #include "lis_esolver.h"
@@ -8034,10 +8037,16 @@ test_transformed_block_precon_ownership(void)
     LIS_INT err,api,status,mode,pre,j,i;
     const LIS_INT transforms[]={LIS_EIGEN_TRANSFORM_BUCKLING,LIS_EIGEN_TRANSFORM_SHIFT_INVERT};
     const char *linear[]={
-        "-i fgmres -p ilut -ilutp 1 -tol 1e-13 -maxiter 500 -omp_num_threads 1",
-        "-i bicgstab -p mfamg -tol 1e-13 -maxiter 500 -omp_num_threads 1",
-        "-i fgmres -p mfamg_ilutp -tol 1e-13 -maxiter 500 -omp_num_threads 1"
+        "-i fgmres -p ilut -ilutp 1 -tol 1e-13 -maxiter 500",
+        "-i bicgstab -p mfamg -tol 1e-13 -maxiter 500",
+        "-i fgmres -p mfamg_ilutp -tol 1e-13 -maxiter 500"
     };
+#ifdef _OPENMP
+    int saved_threads=omp_get_max_threads();
+    /* The legacy ILUTP factory requires one active thread, before
+     * lis_solve_kernel has a chance to enter its solver thread scope. */
+    omp_set_num_threads(1);
+#endif
     err=lis_matrix_create(LIS_COMM_WORLD,&A); if(err)goto done;
     err=lis_matrix_set_size(A,0,12); if(err)goto done;
     if(A->nprocs!=1) { err=LIS_SUCCESS; goto done; }
@@ -8062,9 +8071,15 @@ test_transformed_block_precon_ownership(void)
             if(pre==0) {
                 if(api!=LIS_SUCCESS || status!=LIS_SUCCESS || e->nev<2 ||
                    fabs((double)lam-1.0)>1e-7 || !isfinite((double)e->resid[0]) ||
-                   e->resid[0]>1e-8) {err=LIS_FAILS;goto done;}
+                   e->resid[0]>1e-8) {
+                    fprintf(stderr,"ownership regression: mode=%d pre=%d api=%d status=%d repeat=%d\n",(int)mode,(int)pre,(int)api,(int)status,(int)j);
+                    err=LIS_FAILS;goto done;
+                }
             } else if((status!=LIS_ERR_ILL_ARG && status!=LIS_ERR_NOT_IMPLEMENTED) ||
-                      (api!=LIS_SUCCESS && api!=status)) {err=LIS_FAILS;goto done;}
+                      (api!=LIS_SUCCESS && api!=status)) {
+                fprintf(stderr,"ownership error regression: mode=%d pre=%d api=%d status=%d repeat=%d\n",(int)mode,(int)pre,(int)api,(int)status,(int)j);
+                err=LIS_FAILS;goto done;
+            }
         }
         lis_esolver_destroy(e); e=NULL;
         lis_vector_destroy(x); x=NULL;
@@ -8076,6 +8091,9 @@ done:
     if(x)lis_vector_destroy(x);
     if(B)lis_matrix_destroy(B);
     if(A)lis_matrix_destroy(A);
+#ifdef _OPENMP
+    omp_set_num_threads(saved_threads);
+#endif
     return err;
 }
 #endif
