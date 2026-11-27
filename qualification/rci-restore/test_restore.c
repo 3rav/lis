@@ -60,7 +60,7 @@ static int projector(int general,int use_block)
    C(cabsl(((vec*)result[j])->v[k]-want)<1e-15L);
   }
  }
- C(requests==2*(7+general));C(e.calls==requests*(use_block?1:2));
+ C(requests==2u*(7u+(unsigned)general));C(e.calls==requests*(use_block?1:2));
  /* Inject callback failure, stale generation and cancellation at every phase. */
  for(unsigned stop=0;stop<7+(unsigned)general;stop++)for(int fault=0;fault<3;fault++){
   int s=lis_rci_projector_restore_start(p,e.a,e.b,&q);C(s>0);

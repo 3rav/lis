@@ -352,8 +352,8 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
   if(!isfinite(h[i]))return end(c,LIS_RCI_NONFINITE,q);
   if(c->external==2)return combine(c,GM_ORTH_READY,c->v,c->v,c->V+i*n,1,-scalar,q);
   axpy(c->v,c->V+i*n,-scalar,n);
-  /* fall through */
  }
+ /* fall through */
  case GM_ORTH_READY:{
   if(++c->orth_i>c->j){c->orth_i=0;c->orth_pass++;}
   if(c->orth_pass<2)return scalar_req(c,GM_DOT,c->V+c->orth_i*n,c->v,q);
