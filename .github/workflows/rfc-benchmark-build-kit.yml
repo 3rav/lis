@@ -1,0 +1,38 @@
+name: RFC benchmark build kit
+on:
+  push:
+    branches: [validation/rfc-local-benchmark-kit-20261127]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  kit:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: baseline
+            ref: 6a4ae9c11bb03b028a6477455cb4f9f0a790132d
+          - label: symbolic
+            ref: 9b386fac69d5c4cccf8215536a7cbf650eced66f
+          - label: ldlt
+            ref: a789323a3ed056fb785472c9ac826d41061f2af5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          persist-credentials: false
+      - name: Export exact source revision
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > revision.txt
+          git archive --format=tar.gz --prefix=lis/ HEAD > lis-source.tar.gz
+          sha256sum lis-source.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-${{ matrix.label }}
+          path: |
+            lis-source.tar.gz
+            revision.txt
+            SHA256SUMS
