@@ -1,0 +1,71 @@
+name: RC32 sequence lifecycle audit
+on:
+  push:
+    branches: [ci/buckle-rc32-sequence-audit]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: serial
+            flags: ''
+            cflags: '-O2 -g'
+            ldflags: ''
+          - mode: openmp
+            flags: '--enable-omp'
+            cflags: '-O2 -g'
+            ldflags: '-fopenmp'
+          - mode: sanitizer
+            flags: ''
+            cflags: '-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
+            ldflags: '-fsanitize=address,undefined'
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build tested RC32
+        env:
+          CONFIGURE_OPTIONS: ${{ matrix.flags }}
+          CFLAGS: ${{ matrix.cflags }}
+          LDFLAGS: ${{ matrix.ldflags }}
+        run: |
+          ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-shared $CONFIGURE_OPTIONS
+          make -j2
+          gcc $CFLAGS $LDFLAGS -Iinclude experimental/buckle-rc32/tests/sequence_audit.c src/.libs/liblis.a -Wl,--wrap=lis_precon_create -Wl,--wrap=lis_precon_update_ilut_frozen -lm -o sequence-audit
+      - name: Sequence lifecycle and reference solution
+        env:
+          LIS_EXPERIMENT_ILUTP_SYMBOLIC: '1'
+          LIS_EXPERIMENT_ILUTP_PAIRS: '1'
+          LIS_EXPERIMENT_ILUTP_GROUPS: '1'
+          LIS_EXPERIMENT_ILUTP_GROUP8: '1'
+          LIS_EXPERIMENT_ILUTP_SERIAL_APPLY: '1'
+          LIS_EXPERIMENT_ILUTP_DOT4: '1'
+          LIS_EXPERIMENT_ILUTP_MD: '1'
+          LIS_EXPERIMENT_ILUTP_REUSE: '1'
+        run: |
+          set -euo pipefail
+          ./sequence-audit 2>&1 | tee sequence-audit.log
+          grep -q '^PASS sequence failed refresh cleanup and recovery' sequence-audit.log
+          if [[ "${{ matrix.mode }}" == openmp ]]; then
+            OMP_NUM_THREADS=4 ./sequence-audit 2>&1 | tee sequence-audit-omp4.log
+            grep -q '^PASS sequence failed refresh cleanup and recovery' sequence-audit-omp4.log
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sequence-audit-${{ matrix.mode }}
+          path: sequence-audit*.log
+          if-no-files-found: ignore
