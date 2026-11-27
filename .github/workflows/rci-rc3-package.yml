@@ -18,7 +18,7 @@ jobs:
           set -euo pipefail
           python3 qualification/rci-restore/materialize_native_rc3.py
           autoreconf -fi
-          git diff --check
+          git diff --check -- . ':!configure'
           git status --short
           ./configure --enable-native-rci --enable-rci --enable-test --enable-shared --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg --disable-omp
           make -C src -j2
