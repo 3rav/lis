@@ -1,0 +1,24 @@
+--- a/src/esolver/lis_esolver_li.c
++++ b/src/esolver/lis_esolver_li.c
+@@ -6636,7 +6636,10 @@
+         esolver->resid[i] =
+             cert_resid;
+ 
++        /* Only explicitly requested Ritz pairs determine convergence. */
+         if( cert_resid>cert_tol &&
++            (!esolver->requested_nev_active ||
++             esolver->requested_nev<=0 || i<esolver->requested_nev) &&
+             final_status==LIS_SUCCESS )
+         {
+             final_status =
+@@ -6644,6 +6647,10 @@
+         }
+     }
+ 
++    if( esolver->requested_nev_active &&
++        esolver->requested_nev>projected_dim )
++        final_status = LIS_MAXITER;
++
+     esolver->retcode =
+         final_status;
+ 

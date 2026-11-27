@@ -1,0 +1,15 @@
+--- a/src/esolver/lis_esolver_li.c
++++ b/src/esolver/lis_esolver_li.c
+@@ -7031,6 +7031,12 @@
+         "-i bicg -p none",
+         solver);
+ 
++    if( esolver->linear_options && esolver->linear_options[0] )
++    {
++        err = lis_solver_set_option(esolver->linear_options,solver);
++        if( err ) goto cleanup;
++    }
++
+     err = lis_solver_set_optionC(
+         solver);
+ 
