@@ -21,7 +21,7 @@ adds an internal qualification dimension accessor, to avoid reading beyond an
 incompatible child context. Keep this branch separate from the upstream PR until
 the new API design and qualification have been reviewed.
 
-Not yet FEAST outer iteration, shared classic solver kernels, GCRO-DR/FGCRO-DR,
+Not yet shared classic solver kernels, GCRO-DR/FGCRO-DR,
 stackless Krylov or extended precision LIS builds. Complex
 coefficients/opaque vectors are not equivalent to full complex LIS support.
 
@@ -42,3 +42,15 @@ preconditioners itself; the caller must meet their workspace and lifecycle
 requirements. Qualification tests use native Jacobi and SSOR, with all four
 linear methods in Serial/OpenMP and INT32/INT64. Native bridge integration
 does not imply a shared classic numerical recurrence or native FEAST.
+
+The experimental FEAST outer continuation uses the split-complex contour
+projector, B-metric twice-MGS rank reduction, native projected eigensolve
+callback, Ritz reconstruction and explicit independent A/B residual
+verification. It requires real symmetric A and SPD B, conjugate quadrature,
+and a suitable starting subspace. It returns only converged interval values
+after stable count/trace; it does not certify completeness or an empty
+interval, and is not integrated into the classical FEAST policy. Every outer
+request has a context-local monotonic token independent of nested projector
+tokens. The native test uses lis_eigen_projected_solve and actual assembled
+LIS A/B matrices (known spectra 1,2,5,8); tests repeat, cancellation, callback
+error, generation invalidation and independently check physical residuals.

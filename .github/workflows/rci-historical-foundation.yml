@@ -46,3 +46,6 @@ jobs:
           ldd "$RUNNER_TEMP/native" | grep -F "$PWD/src/.libs/liblis.so"
           OMP_NUM_THREADS=1 "$RUNNER_TEMP/native"
           if [ "${{ matrix.mode }}" = openmp ]; then OMP_NUM_THREADS=4 "$RUNNER_TEMP/native"; fi
+          cc "${flags[@]}" -Iinclude -Iqualification/rci-restore/ qualification/rci-restore/lis_rci_restore.c qualification/rci-restore/lis_rci_split_restore.c qualification/rci-restore/lis_rci_native_restore.c qualification/rci-restore/lis_rci_feast_restore.c qualification/rci-restore/test_feast.c -Lsrc/.libs -Wl,-rpath,"$PWD/src/.libs" -llis -lm -o "$RUNNER_TEMP/feast"
+          OMP_NUM_THREADS=1 "$RUNNER_TEMP/feast"
+          if [ "${{ matrix.mode }}" = openmp ]; then OMP_NUM_THREADS=4 "$RUNNER_TEMP/feast"; fi
