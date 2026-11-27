@@ -1,7 +1,10 @@
 name: Integrated experimental RCI qualification
 on:
   push:
-    branches: ['qualification/rci-reconstructed-native-20261127']
+    branches: ['release-candidate/rci-reconstructed-v1.0-serial-openmp']
+  pull_request:
+    branches: [develop]
+    paths: ['configure.ac', 'src/Makefile.am', 'include/Makefile.am', 'src/lis_rci*', 'include/lis_rci*', 'qualification/rci-reconstructed/**', '.github/workflows/rci-*.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,7 +28,11 @@ jobs:
       UBSAN_OPTIONS: 'halt_on_error=1:print_stacktrace=1'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential autoconf automake libtool libtool-bin
+      - name: Verify runner toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in gcc g++ make autoconf automake autoreconf libtoolize nm readelf; do command -v "$tool"; done
       - name: Build and install integrated liblis
         shell: bash
         run: |
@@ -84,7 +91,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential autoconf automake libtool libtool-bin
+      - name: Verify runner toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in gcc g++ make autoconf automake autoreconf libtoolize nm readelf; do command -v "$tool"; done
       - name: Default build remains free of RCI
         shell: bash
         run: |

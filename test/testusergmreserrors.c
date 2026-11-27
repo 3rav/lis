@@ -64,6 +64,8 @@ static int run(const char *name,LIS_INT fail_on,LIS_INT precon_fail)
     }
     err=lis_solver_create(&solver);if(err)goto done;
     snprintf(opts,sizeof(opts),"-i %s -p gmreserrpc -scale none -maxiter 200 -tol 1e-9 -print none -restart 8",name);
+    if(fail_on==4 || precon_fail==3)
+        snprintf(opts,sizeof(opts),"-i %s -p gmreserrpc -scale none -maxiter 200 -tol 1e-9 -print none -restart 2",name);
     err=lis_solver_set_option(opts,solver);
     if(err)goto done;
     solver->options[LIS_OPTIONS_INITGUESS_ZEROS]=LIS_FALSE;
@@ -73,10 +75,10 @@ static int run(const char *name,LIS_INT fail_on,LIS_INT precon_fail)
     if(fail_on || precon_fail)
     {
         if(err!=LIS_SUCCESS || status!=LIS_ERR_ILL_ARG ||
-           (fail_on && ctx.calls!=fail_on+1) ||
+           (fail_on && ctx.calls!=fail_on) ||
            (precon_fail && pc_calls!=precon_fail) ||
            (fail_on==1 && iterations!=0) ||
-           (fail_on==1 ? !isnan((double)resid) : !isfinite((double)resid)))
+           ((fail_on==1 || fail_on==4) ? !isnan((double)resid) : !isfinite((double)resid)))
         {
             fprintf(stderr,"GMRES_FGMRES fault %d api=%d status=%d calls=%d\n",
                    (int)fail_on,(int)err,(int)status,(int)ctx.calls);
@@ -84,6 +86,15 @@ static int run(const char *name,LIS_INT fail_on,LIS_INT precon_fail)
         }
         for(i=0;i<ctx.n;i++)
             if(!isfinite((double)x->value[i]))goto done;
+
+        /* Reuse the same solver after a callback failure with an exact
+         * zero solution. A stale retcode must not turn it into failure. */
+        ctx.fail_on=0; pc_fail_on=0;
+        if(lis_vector_set_all(0.0,b) || lis_vector_set_all(0.0,x))goto done;
+        err=lis_solve(A,b,x,solver);
+        if(err || lis_solver_get_status(solver,&status) || status!=LIS_SUCCESS ||
+           lis_solver_get_residualnorm(solver,&resid) || resid!=0.0)goto done;
+        for(i=0;i<ctx.n;i++) if(x->value[i]!=0.0)goto done;
     }
     else
     {
@@ -126,12 +137,15 @@ int main(int argc,char **argv)
     failed|=run("gmres",1,0);
     failed|=run("gmres",2,0);
     failed|=run("gmres",3,0);
+    failed|=run("gmres",4,0);
+    failed|=run("gmres",0,3);
     failed|=run("gmres",0,1);
     failed|=run("gmres",0,2);
     failed|=run("gmres",0,0);
     failed|=run("fgmres",1,0);
     failed|=run("fgmres",2,0);
     failed|=run("fgmres",3,0);
+    failed|=run("fgmres",4,0);
     failed|=run("fgmres",0,1);
     failed|=run("fgmres",0,2);
     failed|=run("fgmres",0,0);

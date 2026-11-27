@@ -4,7 +4,7 @@
 
 # General Configurations
 
-AC_INIT([lis],[2.1.24],[devel@ssisc.org])
+AC_INIT([lis],[2.1.25],[devel@ssisc.org])
 AC_CONFIG_SRCDIR([src/fortran/lisf_matrix.c])
 AC_CONFIG_AUX_DIR(config)
 AC_CONFIG_MACRO_DIR([m4])
@@ -915,6 +915,7 @@ if test "$enable_mpi" = "yes"; then
   F77=$MPIF77
   FC=$MPIFC
   CFLAGS="$CFLAGS -DUSE_MPI"
+  AC_DEFINE([USE_MPI], [1], [Define to 1 to enable MPI.])
   case $ax_cv_f77_compiler_vendor in
     ibm) FCFLAGS="$FCFLAGS -WF,-DUSE_MPI" 
          FFLAGS="$FFLAGS -WF,-DUSE_MPI"
@@ -1129,6 +1130,7 @@ if test "$enable_longlong" = "yes"; then
              ;;
   esac
   CFLAGS="$CFLAGS -D_LONG__LONG"
+  AC_DEFINE([_LONG__LONG], [1], [Define to 1 to use 64-bit LIS indices.])
 
   case $ax_cv_f77_compiler_vendor in
     intel) FFLAGS="$FFLAGS -DLONG__LONG -integer-size 64"
@@ -1159,6 +1161,7 @@ if test "$enable_longdouble" = "yes"; then
              ;;
   esac
   CFLAGS="$CFLAGS -D_LONG__DOUBLE"
+  AC_DEFINE([_LONG__DOUBLE], [1], [Define to 1 to use long double LIS scalars.])
 
   case $ax_cv_f77_compiler_vendor in
     intel) FFLAGS="$FFLAGS -DLONG__DOUBLE -real-size 128"
@@ -1179,6 +1182,7 @@ if test "$enable_complex" = "yes"; then
   AC_DEFINE([USE_COMPLEX], [1], [Define to 1 to enable complex scalar operations.])
   if test -z "$HAVE_COMPLEX_H"; then
     CFLAGS="$CFLAGS -D_COMPLEX"
+    AC_DEFINE([_COMPLEX], [1], [Define to 1 to use complex LIS scalars.])
     FFLAGS="$FFLAGS -DCOMPLEX" 
     FCFLAGS="$FCFLAGS -DCOMPLEX" 
   else

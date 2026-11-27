@@ -269,7 +269,9 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
-	lis_solver_get_residual[conv](r,solver,&nrm2);
+	/* The initial helper already normalized the nonzero residual. */
+	if(conv==LIS_CONV_COND_NRM2_R && isfinite(bnrm2) && bnrm2>0.0) nrm2 = 1.0;
+	else lis_solver_get_residual[conv](r,solver,&nrm2);
 
 	init_by_array(init, length);
 		for(i=0;i<n;i++)
@@ -293,8 +295,7 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 			time = lis_wtime();
 			lis_psolve_right(solver, r, t);
 			ptime += lis_wtime()-time;
-			err=lis_matvec(A,t,av);
-			if(err) goto callback_failure;
+			lis_matvec(A,t,av);
 			lis_vector_print(av);
 			time = lis_wtime();
 			lis_psolve_left(solver, av, v);
@@ -368,8 +369,7 @@ LIS_INT lis_idr1(LIS_SOLVER solver)
 				time = lis_wtime();
 				lis_psolve_right(solver, v, t);
 				ptime += lis_wtime()-time;
-				err=lis_matvec(A,t,av);
-				if(err) goto callback_failure;
+				lis_matvec(A,t,av);
 				time = lis_wtime();
 				lis_psolve_left(solver, av, t);
 				ptime += lis_wtime()-time;
@@ -595,6 +595,11 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 	{
 		lis_free2(4,m,c,M,MM);
 		LIS_SETERR_MEM(sizeof(LIS_SCALAR));
+		solver->retcode = LIS_ERR_OUT_OF_MEMORY;
+		solver->iter = 0;
+		solver->resid = NAN;
+		solver->ptime = 0.0;
+		LIS_DEBUG_FUNC_OUT;
 		return LIS_ERR_OUT_OF_MEMORY;
 	}
 
@@ -614,7 +619,9 @@ LIS_INT lis_idrs(LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
-	lis_solver_get_residual[conv](r,solver,&nrm2);
+	/* The initial helper already normalized the nonzero residual. */
+	if(conv==LIS_CONV_COND_NRM2_R && isfinite(bnrm2) && bnrm2>0.0) nrm2 = 1.0;
+	else lis_solver_get_residual[conv](r,solver,&nrm2);
 
 	init_by_array(init, length);
 	for(k=0;k<s;k++)

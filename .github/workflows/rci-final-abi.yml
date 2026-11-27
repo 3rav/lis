@@ -1,8 +1,10 @@
 name: RCI final API ABI and existing solver regression
 on:
   push:
-    branches: ['qualification/rci-reconstructed-native-20261127']
-    paths: ['.github/workflows/rci-final-abi.yml', 'src/lis_rci*', 'include/lis_rci*']
+    branches: ['release-candidate/rci-reconstructed-v1.0-serial-openmp']
+  pull_request:
+    branches: [develop]
+    paths: ['configure.ac', 'src/Makefile.am', 'include/Makefile.am', 'src/lis_rci*', 'include/lis_rci*', 'qualification/rci-reconstructed/**', '.github/workflows/rci-*.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git worktree add --detach "$RUNNER_TEMP/base" 917c57c21c5ac2eaf0082b60c9942f27733ca09c
+          git worktree add --detach "$RUNNER_TEMP/base" 6a4ae9c11bb03b028a6477455cb4f9f0a790132d
           opts=(--enable-shared --enable-omp --disable-mpi --disable-fortran --disable-f90 --disable-saamg --disable-quad)
           if [ "${{ matrix.index }}" = int64 ]; then opts+=(--enable-longlong); fi
           build() {

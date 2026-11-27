@@ -169,6 +169,11 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 	if( tau==NULL )
 	{
 		LIS_SETERR_MEM(sizeof(LIS_SCALAR) * z_dim * (4+l+1));
+		solver->retcode = LIS_ERR_OUT_OF_MEMORY;
+		solver->iter = 0;
+		solver->resid = NAN;
+		solver->ptime = 0.0;
+		LIS_DEBUG_FUNC_OUT;
 		return LIS_ERR_OUT_OF_MEMORY;
 	}
 	gamma   = &tau[z_dim*z_dim];
@@ -190,7 +195,9 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
-	lis_solver_get_residual[conv](r[0],solver,&nrm2);
+	/* The initial helper already normalized the nonzero residual. */
+	if(conv==LIS_CONV_COND_NRM2_R && isfinite(bnrm2) && bnrm2>0.0) nrm2 = 1.0;
+	else lis_solver_get_residual[conv](r[0],solver,&nrm2);
 
 	lis_solver_set_shadowresidual(solver,r[0],rtld);
 
@@ -427,20 +434,24 @@ LIS_INT lis_bicgstabl(LIS_SOLVER solver)
 			}
 			else if ( ++noimp_count > maxiter_noimp )
 			{
-				solver->retcode = LIS_MAXITER;
-				solver->iter = iter;
-				solver->resid = nrm2;
-				solver->ptime = ptime;
-				lis_free(tau);
-				LIS_DEBUG_FUNC_OUT;
-				return LIS_MAXITER;
+				goto iteration_limit;
 			}
 		}
 	}
 
+iteration_limit:
+	/* A numerical stop still returns a physical iterate, not a
+	 * preconditioned correction. If reconstruction fails, restore xp. */
+	time = lis_wtime();
+	err = lis_psolve(solver,x,t);
+	ptime += lis_wtime()-time;
+	if(err) goto callback_failure;
+	lis_vector_copy(t,x);
+	lis_vector_axpy(1.0,xp,x);
 	solver->retcode   = LIS_MAXITER;
 	solver->iter      = iter;
 	solver->resid     = nrm2;
+	solver->ptime     = ptime;
 	lis_free(tau);
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_MAXITER;
@@ -449,7 +460,6 @@ callback_failure:
 	solver->retcode = err;
 	solver->iter = iter;
 	solver->ptime = ptime;
-	solver->resid = nrm2;
 	/* The correction is not a physical iterate without M^-1. */
 	lis_vector_copy(xp,x);
 	solver->resid = NAN;

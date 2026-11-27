@@ -44,3 +44,7 @@ Omit OpenMP or use --disable-omp for serial; --enable-longlong selects 64-bit LI
 API/ABI freeze on tested Linux x86-64, real double, default C enum and structure layout: options 48 bytes, request 24, info 40; all aligned to 8 bytes. Ten exports unchanged from tested baseline. Do not reorder existing fields, change enum values or function signatures in compatible updates. No claim of equivalence to unavailable original RC2/RC3. No native MPI, extended/complex precision, other platform or broad production workload qualification. Release candidate is opt-in and has no production merge or publication approval.
 
 Diagnostic source files are preserved under qualification/rci-reconstructed. The CHOLMOD workflow can be inspected and manually dispatched where GitHub permits it. Historical logs remain attached to the exact tested commits.
+
+## Upstream PR #267 integration
+
+The candidate branch was merged with upstream develop `6a4ae9c11bb03b028a6477455cb4f9f0a790132d`, preserving the four previously tested RCI source/header blobs and taking all non-RCI files from upstream. The earlier fork-only solver and MPI changes remain in Git history but are not included in the PR's file diff. Prior CI results above refer to the earlier tested commits; integrated and ABI CI are rerun against the upstream-based merge commit. No production merge or tag is implied.

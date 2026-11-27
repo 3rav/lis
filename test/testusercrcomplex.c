@@ -51,7 +51,7 @@ static int exercise(const char *method,LIS_INT fail_on)
     if(fail_on)
     {
         if(err!=LIS_SUCCESS || status!=LIS_ERR_ILL_ARG ||
-           ctx.calls!=fail_on+1)
+           ctx.calls!=fail_on)
         {
             fprintf(stderr,"%s callback %d err=%d status=%d calls=%d\n",
                    method,(int)fail_on,(int)err,(int)status,(int)ctx.calls);

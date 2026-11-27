@@ -73,7 +73,7 @@ static int run(LIS_INT fail_on,LIS_INT precon_fail)
     if(fail_on || precon_fail)
     {
         if(err!=LIS_SUCCESS || status!=LIS_ERR_ILL_ARG ||
-           (fail_on && ctx.calls!=fail_on+1) ||
+           (fail_on && ctx.calls!=fail_on) ||
            (precon_fail && pc_calls!=precon_fail) ||
            ((fail_on==1 || fail_on==2 || precon_fail==1 || precon_fail==2) && iterations!=0) ||
            ((fail_on==1 || precon_fail==1) ? !isnan((double)resid) : !isfinite((double)resid)))

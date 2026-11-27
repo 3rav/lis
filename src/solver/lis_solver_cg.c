@@ -762,7 +762,9 @@ LIS_INT lis_cocg(LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
-	lis_solver_get_residual[conv](r,solver,&nrm2);
+	/* The initial helper already normalized the nonzero residual. */
+	if(conv==LIS_CONV_COND_NRM2_R && isfinite(bnrm2) && bnrm2>0.0) nrm2 = 1.0;
+	else lis_solver_get_residual[conv](r,solver,&nrm2);
 
 	lis_vector_set_all(0.0,p);
 	
@@ -771,7 +773,7 @@ LIS_INT lis_cocg(LIS_SOLVER solver)
 		/* z = M^-1 * r */
 		time = lis_wtime();
 		err = lis_psolve(solver,r,z);
-		ptime += lis_wtime()-time;
+		ptime += lis_wtime() - time;
 		if(err) goto callback_failure;
 
 		/* rho = <r,z> */
@@ -990,11 +992,13 @@ LIS_INT lis_cr(LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
-	lis_solver_get_residual[conv](r,solver,&nrm2);
+	/* The initial helper already normalized the nonzero residual. */
+	if(conv==LIS_CONV_COND_NRM2_R && isfinite(bnrm2) && bnrm2>0.0) nrm2 = 1.0;
+	else lis_solver_get_residual[conv](r,solver,&nrm2);
 
 	time = lis_wtime();
 	err = lis_psolve(solver,r,p);
-	ptime += lis_wtime()-time;
+	ptime += lis_wtime() - time;
 	if(err) goto callback_failure;
 	err = lis_matvec(A,p,q);
 	if(err) goto callback_failure;
@@ -1005,7 +1009,7 @@ LIS_INT lis_cr(LIS_SOLVER solver)
 		/* qtld = M^-1 * q */
 		time = lis_wtime();
 		err = lis_psolve(solver,q,qtld);
-		ptime += lis_wtime()-time;
+		ptime += lis_wtime() - time;
 		if(err) goto callback_failure;
 
 		/* rho = <qtld,q> */
@@ -1386,11 +1390,13 @@ LIS_INT lis_cocr(LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
-	lis_solver_get_residual[conv](r,solver,&nrm2);
+	/* The initial helper already normalized the nonzero residual. */
+	if(conv==LIS_CONV_COND_NRM2_R && isfinite(bnrm2) && bnrm2>0.0) nrm2 = 1.0;
+	else lis_solver_get_residual[conv](r,solver,&nrm2);
 
 	time = lis_wtime();
 	err = lis_psolve(solver,r,p);
-	ptime += lis_wtime()-time;
+	ptime += lis_wtime() - time;
 	if(err) goto callback_failure;
 	err = lis_matvec(A,p,q);
 	if(err) goto callback_failure;
@@ -1401,7 +1407,7 @@ LIS_INT lis_cocr(LIS_SOLVER solver)
 		/* qtld = M^-1 * q */
 		time = lis_wtime();
 		err = lis_psolve(solver,q,qtld);
-		ptime += lis_wtime()-time;
+		ptime += lis_wtime() - time;
 		if(err) goto callback_failure;
 
 		/* rho = <qtld,q> */

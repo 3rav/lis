@@ -833,20 +833,6 @@ LIS_INT lis_matrix_get_capabilities(
                                         |
                                         LIS_MATRIX_CAP_DIAGONAL;
                         }
-#ifdef USE_MPI
-                        else if( A->nprocs>1 )
-                        {
-                                /* Collective row-backed Ax, A^H x and
-                                 * local diagonal extraction for Jacobi.
-                                 * Distributed ILU remains unsupported. */
-                                *capabilities |=
-                                        LIS_MATRIX_CAP_MATVEC
-                                        |
-                                        LIS_MATRIX_CAP_MATVECH
-                                        |
-                                        LIS_MATRIX_CAP_DIAGONAL;
-                        }
-#endif
                 }
 
                 break;
@@ -1782,12 +1768,7 @@ LIS_INT lis_matrix_get_user_row(
                 }
         }
 
-        err = A->user_get_row(
-                A->user_data,
-                local_row,
-                nnz,
-                cols,
-                vals);
+        LIS_CALLBACK_INVOKE(err,A->user_get_row(A->user_data,local_row,nnz,cols,vals));
 
         if( err ) return err;
 

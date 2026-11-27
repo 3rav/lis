@@ -1,14 +1,26 @@
 #include "lis_abi.h"
+#if defined(HAVE_CONFIG_H) && (defined(__GNUC__) || defined(__clang__) || defined(_MSC_VER))
+#define LIS_ABI_TEST_PACKAGE 1
+#undef PACKAGE_NAME
+#undef PACKAGE_VERSION
+#define PACKAGE_NAME "abi-client"
+#define PACKAGE_VERSION "client-version"
+#define LIS_USE_INSTALLED_CONFIG
+#endif
 #include "lis.h"
 #include <stdio.h>
 #include <string.h>
 
 int main(void)
 {
-    LIS_ABI_INFO info,old;
+    LIS_ABI_INFO info,old,client;
     union { LIS_ABI_INFO aligned; unsigned char bytes[sizeof(LIS_ABI_INFO)+8]; } extended;
     LIS_ABI_INFO short_result;
     int fail=0;
+#ifdef LIS_ABI_TEST_PACKAGE
+    if(strcmp(PACKAGE_NAME,"abi-client") ||
+       strcmp(PACKAGE_VERSION,"client-version")) fail=1;
+#endif
     memset(&info,0x5a,sizeof(info));
     old=info;
     if(lis_abi_get_info(NULL,sizeof(info))==0 ||
@@ -78,6 +90,24 @@ int main(void)
         (uint32_t)sizeof(LIS_INT)+1,(uint32_t)sizeof(LIS_SCALAR),
         (uint32_t)sizeof(LIS_REAL),info.scalar_kind) ||
        lis_abi_is_compatible(NULL,1,1,1,LIS_ABI_SCALAR_REAL))
+        fail=1;
+    lis_abi_get_client_info(&client);
+    if(!lis_abi_is_layout_compatible(&info,sizeof(info),&client,sizeof(client),
+          LIS_ABI_LAYOUT_FLAGS|LIS_ABI_FLAG_OPENMP) ||
+       lis_abi_is_layout_compatible(&info,LIS_ABI_INFO_V2_SIZE,
+          &client,sizeof(client),LIS_ABI_LAYOUT_FLAGS))
+        fail=1;
+    client.solver_struct_bytes++;
+    if(lis_abi_is_layout_compatible(&info,sizeof(info),&client,sizeof(client),
+          LIS_ABI_LAYOUT_FLAGS)) fail=1;
+    lis_abi_get_client_info(&client);
+    client.flags^=LIS_ABI_FLAG_MPI;
+    if(lis_abi_is_layout_compatible(&info,sizeof(info),&client,sizeof(client),
+          LIS_ABI_LAYOUT_FLAGS)) fail=1;
+    memset(&short_result,0x5a,sizeof(short_result));
+    if(lis_abi_get_info(&short_result,LIS_ABI_INFO_V2_SIZE)!=LIS_ABI_SUCCESS ||
+       short_result.pointer_bytes!=sizeof(void *) ||
+       short_result.comm_bytes!=UINT32_C(0x5a5a5a5a))
         fail=1;
     printf("LIS_ABI_INFO=%s\n",fail?"FAIL":"PASS");
     return fail;

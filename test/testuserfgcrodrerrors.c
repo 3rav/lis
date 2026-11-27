@@ -46,7 +46,7 @@ static int run(const char *name,LIS_INT fail_on,LIS_INT precon_fail)
     LIS_VECTOR x=NULL,b=NULL;
     LIS_SOLVER solver=NULL;
     LIS_INT i,err=LIS_SUCCESS,status=LIS_SUCCESS;
-    LIS_INT iterations=-1;
+    LIS_INT iterations=-1,dim=0;
     LIS_REAL resid=NAN;
     int failed=1;
     char opts[200];
@@ -63,17 +63,31 @@ static int run(const char *name,LIS_INT fail_on,LIS_INT precon_fail)
         x->value[i]=(LIS_SCALAR)0.1;
     }
     err=lis_solver_create(&solver);if(err)goto done;
-    snprintf(opts,sizeof(opts),"-i %s -p fgcrodrerrpc -scale none -maxiter 200 -tol 1e-9 -print none -restart 8 -fgcrodr_k 2",name);
+    snprintf(opts,sizeof(opts),"-i %s -p fgcerrpc -scale none -maxiter 200 -tol 1e-9 -print none -restart 8 -fgcrodr_k 2",name);
     err=lis_solver_set_option(opts,solver);
     if(err)goto done;
     solver->options[LIS_OPTIONS_INITGUESS_ZEROS]=LIS_FALSE;
+    /* Exercise failure with a previously populated recycle space. */
+    if(precon_fail==1)
+    {
+        pc_fail_on=0;
+        err=lis_solve(A,b,x,solver);
+        if(err || lis_solver_get_status(solver,&status) || status!=LIS_SUCCESS ||
+           lis_solver_get_fgcrodr_recycle(solver,&dim,NULL,NULL,NULL) || dim<=0)
+        {
+            fprintf(stderr,"fgcrodr could not seed a recycle space: dim=%d status=%d\n",(int)dim,(int)status);
+            goto done;
+        }
+        ctx.calls=0; pc_calls=0; pc_fail_on=precon_fail;
+        if(lis_vector_set_all(0.1,x))goto done;
+    }
     err=lis_solve(A,b,x,solver);
     if(lis_solver_get_status(solver,&status) || lis_solver_get_iter(solver,&iterations) ||
        lis_solver_get_residualnorm(solver,&resid))goto done;
     if(fail_on || precon_fail)
     {
         if(err!=LIS_SUCCESS || status!=LIS_ERR_ILL_ARG ||
-           (fail_on && ctx.calls!=fail_on+1) ||
+           (fail_on && ctx.calls!=fail_on) ||
            (precon_fail && pc_calls!=precon_fail) ||
            (fail_on==1 && iterations!=0) ||
            (fail_on==1 ? !isnan((double)resid) : 0))
@@ -84,6 +98,21 @@ static int run(const char *name,LIS_INT fail_on,LIS_INT precon_fail)
         }
         for(i=0;i<ctx.n;i++)
             if(!isfinite((double)x->value[i]))goto done;
+        if(lis_solver_get_fgcrodr_recycle(solver,&dim,NULL,NULL,NULL) || dim!=0)
+        {
+            fprintf(stderr,"fgcrodr retained a failed recycle space: dim=%d\n",(int)dim);
+            goto done;
+        }
+        ctx.fail_on=0; pc_fail_on=0;
+        if(lis_vector_set_all(0.1,x))goto done;
+        err=lis_solve(A,b,x,solver);
+        if(err || lis_solver_get_status(solver,&status) || status!=LIS_SUCCESS)
+        {
+            fprintf(stderr,"fgcrodr retry failed: api=%d status=%d\n",(int)err,(int)status);
+            goto done;
+        }
+        for(i=0;i<ctx.n;i++)
+            if(!(fabs((double)x->value[i]-(1.0+0.125*(double)i)/(4.0+0.2*(double)i))<=1e-7))goto done;
     }
     else
     {
@@ -118,7 +147,7 @@ int main(int argc,char **argv)
 #else
     int failed=0;
     if(lis_initialize(&argc,&argv))return 1;
-    if(lis_precon_register("fgcrodrerrpc",pc_create,pc_apply,pc_apply))
+    if(lis_precon_register("fgcerrpc",pc_create,pc_apply,pc_apply))
     {
         lis_finalize();
         return 1;

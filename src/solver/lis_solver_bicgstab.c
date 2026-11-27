@@ -1280,7 +1280,9 @@ LIS_INT lis_bicrstab(LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
-	lis_solver_get_residual[conv](r,solver,&nrm2);
+	/* The initial helper already normalized the nonzero residual. */
+	if(conv==LIS_CONV_COND_NRM2_R && isfinite(bnrm2) && bnrm2>0.0) nrm2 = 1.0;
+	else lis_solver_get_residual[conv](r,solver,&nrm2);
 
 	lis_solver_set_shadowresidual(solver,r,p);
 

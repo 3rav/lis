@@ -192,6 +192,7 @@ LIS_INT lis_gmres(LIS_SOLVER solver)
 	h       = (LIS_SCALAR *)lis_malloc( sizeof(LIS_SCALAR)*(h_dim+1)*(h_dim+2),"lis_gmres::h" );
 	if(h==NULL)
 	{
+		LIS_SETERR_MEM(sizeof(LIS_SCALAR)*(h_dim+1)*(h_dim+2));
 		solver->retcode = LIS_ERR_OUT_OF_MEMORY;
 		solver->iter = 0;
 		solver->resid = NAN;
@@ -216,8 +217,14 @@ LIS_INT lis_gmres(LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
-	lis_vector_nrm2(v[0],&nrm2);
-	nrm2 *= bnrm2;
+	if(solver->options[LIS_OPTIONS_CONV_COND]==LIS_CONV_COND_NRM2_R &&
+		isfinite(bnrm2) && bnrm2>0.0)
+		nrm2 = 1.0;
+	else
+	{
+		lis_vector_nrm2(v[0],&nrm2);
+		nrm2 *= bnrm2;
+	}
 
 
 	iter=0;
@@ -1542,6 +1549,7 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 	h       = (LIS_SCALAR *)lis_malloc( sizeof(LIS_SCALAR)*(h_dim+1)*(h_dim+2),"lis_gmres::h" );
 	if(h==NULL)
 	{
+		LIS_SETERR_MEM(sizeof(LIS_SCALAR)*(h_dim+1)*(h_dim+2));
 		solver->retcode = LIS_ERR_OUT_OF_MEMORY;
 		solver->iter = 0;
 		solver->resid = NAN;
@@ -1566,8 +1574,14 @@ LIS_INT lis_fgmres(LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
-	lis_vector_nrm2(v[0],&nrm2);
-	nrm2 *= bnrm2;
+	if(solver->options[LIS_OPTIONS_CONV_COND]==LIS_CONV_COND_NRM2_R &&
+		isfinite(bnrm2) && bnrm2>0.0)
+		nrm2 = 1.0;
+	else
+	{
+		lis_vector_nrm2(v[0],&nrm2);
+		nrm2 *= bnrm2;
+	}
 	rnorm   = 1.0/bnrm2;
 
 	/* The FGMRES-supported NRM2_R condition uses ||r0|| as the

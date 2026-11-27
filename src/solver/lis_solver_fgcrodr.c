@@ -5730,6 +5730,7 @@ lis_fgcrodr_flexible_core(
         if(solver->retcode!=LIS_SUCCESS)
         {
             solver->resid = NAN;
+            lis_fgcrodr_clear_recycle(solver);
             return solver->retcode;
         }
         return LIS_SUCCESS;
@@ -5983,6 +5984,7 @@ lis_fgcrodr_flexible_core(
 
         lis_free(h);
 
+                lis_fgcrodr_clear_recycle(solver);
                 return err;
             }
 
@@ -6011,6 +6013,7 @@ lis_fgcrodr_flexible_core(
                 if(bcoef) lis_free(bcoef);
                 if(hraw) lis_free(hraw);
                 lis_free(h);
+                lis_fgcrodr_clear_recycle(solver);
                 return err;
             }
 
@@ -6656,6 +6659,7 @@ lis_fgcrodr_flexible_core(
 
         lis_free(h);
 
+            lis_fgcrodr_clear_recycle(solver);
             return err;
         }
 
@@ -6719,6 +6723,7 @@ lis_fgcrodr_flexible_core(
             if(bcoef) lis_free(bcoef);
             if(hraw) lis_free(hraw);
             lis_free(h);
+            lis_fgcrodr_clear_recycle(solver);
             return err;
         }
 
@@ -7007,6 +7012,7 @@ lis_fgcrodr(
         solver->iter = 0;
         solver->resid = NAN;
         solver->ptime = 0.0;
+        lis_fgcrodr_clear_recycle(solver);
         LIS_DEBUG_FUNC_OUT;
         return err;
     }

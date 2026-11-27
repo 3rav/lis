@@ -161,8 +161,14 @@ LIS_INT lis_tfqmr(LIS_SOLVER solver)
 		return LIS_SUCCESS;
 	}
 	tol     = solver->tol;
-	lis_vector_nrm2(r,&nrm2);
-	nrm2 *= bnrm2;
+	if(solver->options[LIS_OPTIONS_CONV_COND]==LIS_CONV_COND_NRM2_R &&
+		isfinite(bnrm2) && bnrm2>0.0)
+		nrm2 = 1.0;
+	else
+	{
+		lis_vector_nrm2(r,&nrm2);
+		nrm2 *= bnrm2;
+	}
 
 	lis_solver_set_shadowresidual(solver,r,rtld);
 

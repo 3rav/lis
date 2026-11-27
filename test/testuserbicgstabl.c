@@ -17,7 +17,7 @@ static LIS_INT diagonal(void *raw,const LIS_SCALAR *x,LIS_SCALAR *y)
         return LIS_ERR_ILL_ARG;
     }
     for(i=0;i<ctx->n;i++)
-        y[i]=(LIS_SCALAR)(ctx->fail_on ? 4.0+0.125*(double)i : 4.0)*x[i];
+        y[i]=(LIS_SCALAR)(4.0+0.125*(double)i)*x[i];
     return LIS_SUCCESS;
 }
 static int exercise(LIS_INT fail_on,LIS_INT ell)
@@ -27,6 +27,7 @@ static int exercise(LIS_INT fail_on,LIS_INT ell)
     LIS_VECTOR b=NULL,x=NULL;
     LIS_SOLVER solver=NULL;
     LIS_INT i,err=LIS_SUCCESS,status=LIS_SUCCESS;
+    LIS_REAL resid=NAN;
     int failed=1;
     ctx.n=8;ctx.calls=0;ctx.fail_on=fail_on;
     err=lis_matrix_create(LIS_COMM_WORLD,&A);if(err)goto done;
@@ -36,9 +37,8 @@ static int exercise(LIS_INT fail_on,LIS_INT ell)
     err=lis_vector_duplicate(A,&x);if(err)goto done;
     for(i=0;i<ctx.n;i++)
     {
-        /* Keep injection on a nonzero guess; isolate the legacy initial-x
-         * accumulation defect from this callback-error PR's healthy case. */
-        x->value[i]=(LIS_SCALAR)(fail_on ? 0.15 : 0.0);
+        /* Exercise nonzero initial guesses on both failure and success. */
+        x->value[i]=(LIS_SCALAR)0.15;
         b->value[i]=(LIS_SCALAR)(1.0+0.125*(double)i);
     }
     err=lis_solver_create(&solver);if(err)goto done;
@@ -49,21 +49,22 @@ static int exercise(LIS_INT fail_on,LIS_INT ell)
     solver->options[LIS_OPTIONS_INITGUESS_ZEROS]=LIS_FALSE;
     solver->options[LIS_OPTIONS_ELL]=ell;
     err=lis_solve(A,b,x,solver);
-    if(lis_solver_get_status(solver,&status))goto done;
+    if(lis_solver_get_status(solver,&status) || lis_solver_get_residualnorm(solver,&resid))goto done;
     if(fail_on)
     {
         if(err!=LIS_SUCCESS || status!=LIS_ERR_ILL_ARG ||
-           ctx.calls!=fail_on+1)
+           ctx.calls!=fail_on || !isnan((double)resid))
         {
             fprintf(stderr,"BiCGSTAB(l=%d) failed callback %d: api=%d status=%d calls=%d\n",
                     (int)ell,(int)fail_on,(int)err,(int)status,(int)ctx.calls);
             goto done;
         }
+        for(i=0;i<ctx.n;i++)
+            if(!(fabs((double)x->value[i]-0.15)<=1e-14))goto done;
     }
     else
     {
-        /* The zero-initial-guess control must converge and return
-         * an accurate iterate. Nonzero x0 is tested separately. */
+        /* The nonzero-initial-guess control must converge accurately. */
         if(err!=LIS_SUCCESS || status!=LIS_SUCCESS)
         {
             fprintf(stderr,"BiCGSTAB(l=%d) control: api=%d status=%d calls=%d\n",
@@ -72,7 +73,7 @@ static int exercise(LIS_INT fail_on,LIS_INT ell)
         }
         for(i=0;i<ctx.n;i++)
         {
-            const double exact=(1.0+0.125*(double)i)/4.0;
+            const double exact=(1.0+0.125*(double)i)/(4.0+0.125*(double)i);
             if(!(fabs((double)x->value[i]-exact)<=1e-7))
             {
                 fprintf(stderr,"BiCGSTAB(l=%d) output mismatch row=%d actual=%.17g exact=%.17g status=%d\n",
