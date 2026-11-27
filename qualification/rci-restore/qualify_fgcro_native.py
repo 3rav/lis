@@ -34,7 +34,7 @@ def extract(src, name):
     if name == "lis_fgcrodr_commit_recycle_update":
         body = "\n    LIS_INT err;\n" + body
     children = "|".join(g.EXTRA_CALLS)
-    body, n = re.subn(r"\breturn\s+("+children+r"\s*\([^;]*?\));",
+    body, n = re.subn(r"\breturn\s+((?:"+children+r")\s*\([^;]*?\));",
                       r"err = \1;\n    return err;", body)
     expected = {"lis_fgcrodr_commit_recycle_update":1,"lis_fgcrodr_build_recycle":2}.get(name,0)
     assert n == expected, (name,n)
