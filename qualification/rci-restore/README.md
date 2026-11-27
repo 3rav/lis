@@ -79,3 +79,15 @@ allocate and is qualification-only. This is an experimental augmented
 sequence, not yet differential equivalence to classical GCRO-DR/FGCRO-DR
 or shared native classic recurrence. Initial coarse projection incurs one
 extra true MATVEC before child verification; no duplicated Arnoldi MATVEC.
+
+The native symmetric Krylov continuation is generated from the exact audited
+upstream source blob f275ffbb5cf3ab0a6757d5e59eaefd9dd9f9b74c. Nine
+functions and 28 suspend sites are transformed into persistent C11 frames;
+all synchronous numerical helpers remain the original functions. The
+generator deliberately rejects any other source blob and CI checks the
+committed generated output. No native callback invocation, worker thread,
+stack switching or replay in the generated path. The native shift convention
+is A-sigma B. Qualification compares against lis_krylov_symmetric_ex64,
+including callback input/output byte traces, results, native/extended stats,
+errors, cancel and budget/workspace reuse. This is not yet integrated into
+the installed library or the native classical entry point.

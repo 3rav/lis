@@ -25,6 +25,10 @@ jobs:
           ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "$RUNNER_TEMP/split"
           "${{ matrix.cc }}" "${flags[@]}" -Iinclude -Iqualification/rci-restore/ qualification/rci-restore/lis_rci_recycle_restore.c qualification/rci-restore/test_recycle.c -lm -o "$RUNNER_TEMP/recycle"
           ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "$RUNNER_TEMP/recycle"
+          node qualification/rci-restore/generate_krylov_continuation.js src/esolver/lis_krylov.c "$RUNNER_TEMP/krylov_continuation.inc"
+          cmp "$RUNNER_TEMP/krylov_continuation.inc" qualification/rci-restore/krylov_continuation.inc
+          "${{ matrix.cc }}" "${flags[@]}" -Iinclude -Iqualification/rci-restore/ qualification/rci-restore/lis_rci_krylov_restore.c qualification/rci-restore/test_krylov_restore.c -lm -o "$RUNNER_TEMP/krylov"
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "$RUNNER_TEMP/krylov"
   native:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
