@@ -1,0 +1,23 @@
+name: RCI historical foundation qualification
+on:
+  push:
+    branches: ['work/rci-historical-foundation-20261127']
+permissions:
+  contents: read
+jobs:
+  foundation:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+        sanitizer: [none, asan-ubsan]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - shell: bash
+        run: |
+          set -euo pipefail
+          flags=(-std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation)
+          if [ "${{ matrix.sanitizer }}" = asan-ubsan ]; then flags+=(-fsanitize=address,undefined -fno-sanitize-recover=all -g -fno-omit-frame-pointer -no-pie); fi
+          "${{ matrix.cc }}" "${flags[@]}" -Iinclude -Iqualification/rci-restore/ src/lis_rci.c qualification/rci-restore/lis_rci_restore.c qualification/rci-restore/test_restore.c -lm -o "$RUNNER_TEMP/restore"
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "$RUNNER_TEMP/restore"

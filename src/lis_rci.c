@@ -503,3 +503,6 @@ int lis_rci_consensus_unpack(const uint64_t words[5],lis_rci_consensus_result *r
  };
  return LIS_RCI_DONE;
 }
+
+/* Internal qualification-only size accessor for the nested adapter. */
+size_t lis_rci_restore_dimension(const lis_rci_context *c){return c?c->o.n:0;}
