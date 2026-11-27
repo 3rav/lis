@@ -1,0 +1,41 @@
+name: RCI native scalar precision qualification
+on:
+  push:
+    branches: ['qualification/rci-native-precision-20261127']
+permissions:
+  contents: read
+jobs:
+  precision:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        scalar: [complex, extended, binary128, complex-extended, complex-binary128]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - shell: bash
+        run: |
+          set -euo pipefail
+          opts=(--disable-rci --enable-shared --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg --disable-omp)
+          case "${{ matrix.scalar }}" in
+            complex) opts+=(--enable-complex);;
+            extended) opts+=(--enable-longdouble); export ac_cv_header_quadmath_h=no;;
+            binary128) opts+=(--enable-longdouble);;
+            complex-extended) opts+=(--enable-complex --enable-longdouble); export ac_cv_header_quadmath_h=no;;
+            complex-binary128) opts+=(--enable-complex --enable-longdouble);;
+          esac
+          ./configure "${opts[@]}"
+          grep -E '^(#define|/\* #undef) (_LONG__DOUBLE|_COMPLEX|HAVE_QUADMATH_H)' include/lis_config.h
+          if [[ "${{ matrix.scalar }}" == complex* ]]; then grep -q '^#define _COMPLEX 1' include/lis_config.h; export LIS_RCI_QUAL_COMPLEX=1; fi
+          case "${{ matrix.scalar }}" in
+            *extended) grep -q '^#define _LONG__DOUBLE 1' include/lis_config.h; ! grep -q '^#define HAVE_QUADMATH_H 1' include/lis_config.h;;
+            *binary128) grep -q '^#define _LONG__DOUBLE 1' include/lis_config.h; grep -q '^#define HAVE_QUADMATH_H 1' include/lis_config.h;;
+          esac
+          python3 qualification/rci-restore/qualify_all_native.py
+          make -C src -j2
+          for t in linear_precision feast_native; do
+            cc -std=gnu11 -DHAVE_CONFIG_H -O2 -Iinclude -Iqualification/rci-restore/ "qualification/rci-restore/test_$t.c" -Lsrc/.libs -Wl,-rpath,"$PWD/src/.libs" -llis -lm -lquadmath -o "$RUNNER_TEMP/$t"
+            ldd "$RUNNER_TEMP/$t" | grep -F "$PWD/src/.libs/liblis.so"
+            OMP_NUM_THREADS=1 "$RUNNER_TEMP/$t"
+          done

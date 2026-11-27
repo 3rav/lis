@@ -1,10 +1,18 @@
 /* AI-assisted continuation reconstruction from the actual native LIS sources.
  * Proposed for inclusion under LIS terms in COPYING, subject to contributor confirmation. */
 #include "lis_rci_native_gcro_restore.h"
-#if defined(USE_MPI)||defined(USE_QUAD_PRECISION)||defined(_COMPLEX)||defined(_LONG__DOUBLE)
-#error "native GCRO continuation is qualified only in real double"
+#if defined(USE_MPI)||defined(USE_QUAD_PRECISION)
+#error "native GCRO continuation is requires non-MPI and default solver precision"
 #endif
 #include "gcro_continuation.inc"
+static int native_scalar_finite(LIS_SCALAR v)
+{
+#ifdef _COMPLEX
+ return isfinite(creal(v))&&isfinite(cimag(v));
+#else
+ return isfinite(v);
+#endif
+}
 /* forced_status uses the otherwise unused generated method field. */
 static int linear_return(lis_rci_native_gcro_restore *K,int parent,LIS_INT rc)
 {
@@ -20,7 +28,7 @@ static int linear_suspend(lis_rci_native_gcro_restore *K,uint32_t op,LIS_MATRIX 
  if(K->token==UINT64_MAX&&!K->method)K->method=LIS_RCI_PROTOCOL;
  if(K->strict&&!K->method){
   if(!in||!out||in==out||in->n!=out->n)K->method=LIS_RCI_BADARG;
-  else for(LIS_INT i=0;i<in->n;i++)if(!isfinite(in->value[i])){K->method=LIS_RCI_NONFINITE;break;}
+  else for(LIS_INT i=0;i<in->n;i++)if(!native_scalar_finite(in->value[i])){K->method=LIS_RCI_NONFINITE;break;}
  }
  /* Resume the original failing call and unwind all original cleanup labels. */
  if(K->method){K->retval=LIS_BREAKDOWN;return L_STEP_AGAIN;}
@@ -63,7 +71,7 @@ int lis_rci_native_gcro_restore_advance(lis_rci_native_gcro_restore *K,uint64_t 
  if(!K->active||!K->request.operation)return LIS_RCI_STATE;
  if(token!=K->token)return LIS_RCI_PROTOCOL;
  if(K->strict&&!code){
-  for(LIS_INT i=0;i<K->request.out->n;i++)if(!isfinite(K->request.out->value[i])){
+  for(LIS_INT i=0;i<K->request.out->n;i++)if(!native_scalar_finite(K->request.out->value[i])){
    K->method=LIS_RCI_NONFINITE;code=LIS_BREAKDOWN;break;
   }
  }
