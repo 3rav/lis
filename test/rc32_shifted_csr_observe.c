@@ -1,6 +1,8 @@
 /* Selective shifted-CSR regression. Adapted from recovered RC32 observation driver.
  * No near-nullspace prototype, no LU experimental switches.
- * GNU linker wrapping observes the actual factory inputs without changing them.
+ * GNU linker wrapping observes actual inputs. Optional test-basis mode injects
+ * a constant AMG basis at the factory via an existing linear-solver API.
+ * It is NOT a public eigensolver basis interface or an end-to-end MFAMG test.
  */
 #include "lis.h"
 #include <math.h>
@@ -9,7 +11,28 @@
 #include <string.h>
 #define CHECK(c) do { if (!(c)) { fprintf(stderr,"FAIL line=%d: %s\n",__LINE__,#c); goto done; } } while (0)
 #define OK(c) CHECK((c)==LIS_SUCCESS)
-static int calls, errors, expected_type, expected_precon, patched;
+static int calls, errors, expected_type, expected_precon, patched, inject_basis, factory_calls;
+static LIS_INT factory_status;
+extern LIS_INT __real_lis_precon_create(LIS_SOLVER,LIS_PRECON *);
+LIS_INT __wrap_lis_precon_create(LIS_SOLVER s,LIS_PRECON *p)
+{
+    LIS_INT err;
+    if (s->options[LIS_OPTIONS_PRECON]==LIS_PRECON_TYPE_MFAMG ||
+        s->options[LIS_OPTIONS_PRECON]==LIS_PRECON_TYPE_MFAMG_ILUTP) {
+        LIS_VECTOR v=NULL;
+        ++factory_calls;
+        if (inject_basis) {
+            err=lis_vector_duplicate(s->A,&v);
+            if (!err) err=lis_vector_set_all(1.0,v);
+            if (!err) err=lis_solver_set_amg_coarse_basis(s,1,&v);
+            if (v) lis_vector_destroy(v);
+            if (err) return err;
+        }
+        factory_status=__real_lis_precon_create(s,p);
+        return factory_status;
+    }
+    return __real_lis_precon_create(s,p);
+}
 extern LIS_INT __real_lis_esolver_rebuild_precon(LIS_MATRIX,LIS_SOLVER,LIS_PRECON *);
 LIS_INT __wrap_lis_esolver_rebuild_precon(LIS_MATRIX A,LIS_SOLVER s,LIS_PRECON *p)
 {
@@ -44,8 +67,9 @@ int main(int argc,char **argv)
     char opts[512];
     const char *pre,*transform,*linear;
     double t,elapsed=0,worst=0;
-    if (argc!=4) return 2;
+    if (argc!=5) return 2;
     pre=argv[1]; transform=argv[2]; patched=!strcmp(argv[3],"patched");
+    inject_basis=!strcmp(argv[4],"test-basis");
     if (!strcmp(pre,"none")) {expected_precon=LIS_PRECON_TYPE_NONE; linear="-i bicg -p none";}
     else if (!strcmp(pre,"jacobi")) {expected_precon=LIS_PRECON_TYPE_JACOBI; linear="-i bicg -p jacobi";}
     else if (!strcmp(pre,"mfamg")) {expected_precon=LIS_PRECON_TYPE_MFAMG; linear="-i bicgstab -p mfamg";}
@@ -66,6 +90,14 @@ int main(int argc,char **argv)
         t=lis_wtime(); rc=lis_gesolve(A,B,x,&lam,e); elapsed+=lis_wtime()-t;
         OK(lis_esolver_get_status(e,&status));
         printf("RESULT pre=%s transform=%s repeat=%lld api=%lld status=%lld nev=%lld\n",pre,transform,(long long)j,(long long)rc,(long long)status,(long long)e->nev);
+        if (!inject_basis && (expected_precon==LIS_PRECON_TYPE_MFAMG ||
+                              expected_precon==LIS_PRECON_TYPE_MFAMG_ILUTP)) {
+            CHECK(rc!=LIS_SUCCESS || status!=LIS_SUCCESS);
+            CHECK(factory_calls>=1 && factory_status==LIS_ERR_ILL_ARG);
+            if (patched) CHECK(calls>=1 && errors==0);
+            printf("PASS expected missing-basis rejection pre=%s transform=%s\n",pre,transform);
+            fail=0; goto done;
+        }
         CHECK(rc==LIS_SUCCESS && status==LIS_SUCCESS && e->nev>=2);
         for (i=0;i<2;i++) {
             OK(lis_esolver_get_specific_evalue(e,i,&lam));
@@ -81,6 +113,7 @@ int main(int argc,char **argv)
         }
     }
     if (patched) CHECK(calls>=2 && errors==0);
+    if (inject_basis) CHECK(factory_calls>=2);
     printf("PASS pre=%s transform=%s calls=%d wall=%.9g max_physical_residual=%.17g\n",pre,transform,calls,elapsed,worst);
     fail=0;
 done:

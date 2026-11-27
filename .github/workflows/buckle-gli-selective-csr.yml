@@ -46,7 +46,7 @@ jobs:
         run: |
           ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-shared $CONFIGURE_OPTIONS
           make -j2
-          gcc $CFLAGS $LDFLAGS -Iinclude test/rc32_shifted_csr_observe.c src/.libs/liblis.a -Wl,--wrap=lis_esolver_rebuild_precon -lm -o shifted-csr-test
+          gcc $CFLAGS $LDFLAGS -Iinclude test/rc32_shifted_csr_observe.c src/.libs/liblis.a -Wl,--wrap=lis_esolver_rebuild_precon -Wl,--wrap=lis_precon_create -lm -o shifted-csr-test
       - name: Full legacy regression
         run: make -j2 check
       - name: Observe actual shifted matrix selection and physical eigenpair residuals
@@ -55,29 +55,41 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p results
+          failed=0
           for transform in buckling shift_invert; do
             for pre in none jacobi mfamg mfamg_ilutp ilutp; do
-              /usr/bin/time -f 'TIME wall=%e rss_KiB=%M exit=%x' ./shifted-csr-test "$pre" "$transform" patched 2>&1 | tee "results/patch_${pre}_${transform}.log"
+              modes=(no-basis)
+              if [[ "$pre" == mfamg* ]]; then modes+=(test-basis); fi
+              for basis in "${modes[@]}"; do
+                if ! /usr/bin/time -f 'TIME wall=%e rss_KiB=%M exit=%x' ./shifted-csr-test "$pre" "$transform" patched "$basis" 2>&1 | tee "results/patch_${pre}_${transform}_${basis}.log"; then
+                  failed=1
+                fi
+              done
             done
           done
+          exit "$failed"
       - name: Baseline comparison (same fixture and options, non-sanitized serial only)
         env:
           LIS_MFAMG_SPARSE_TERMINAL: '1'
-        if: matrix.mode == 'serial'
+        if: always() && matrix.mode == 'serial'
         run: |
           set -euo pipefail
           git worktree add --detach "$RUNNER_TEMP/baseline" 3b511e15fd775274675cb837e75c7d74f03a9b62
           cd "$RUNNER_TEMP/baseline"
           ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-shared
           make -j2
-          gcc -O2 -g -Iinclude "$GITHUB_WORKSPACE/test/rc32_shifted_csr_observe.c" src/.libs/liblis.a -Wl,--wrap=lis_esolver_rebuild_precon -lm -o shifted-csr-baseline
+          gcc -O2 -g -Iinclude "$GITHUB_WORKSPACE/test/rc32_shifted_csr_observe.c" src/.libs/liblis.a -Wl,--wrap=lis_esolver_rebuild_precon -Wl,--wrap=lis_precon_create -lm -o shifted-csr-baseline
           cd "$GITHUB_WORKSPACE"
           for transform in buckling shift_invert; do
             for pre in none jacobi mfamg mfamg_ilutp ilutp; do
-              rc=0
-              /usr/bin/time -f 'TIME wall=%e rss_KiB=%M exit=%x' "$RUNNER_TEMP/baseline/shifted-csr-baseline" "$pre" "$transform" baseline > "results/base_${pre}_${transform}.log" 2>&1 || rc=$?
-              echo "BASELINE $pre $transform exit=$rc" | tee -a results/baseline-status.txt
-              cat "results/base_${pre}_${transform}.log"
+              modes=(no-basis)
+              if [[ "$pre" == mfamg* ]]; then modes+=(test-basis); fi
+              for basis in "${modes[@]}"; do
+                rc=0
+                /usr/bin/time -f 'TIME wall=%e rss_KiB=%M exit=%x' "$RUNNER_TEMP/baseline/shifted-csr-baseline" "$pre" "$transform" baseline "$basis" > "results/base_${pre}_${transform}_${basis}.log" 2>&1 || rc=$?
+                echo "BASELINE $pre $transform $basis exit=$rc" | tee -a results/baseline-status.txt
+                cat "results/base_${pre}_${transform}_${basis}.log"
+              done
             done
           done
       - uses: actions/upload-artifact@v4
