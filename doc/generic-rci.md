@@ -131,3 +131,14 @@ token or malformed record does not consume the pending request. The caller
 must provide truthful records, unique ranks, correct computation and any
 transport; this checks neither arbitrary scalar agreement nor cross-context
 identity. All vectors are still local full-length arrays. No MPI.
+
+## Cross-mode qualification
+
+The large native LIS test drives every method through Legacy, Extended and Full
+against the same 8192-row assembled matrix and checks an independent residual,
+forward error and agreement with the legacy solution. CG uses an SPD operator;
+the other methods use a nonsymmetric operator. FGMRES varies its preconditioner
+by preconditioner call count. This adds 24 cross-mode solves per test invocation.
+The lifecycle test covers zero RHS, exact initial guess, iteration limit and
+breakdown for all method/mode combinations. Full-mode fault injection also
+cancels at every request position and verifies context reuse after cancellation.

@@ -23,10 +23,16 @@ static int run(int method,int fault,int fault_type,int *requests)
    seen|=1u<<s;
    if(rep==1&&count==fault){
     last=q->token;
-    if(fault_type==1){CHECK(lis_rci_advance_full(c,q->token,91,0,&f)==LIS_RCI_CALLBACK);}
+    if(fault_type==3){
+     CHECK(lis_rci_cancel(c,last-1)==LIS_RCI_PROTOCOL);
+     CHECK(lis_rci_cancel(c,last)==LIS_RCI_CANCELLED);
+     lis_rci_stats st;CHECK(!lis_rci_get_stats(c,&st)&&st.cancelled);
+     CHECK(lis_rci_get_pending(c,&f)==LIS_RCI_STATE&&f.request.token==0);
+    }
+    else if(fault_type==1){CHECK(lis_rci_advance_full(c,q->token,91,0,&f)==LIS_RCI_CALLBACK);}
     else if(q->out){q->out[0]=0;CHECK(lis_rci_advance_full(c,q->token,0,0,&f)==LIS_RCI_NONFINITE);}
     else {CHECK(lis_rci_advance_full(c,q->token,0,NAN,&f)==LIS_RCI_NONFINITE);}
-    lis_rci_info info;CHECK(!lis_rci_get_info(c,&info)&&info.status==(fault_type==1?LIS_RCI_CALLBACK:LIS_RCI_NONFINITE));
+    lis_rci_info info;CHECK(!lis_rci_get_info(c,&info)&&info.status==(fault_type==3?LIS_RCI_CANCELLED:fault_type==1?LIS_RCI_CALLBACK:LIS_RCI_NONFINITE));
     if(fault_type==1)CHECK(info.callback_code==91);
     /* Reuse after the injected error: the next start must issue a newer token. */
     CHECK(lis_rci_start_full(c,b,x0,&f)==LIS_RCI_NORM&&f.request.token>last);
@@ -75,8 +81,8 @@ int main(void)
  int total=0;
  for(int m=1;m<=4;m++){
   int n=0;CHECK(!run(m,0,0,&n));CHECK(n>0);
-  for(int i=1;i<=n;i++){CHECK(!run(m,i,1,&n));CHECK(!run(m,i,2,&n));total+=2;}
+  for(int i=1;i<=n;i++){CHECK(!run(m,i,1,&n));CHECK(!run(m,i,2,&n));CHECK(!run(m,i,3,&n));total+=3;}
  }
- printf("RCI full algebra: 8 solves and %d fault injections PASS\n",total);
+ printf("RCI full algebra: 8 solves and %d fault/cancellation injections PASS\n",total);
  return 0;
 }

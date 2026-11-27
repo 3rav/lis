@@ -76,8 +76,54 @@ static int exercise(int method,int mode)
  }
  lis_rci_destroy(c);return 0;
 }
+/* Verify terminal states with all three drivers, independently of convergence
+ * on the normal test matrices. */
+static int edge(int method,int mode,int scenario)
+{
+ lis_rci_options o={3,scenario==2?1:20,3,1e-12,1e-14,(lis_rci_method)method};
+ lis_rci_context *c=lis_rci_create(&o);CHECK(c);
+ double b[3]={2,4,8},x0[3]={0,0,0};
+ if(scenario==0)b[0]=b[1]=b[2]=0;
+ if(scenario==1)x0[0]=x0[1]=x0[2]=1;
+ lis_rci_request q;lis_rci_request_ex ex;lis_rci_request_full f;
+ int s=mode==0?lis_rci_start(c,b,x0,&q):mode==1?lis_rci_start_ex(c,b,x0,&ex):lis_rci_start_full(c,b,x0,&f);
+ int requests=0;
+ while(s>0){
+  CHECK(++requests<2000&&lis_rci_get_pending(c,&f)==s);
+  lis_rci_request_ex *p=&f.request;
+  long double scalar=0;
+  if(s==LIS_RCI_MATVEC){
+   for(size_t i=0;i<3;i++)p->out[i]=scenario==3?0:(double)(2u<<i)*p->in[i];
+  }else if(s==LIS_RCI_PRECON){
+   for(size_t i=0;i<3;i++)p->out[i]=p->in[i];
+  }else if(s==LIS_RCI_DOT||s==LIS_RCI_NORM){
+   for(size_t i=0;i<3;i++)scalar+=(long double)p->in[i]*(p->in2?p->in2[i]:p->in[i]);
+   if(s==LIS_RCI_NORM)scalar=sqrtl(scalar);
+  }else{
+   for(size_t i=0;i<3;i++)
+    p->out[i]=(double)(s==LIS_RCI_DIVIDE?(long double)p->in[i]/f.alpha:
+       f.alpha*p->in[i]+(p->in2?f.beta*p->in2[i]:0));
+  }
+  uint64_t token=p->token;
+  if(mode==0)s=lis_rci_advance(c,0,&q);
+  else if(mode==1)s=lis_rci_advance_ex(c,token,0,scalar,&ex);
+  else s=lis_rci_advance_full(c,token,0,scalar,&f);
+ }
+ int expected=scenario<2?LIS_RCI_DONE:scenario==2?LIS_RCI_MAXITER:LIS_RCI_BREAKDOWN;
+ lis_rci_info info;lis_rci_stats stats;
+ CHECK(s==expected&&!lis_rci_get_info(c,&info)&&info.status==s);
+ CHECK(!lis_rci_get_stats(c,&stats));
+ CHECK(lis_rci_get_pending(c,&f)==LIS_RCI_STATE&&!f.request.token);
+ for(size_t i=0;i<6;i++)CHECK(stats.issued[i]==stats.completed[i]);
+ if(scenario<2)CHECK(info.iterations==0&&info.residual==0&&info.matvecs==1&&info.precons==0);
+ if(scenario==2)CHECK(info.iterations==1&&info.residual>0);
+ if(scenario==3)CHECK(info.residual>0);
+ lis_rci_destroy(c);return 0;
+}
 int main(void)
 {
  for(int m=1;m<=4;m++)for(int mode=0;mode<3;mode++)CHECK(!exercise(m,mode));
+ for(int m=1;m<=4;m++)for(int mode=0;mode<3;mode++)for(int e=0;e<4;e++)CHECK(!edge(m,mode,e));
+ puts("RCI terminal states 48 method/mode/scenario cases PASS");
  puts("RCI lifecycle 12 method/mode combinations and checked consensus PASS");return 0;
 }
