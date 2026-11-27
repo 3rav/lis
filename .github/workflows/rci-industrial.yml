@@ -1,4 +1,4 @@
-name: BCSSTK17 stronger native preconditioners
+name: BCSSTK17 SSOR all methods
 on:
   push:
     branches: ['qualification/rci-industrial-20261127']
@@ -60,5 +60,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -D_LONG__LONG -fopenmp -I"$RUNNER_TEMP/install/include" qualification/rci-reconstructed/industrial_strong.c -L"$RUNNER_TEMP/install/lib" -Wl,-rpath,"$RUNNER_TEMP/install/lib" -llis -lm -o "$RUNNER_TEMP/industrial"
+          cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -D_LONG__LONG -fopenmp -I"$RUNNER_TEMP/install/include" qualification/rci-reconstructed/industrial_ssor.c -L"$RUNNER_TEMP/install/lib" -Wl,-rpath,"$RUNNER_TEMP/install/lib" -llis -lm -o "$RUNNER_TEMP/industrial"
           timeout 360 "$RUNNER_TEMP/industrial" "$RUNNER_TEMP/matrix.mtx" "${{ matrix.n }}" "${{ matrix.nz }}"
