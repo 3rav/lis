@@ -190,6 +190,8 @@ static LIS_INT lis_ilutp_full_symbolic(LIS_MATRIX A,LIS_PRECON precon,uint64_t l
     if((err=lis_matrix_ilu_create(n,1,&L)) || (err=lis_matrix_ilu_create(n,1,&U)) ||
        (err=lis_matrix_ilu_setCR(L)) || (err=lis_matrix_ilu_setCR(U)) ||
        (err=lis_vector_duplicate(A,&D))) goto done;
+    /* ILU row arrays are owned by lis_matrix_ilu_destroy(), which uses
+     * free() for rows and lis_free() for tracked outer arrays. */
     /* Compute elimination tree and each lower row pattern. Every visited
      * node is a structural lower entry. Parent always exceeds child. */
     for(i=0;i<n;i++) {
@@ -206,8 +208,8 @@ static LIS_INT lis_ilutp_full_symbolic(LIS_MATRIX A,LIS_PRECON precon,uint64_t l
         used+=2*(uint64_t)m;
         if(m) {
             qsort(reach,(size_t)m,sizeof(*reach),lis_ilutp_cmp_index);
-            L->index[i]=lis_malloc((size_t)m*sizeof(LIS_INT),"symbolic LU L indices");
-            L->value[i]=lis_malloc((size_t)m*sizeof(LIS_SCALAR),"symbolic LU L values");
+            L->index[i]=malloc((size_t)m*sizeof(LIS_INT));
+            L->value[i]=malloc((size_t)m*sizeof(LIS_SCALAR));
             if(!L->index[i]||!L->value[i]) {L->nnz[i]=m;err=LIS_OUT_OF_MEMORY;goto done;}
             L->nnz[i]=m;
             memcpy(L->index[i],reach,(size_t)m*sizeof(*reach));
@@ -215,8 +217,8 @@ static LIS_INT lis_ilutp_full_symbolic(LIS_MATRIX A,LIS_PRECON precon,uint64_t l
         }
     }
     for(i=0;i<n;i++) if(count[i]) {
-        U->index[i]=lis_malloc((size_t)count[i]*sizeof(LIS_INT),"symbolic LU U indices");
-        U->value[i]=lis_malloc((size_t)count[i]*sizeof(LIS_SCALAR),"symbolic LU U values");
+        U->index[i]=malloc((size_t)count[i]*sizeof(LIS_INT));
+        U->value[i]=malloc((size_t)count[i]*sizeof(LIS_SCALAR));
         U->nnz[i]=count[i];
         if(!U->index[i]||!U->value[i]) {err=LIS_OUT_OF_MEMORY;goto done;}
     }
