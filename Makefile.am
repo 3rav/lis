@@ -720,3 +720,5 @@ EXTRA_DIST += qualification/rci-restore/README.md \
   qualification/rci-restore/test_split.c \
   qualification/rci-restore/build_native_tree.py \
   doc/generic-rci-native.md
+
+EXTRA_DIST += qualification/rci-restore/native_benchmark.c qualification/rci-restore/native_release_abi.c qualification/rci-restore/test_native_release.c

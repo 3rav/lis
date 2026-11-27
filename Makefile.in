@@ -742,7 +742,10 @@ EXTRA_DIST = doc/ilutp.md doc/ilutp_contact_ccx_v2_benchmarks.md \
 	qualification/rci-restore/test_restore.c \
 	qualification/rci-restore/test_split.c \
 	qualification/rci-restore/build_native_tree.py \
-	doc/generic-rci-native.md
+	doc/generic-rci-native.md \
+	qualification/rci-restore/native_benchmark.c \
+	qualification/rci-restore/native_release_abi.c \
+	qualification/rci-restore/test_native_release.c
 man_MANS = doc/man/man1/lsolve.1 \
              doc/man/man1/esolve.1 \
              doc/man/man1/esolver.1 \

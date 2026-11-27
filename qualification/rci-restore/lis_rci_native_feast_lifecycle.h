@@ -9,7 +9,7 @@ typedef struct lis_rci_native_feast_lifecycle lis_rci_native_feast_lifecycle;
 lis_rci_native_feast_lifecycle *lis_rci_native_feast_lifecycle_create(void);
 void lis_rci_native_feast_lifecycle_destroy(lis_rci_native_feast_lifecycle *);
 /* Borrow A, optional SPD B, output x, eigenvalue and configured FEAST solver
- * exclusively until terminal. Only real double CSR, no conversion, retry
+ * exclusively until terminal. Only native scalar Hermitian CSR, no conversion, retry
  * or explicit spectral transform. A/B/shift requests are all external.
  * The result arrays inside esolver are scratch while active; never inspect
  * them until terminal. x and *value are committed only on DONE; failure
