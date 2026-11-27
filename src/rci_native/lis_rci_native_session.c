@@ -1,5 +1,6 @@
 /* Unified qualification-only facade over all eight native continuations. */
 #include "lis_rci_native_session.h"
+#include "lis_esolver.h"
 #include "lis_rci_native_linear_restore.h"
 #include "lis_rci_native_gcro_restore.h"
 #include "lis_rci_native_fgcro_restore.h"
@@ -233,3 +234,45 @@ int lis_rci_native_session_pending(const lis_rci_native_session *S,lis_rci_nativ
 {if(!S||!rs_buffer(q,n))return LIS_RCI_BADARG;*q=S->request;return S->pending?S->status:LIS_RCI_STATE;}
 int lis_rci_native_session_status(const lis_rci_native_session *S,LIS_INT *native)
 {if(!S||!native)return LIS_RCI_BADARG;*native=S->native;return S->status;}
+
+LIS_INT lis_rci_native_execute(const lis_rci_native_session_request *q,size_t bytes)
+{
+ if(!q||bytes<sizeof(*q)||q->version!=LIS_RCI_NATIVE_SESSION_VERSION||
+    q->size!=sizeof(*q)||q->reserved||!q->token||!q->rows||!q->columns||!q->in||!q->out)
+  return LIS_ERR_ILL_ARG;
+ if(q->flags&LIS_RCI_NATIVE_RAW_DOUBLE)return LIS_ERR_NOT_IMPLEMENTED;
+ if(!(q->flags&LIS_RCI_NATIVE_VECTORS)||
+    (q->flags&~(LIS_RCI_NATIVE_VECTORS|LIS_RCI_NATIVE_BLOCK|LIS_RCI_NATIVE_SPLIT))||
+    q->index_bytes!=sizeof(LIS_INT)||q->scalar_bytes!=sizeof(LIS_SCALAR)||q->real_bytes!=sizeof(LIS_REAL))
+  return LIS_ERR_ILL_ARG;
+ int split=(q->flags&LIS_RCI_NATIVE_SPLIT)!=0,block=(q->flags&LIS_RCI_NATIVE_BLOCK)!=0;
+ if(split&&(block||q->columns!=1||q->operation!=LIS_RCI_OP_SHIFTED_SOLVE))return LIS_ERR_ILL_ARG;
+ if(!block&&q->columns!=1)return LIS_ERR_ILL_ARG;
+ if(block&&q->operation!=LIS_RCI_OP_A&&q->operation!=LIS_RCI_OP_B)return LIS_ERR_ILL_ARG;
+ if(q->operation==LIS_RCI_OP_SHIFTED_SOLVE&&!split)return LIS_ERR_ILL_ARG;
+ if(q->columns>SIZE_MAX/(2*sizeof(LIS_VECTOR)))return LIS_ERR_ILL_ARG;
+ LIS_INT n=(LIS_INT)q->columns;
+ if(n<=0||(uint64_t)n!=q->columns)return LIS_ERR_ILL_ARG;
+ size_t count=split?2:(size_t)n;
+ for(size_t i=0;i<count;i++){
+  LIS_VECTOR in=(LIS_VECTOR)q->in[i],out=(LIS_VECTOR)q->out[i];
+  if(!in||!out||in->n<=0||(uint64_t)in->n!=q->rows||out->n!=in->n)return LIS_ERR_ILL_ARG;
+  for(size_t j=0;j<count;j++)if(q->out[i]==q->in[j]||(j<i&&q->out[i]==q->out[j]))return LIS_ERR_ILL_ARG;
+ }
+ if(split){
+  if(!q->A||!q->solver||!isfinite(q->shift_real)||!isfinite(q->shift_imag))return LIS_ERR_ILL_ARG;
+  LIS_INT rc=lis_vector_set_all(0,(LIS_VECTOR)q->out[0]);if(rc)return rc;
+  rc=lis_vector_set_all(0,(LIS_VECTOR)q->out[1]);if(rc)return rc;
+  return lis_efeast_shifted_solve_split(q->A,q->B,q->shift_real,q->shift_imag,
+   (LIS_VECTOR)q->in[0],(LIS_VECTOR)q->in[1],(LIS_VECTOR)q->out[0],(LIS_VECTOR)q->out[1],q->solver);
+ }
+ if(q->operation==LIS_RCI_OP_PRECON){
+  if(!q->solver)return LIS_ERR_ILL_ARG;
+  return lis_psolve(q->solver,(LIS_VECTOR)q->in[0],(LIS_VECTOR)q->out[0]);
+ }
+ if((q->operation!=LIS_RCI_OP_A&&q->operation!=LIS_RCI_OP_B)||!q->A)return LIS_ERR_ILL_ARG;
+ if(!block)return lis_matvec(q->A,(LIS_VECTOR)q->in[0],(LIS_VECTOR)q->out[0]);
+ LIS_VECTOR *v=malloc(2*count*sizeof(*v));if(!v)return LIS_ERR_OUT_OF_MEMORY;
+ for(size_t i=0;i<count;i++){v[i]=(LIS_VECTOR)q->in[i];v[count+i]=(LIS_VECTOR)q->out[i];}
+ LIS_INT rc=lis_matvec_block(q->A,n,v,v+count);free(v);return rc;
+}

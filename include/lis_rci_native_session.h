@@ -52,6 +52,12 @@ int lis_rci_native_session_start_krylov(lis_rci_native_session *,const lis_krylo
  const lis_rci_native_generations *,lis_rci_native_session_request *,size_t);
 int lis_rci_native_session_advance(lis_rci_native_session *,uint64_t,LIS_INT,
  const lis_rci_native_generations *,lis_rci_native_session_request *,size_t);
+/* Execute a borrowed native request using LIS matvec/block, psolve or
+ * split shifted solve. Returns a native callback code, not an RCI state.
+ * This does not acknowledge or advance the request; the owner must do so.
+ * Raw-double Krylov requests require the application's own callbacks.
+ * The request must still belong to a live session. */
+LIS_INT lis_rci_native_execute(const lis_rci_native_session_request *,size_t);
 int lis_rci_native_session_cancel(lis_rci_native_session *,uint64_t);
 int lis_rci_native_session_pending(const lis_rci_native_session *,lis_rci_native_session_request *,size_t);
 int lis_rci_native_session_status(const lis_rci_native_session *,LIS_INT *native_code);

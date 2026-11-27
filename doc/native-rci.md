@@ -13,3 +13,11 @@ Krylov itself stays real double. Do not use private restore/test symbols.
 This is experimental, not a stable new ABI. Generated continuations are
 materialized from pinned native LIS source by the qualification generators;
 normal builds require neither Python nor Node.
+
+A native request can be evaluated with `lis_rci_native_execute(&request,
+sizeof request)`, then its returned native callback code passed to the
+session/full advance function with the unchanged token. This is optional:
+applications may fill the outputs themselves, including by running a separate
+child session for a shifted solve. The installed-API test covers independent
+parent FEAST and child GMRES contexts and error propagation. Raw-double
+Krylov requests remain application-defined.

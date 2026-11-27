@@ -12,19 +12,7 @@
 #define C(x) do{if(!(x)){fprintf(stderr,"FULL LIFECYCLE FAIL %d: %s\n",__LINE__,#x);exit(1);}}while(0)
 static lis_rci_native_full *S;static uint64_t last;static int request_count,inside_request,external_mode,hidden_calls;
 static LIS_INT execute(lis_rci_native_session_request *q)
-{
- LIS_INT rc=0;inside_request=1;
- if(q->operation==LIS_RCI_OP_SHIFTED_SOLVE){
-  C(q->flags&LIS_RCI_NATIVE_SPLIT);
-  lis_vector_set_all(0,(LIS_VECTOR)q->out[0]);lis_vector_set_all(0,(LIS_VECTOR)q->out[1]);
-  rc=lis_efeast_shifted_solve_split(q->A,q->B,q->shift_real,q->shift_imag,(LIS_VECTOR)q->in[0],(LIS_VECTOR)q->in[1],(LIS_VECTOR)q->out[0],(LIS_VECTOR)q->out[1],q->solver);
- }else if(q->flags&LIS_RCI_NATIVE_BLOCK){
-  LIS_VECTOR *in=malloc(q->columns*sizeof(*in)),*out=malloc(q->columns*sizeof(*out));C(in&&out);
-  for(uint64_t i=0;i<q->columns;i++){in[i]=(LIS_VECTOR)q->in[i];out[i]=(LIS_VECTOR)q->out[i];}
-  rc=lis_matvec_block(q->A,(LIS_INT)q->columns,in,out);free(in);free(out);
- }else rc=q->operation==LIS_RCI_OP_PRECON?lis_psolve(q->solver,(LIS_VECTOR)q->in[0],(LIS_VECTOR)q->out[0]):lis_matvec(q->A,(LIS_VECTOR)q->in[0],(LIS_VECTOR)q->out[0]);
- inside_request=0;return rc;
-}
+{inside_request=1;LIS_INT rc=lis_rci_native_execute(q,sizeof *q);inside_request=0;return rc;}
 static int drive(int st,lis_rci_native_session_request *q,int stop,int kind,LIS_INT *native)
 {
  request_count=0;
