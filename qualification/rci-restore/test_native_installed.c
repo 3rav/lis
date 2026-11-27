@@ -60,6 +60,9 @@ int main(int argc,char **argv)
  C(!lis_matrix_create(LIS_COMM_WORLD,&A));C(!lis_matrix_set_size(A,0,12));
  for(int i=0;i<12;i++)C(!lis_matrix_set_value(LIS_INS_VALUE,i,i,i+1,A));
  C(!lis_matrix_set_type(A,LIS_MATRIX_CSR));C(!lis_matrix_assemble(A));C(!lis_vector_duplicate(A,&b));C(!lis_vector_duplicate(A,&x));C(!lis_vector_set_all(1,b));
+#ifdef _COMPLEX
+ C(!lis_vector_set_all(1+.25*I,b));
+#endif
  const char *m[]={"cg","bicgstab","gmres","fgmres","gcrodr","fgcrodr"};
  for(int i=0;i<6;i++){
   LIS_SOLVER solver;C(!lis_solver_create(&solver));char opts[200];
@@ -68,7 +71,7 @@ int main(int argc,char **argv)
   lis_rci_native_context *s=create(LIS_NR_LINEAR);C(s);
   C(!linear_faults(s,A,b,x,solver));C(!lis_vector_set_all(0,x));
   lis_rci_native_session_request q;int st=lis_rci_native_start_linear(s,A,b,x,solver,&q);C(st>0);C(!drive(s,st,q));
-  LIS_SCALAR v[12];C(!lis_vector_get_values(x,0,12,v));for(int j=0;j<12;j++)C(fabs(v[j]-1.0/(j+1))<1e-8);
+  LIS_SCALAR v[12];C(!lis_vector_get_values(x,0,12,v));for(int j=0;j<12;j++)C(fabs(v[j]-b->value[j]/(j+1))<1e-8);
   lis_rci_native_destroy(s);lis_solver_destroy(solver);printf("INSTALLED PASS %s\n",m[i]);
  }
  LIS_ESOLVER e;C(!lis_esolver_create(&e));C(!lis_esolver_set_option("-e feast -ss 6 -emaxiter 20 -etol 1e-7 -feast_emin 1.5 -feast_emax 3.5 -feast_points 16",e));C(!lis_vector_set_all(1,x));

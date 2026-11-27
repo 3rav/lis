@@ -49,7 +49,12 @@ static int linear_suspend(lis_rci_native_linear_restore *K,uint32_t op,LIS_MATRI
  if(K->strict){
   if(!in||!out||in==out||in->n!=out->n)return abort_linear(K,LIS_RCI_BADARG);
   for(LIS_INT i=0;i<in->n;i++)if(!scalar_finite(in->value[i]))return abort_linear(K,LIS_RCI_NONFINITE);
-  for(LIS_INT i=0;i<out->n;i++)out->value[i]=NAN;
+  for(LIS_INT i=0;i<out->n;i++)out->value[i]=
+#ifdef _COMPLEX
+   (LIS_SCALAR)(NAN+I*NAN);
+#else
+   (LIS_SCALAR)NAN;
+#endif
  }
  if(op==LIS_RCI_OP_A)K->matvecs++;else K->precons++;
  K->request=(lis_rci_native_linear_request){++K->token,op,A,K->solver,in,out};

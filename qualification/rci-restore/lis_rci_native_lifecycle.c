@@ -15,6 +15,22 @@ struct lis_rci_native_lifecycle {
  uint64_t token;
 };
 static LIS_INT life_step(lis_rci_native_lifecycle *);
+static int life_finite(LIS_SCALAR x)
+{
+#ifdef _COMPLEX
+ return isfinite(creal(x))&&isfinite(cimag(x));
+#else
+ return isfinite(x);
+#endif
+}
+static LIS_SCALAR life_poison(void)
+{
+#ifdef _COMPLEX
+ return (LIS_SCALAR)(NAN+I*NAN);
+#else
+ return (LIS_SCALAR)NAN;
+#endif
+}
 static int life_map(LIS_INT rc)
 {
  return rc==LIS_SUCCESS?LIS_RCI_DONE:rc==LIS_MAXITER?LIS_RCI_MAXITER:
@@ -41,7 +57,7 @@ static LIS_INT life_residual(lis_rci_native_lifecycle *K)
 {
  K->phase=2;
  K->one_in=K->f.xx;K->one_out=K->f.t;
- for(LIS_INT i=0;i<K->one_out->n;i++)K->one_out->value[i]=NAN;
+ for(LIS_INT i=0;i<K->one_out->n;i++)K->one_out->value[i]=life_poison();
  K->q=(lis_rci_native_session_request){.operation=LIS_RCI_OP_A,.representation=LIS_NR_VECTOR,.count=1,.A=K->f.A,.solver=K->f.solver,.in=&K->one_in,.out=&K->one_out};
  return LIFE_YIELD;
 }
@@ -131,7 +147,7 @@ int lis_rci_native_lifecycle_advance(lis_rci_native_lifecycle *K,uint64_t token,
  if(code){K->forced=LIS_RCI_CALLBACK;K->completion=code;}
  else{
   K->completion=0;
-  for(LIS_INT i=0;i<K->one_out->n;i++)if(!isfinite(K->one_out->value[i])){K->forced=LIS_RCI_NONFINITE;K->completion=LIS_BREAKDOWN;break;}
+  for(LIS_INT i=0;i<K->one_out->n;i++)if(!life_finite(K->one_out->value[i])){K->forced=LIS_RCI_NONFINITE;K->completion=LIS_BREAKDOWN;break;}
  }
  return life_drive(K,life_step(K),q);
 }

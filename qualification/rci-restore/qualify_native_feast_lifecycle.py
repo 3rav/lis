@@ -5,7 +5,9 @@ import generate_linear_continuation as g
 p="src/esolver/lis_esolver.c"
 src=g.get_source(p,"3ba869be3d881ce93ff46d418b3cdcbf06978243")
 _,body=g.extract(g.strip_comments(src),"lis_gesolve_once")
-g.REAL_ONLY=True
+import sys
+g.COMPLEX_ONLY = '--complex' in sys.argv
+g.REAL_ONLY = not g.COMPLEX_ONLY
 body=g.no_quad(body)
 fields={"A":"LIS_MATRIX","B":"LIS_MATRIX","x":"LIS_VECTOR","evalue0":"LIS_SCALAR *","esolver":"LIS_ESOLVER",
  "comm":"LIS_Comm","nesolver":"LIS_INT","niesolver":"LIS_INT","nigesolver":"LIS_INT","emaxiter":"LIS_INT",

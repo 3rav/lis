@@ -8,5 +8,5 @@ module=Path(__file__).resolve().parent
 # Separate interpreter per generator: GCRO/FGCRO configure shared module globals.
 # The initial-residual source is read, never rewritten.
 for name in ("linear","gcro","fgcro","krylov","feast"):
-    subprocess.run([sys.executable,str(module/("qualify_"+name+"_native.py"))],cwd=root,check=True)
+    subprocess.run([sys.executable,str(module/("qualify_"+name+"_native.py"))]+(["--complex"] if "--complex" in sys.argv and name in ("gcro","fgcro","feast") else []),cwd=root,check=True)
 print("ALL EIGHT NATIVE CORE PATCHES READY")

@@ -8,7 +8,9 @@ import generate_linear_continuation as g
 p="src/solver/lis_solver.c"
 src=g.get_source(p,"4feb18f8dbe399fee5cc3848b4edb77ce9a060d8")
 _,body=g.extract(g.strip_comments(src),"lis_solve_kernel")
-g.REAL_ONLY=True
+import sys
+g.COMPLEX_ONLY = '--complex' in sys.argv
+g.REAL_ONLY = not g.COMPLEX_ONLY
 body=g.no_quad(body)
 # Original top-level locals are explicit persistent fields. The loop index
 # is only live within non-suspending loops and remains an OpenMP local.
