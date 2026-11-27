@@ -1,0 +1,42 @@
+name: Generate tracked RCI Autotools inputs
+on:
+  push:
+    branches: ['qualification/rci-autotools-restored-20261127']
+permissions:
+  contents: write
+jobs:
+  regenerate:
+    if: github.repository == '3rav/lis' && github.ref == 'refs/heads/qualification/rci-autotools-restored-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Regenerate and validate build from tracked inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoconf --version | sed -n '1p'
+          automake --version | sed -n '1p'
+          libtoolize --version | sed -n '1p'
+          autoreconf -fiv
+          paths=(configure Makefile.in include/Makefile.in include/lis_config.h.in src/Makefile.in test/Makefile.in)
+          git diff --stat -- "${paths[@]}"
+          git diff --check -- "${paths[@]}" || echo "Review generator-produced whitespace before integration"
+          git add -- "${paths[@]}"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Regenerate tracked Autotools inputs for experimental RCI'
+          # Remove all unrelated generator outputs and untracked files before validation.
+          git restore --worktree --staged .
+          git clean -fdx
+          ./configure --help | grep -F -- '--enable-rci'
+          ./configure --enable-rci --enable-test --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg --enable-omp
+          make -C src -j2
+          make -C test -j2 testrci testrcistate testrcifaults testrcipoisson testrcisweep
+          OMP_NUM_THREADS=2 ./test/testrci
+          OMP_NUM_THREADS=2 ./test/testrcistate
+          OMP_NUM_THREADS=2 ./test/testrcifaults
+          OMP_NUM_THREADS=2 ./test/testrcipoisson
+          OMP_NUM_THREADS=2 ./test/testrcisweep
+          git show --stat --oneline HEAD
+          echo 'RCI GENERATED TRACKED BUILD PASS'
+          # Only publish this validation commit to the isolated fork branch.
+          git push origin HEAD:refs/heads/qualification/rci-autotools-restored-20261127
