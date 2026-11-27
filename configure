@@ -3992,6 +3992,12 @@ case $enable_native_rci in #(
   *) :
     as_fn_error $? "--enable-native-rci accepts yes or no" "$LINENO" 5 ;;
 esac
+if test "x$enable_native_rci" = xyes; then
+  if test "x$enable_mpi" = xyes || test "x$enable_quad" = xyes; then
+    as_fn_error $? "native RCI requires non-MPI LIS without double-double solver mode" "$LINENO" 5
+  fi
+fi
+
 
 # Check whether --enable-omp was given.
 if test ${enable_omp+y}
@@ -5729,7 +5735,7 @@ _ACEOF
 	# flags.
 	ac_save_CFLAGS=$CFLAGS
 	CFLAGS="$CFLAGS $ac_verb"
-	(eval echo $as_me:5732: \"$ac_link\") >&5
+	(eval echo $as_me:5738: \"$ac_link\") >&5
 	ac_c_v_output=`eval $ac_link 5>&1 2>&1 | grep -v 'Driving:'`
 	echo "$ac_c_v_output" >&5
 	CFLAGS=$ac_save_CFLAGS
@@ -5803,7 +5809,7 @@ _ACEOF
 	# flags.
 	ac_save_CFLAGS=$CFLAGS
 	CFLAGS="$CFLAGS $ac_cv_prog_c_v"
-	(eval echo $as_me:5806: \"$ac_link\") >&5
+	(eval echo $as_me:5812: \"$ac_link\") >&5
 	ac_c_v_output=`eval $ac_link 5>&1 2>&1 | grep -v 'Driving:'`
 	echo "$ac_c_v_output" >&5
 	CFLAGS=$ac_save_CFLAGS
