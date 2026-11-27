@@ -22,11 +22,18 @@ LIS_INT __wrap_lis_precon_create(LIS_SOLVER s,LIS_PRECON *p)
         LIS_VECTOR v=NULL;
         ++factory_calls;
         if (inject_basis) {
-            err=lis_vector_duplicate(s->A,&v);
+            LIS_MATRIX matrix=s->A;
+            err=lis_vector_duplicate(matrix,&v);
             if (!err) err=lis_vector_set_all(1.0,v);
             if (!err) err=lis_solver_set_amg_coarse_basis(s,1,&v);
             if (v) lis_vector_destroy(v);
-            if (err) return err;
+            /* The public setter resets sequence state, including borrowed A.
+             * Restore only the current factory input in this test wrapper. */
+            s->A=matrix;
+            if (err) {
+                fprintf(stderr,"TEST basis setup error=%lld\n",(long long)err);
+                return err;
+            }
         }
         factory_status=__real_lis_precon_create(s,p);
         return factory_status;
