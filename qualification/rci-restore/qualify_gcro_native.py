@@ -9,7 +9,9 @@ g.SPECS=[g.SPECS[0],
     ("update","lis_gcrodr_update_recycle",p,sha),
     ("gcro","lis_gcrodr",p,sha)]
 g.IDS={name:i+1 for i,(name,*_) in enumerate(g.SPECS)}
-g.REAL_ONLY=True
+import sys
+g.COMPLEX_ONLY = '--complex' in sys.argv
+g.REAL_ONLY = not g.COMPLEX_ONLY
 g.EXTRA_CALLS={
     "lis_gcrodr_refresh_recycle":("refresh",["solver"]),
     "lis_gcrodr_assess_refresh_recycle":("assess",["solver","scratch_z","scratch_c"]),

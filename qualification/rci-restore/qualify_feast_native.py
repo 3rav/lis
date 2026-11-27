@@ -5,7 +5,9 @@ Private synchronous block helpers are exposed only in the disposable CI checkout
 """
 import re
 import generate_linear_continuation as g
-g.REAL_ONLY=True
+import sys
+g.COMPLEX_ONLY = '--complex' in sys.argv
+g.REAL_ONLY = not g.COMPLEX_ONLY
 p="src/esolver/lis_esolver_feast.c"
 b="src/esolver/lis_esolver_block.c"
 e="src/esolver/lis_esolver.c"

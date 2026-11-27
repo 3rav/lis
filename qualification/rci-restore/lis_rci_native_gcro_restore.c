@@ -1,10 +1,26 @@
 /* AI-assisted continuation reconstruction from the actual native LIS sources.
  * Proposed for inclusion under LIS terms in COPYING, subject to contributor confirmation. */
 #include "lis_rci_native_gcro_restore.h"
-#if defined(USE_MPI)||defined(USE_QUAD_PRECISION)||defined(_COMPLEX)||defined(_LONG__DOUBLE)
-#error "native GCRO continuation is qualified only in real double"
+#if defined(USE_MPI)||defined(USE_QUAD_PRECISION)
+#error "native GCRO continuation candidate requires non-MPI without quad solver mode"
 #endif
 #include "gcro_continuation.inc"
+static LIS_SCALAR native_poison_value(void)
+{
+#ifdef _COMPLEX
+ return (LIS_SCALAR)(NAN + I*NAN);
+#else
+ return (LIS_SCALAR)NAN;
+#endif
+}
+static int native_scalar_finite(LIS_SCALAR x)
+{
+#ifdef _COMPLEX
+ return isfinite(creal(x))&&isfinite(cimag(x));
+#else
+ return isfinite(x);
+#endif
+}
 /* forced_status uses the otherwise unused generated method field. */
 static int linear_return(lis_rci_native_gcro_restore *K,int parent,LIS_INT rc)
 {
@@ -20,11 +36,11 @@ static int linear_suspend(lis_rci_native_gcro_restore *K,uint32_t op,LIS_MATRIX 
  if(K->token==UINT64_MAX&&!K->method)K->method=LIS_RCI_PROTOCOL;
  if(K->strict&&!K->method){
   if(!in||!out||in==out||in->n!=out->n)K->method=LIS_RCI_BADARG;
-  else for(LIS_INT i=0;i<in->n;i++)if(!isfinite(in->value[i])){K->method=LIS_RCI_NONFINITE;break;}
+  else for(LIS_INT i=0;i<in->n;i++)if(!native_scalar_finite(in->value[i])){K->method=LIS_RCI_NONFINITE;break;}
  }
  /* Resume the original failing call and unwind all original cleanup labels. */
  if(K->method){K->retval=LIS_BREAKDOWN;return L_STEP_AGAIN;}
- if(K->strict)for(LIS_INT i=0;i<out->n;i++)out->value[i]=NAN;
+ if(K->strict)for(LIS_INT i=0;i<out->n;i++)out->value[i]=native_poison_value();
  if(op==LIS_RCI_OP_A)K->matvecs++;else K->precons++;
  K->request=(lis_rci_native_linear_request){++K->token,op,A,K->solver,in,out};
  K->status=(int)op;return L_STEP_YIELD;
@@ -63,7 +79,7 @@ int lis_rci_native_gcro_restore_advance(lis_rci_native_gcro_restore *K,uint64_t 
  if(!K->active||!K->request.operation)return LIS_RCI_STATE;
  if(token!=K->token)return LIS_RCI_PROTOCOL;
  if(K->strict&&!code){
-  for(LIS_INT i=0;i<K->request.out->n;i++)if(!isfinite(K->request.out->value[i])){
+  for(LIS_INT i=0;i<K->request.out->n;i++)if(!native_scalar_finite(K->request.out->value[i])){
    K->method=LIS_RCI_NONFINITE;code=LIS_BREAKDOWN;break;
   }
  }

@@ -14,9 +14,17 @@
 typedef struct {
  LIS_INT status,iter,dim,action,cross,builds,updates,rejects;
  LIS_REAL residual,quality,minquality;
- double x[N],basis[3*K*N];
+ LIS_SCALAR x[N],basis[3*K*N];
  uint64_t mat,pre;
 } answer;
+static int equal_answer(const answer *a,const answer *b)
+{
+ if(a->status!=b->status||a->iter!=b->iter||a->dim!=b->dim||a->action!=b->action||a->cross!=b->cross||a->builds!=b->builds||a->updates!=b->updates||a->rejects!=b->rejects||a->residual!=b->residual||a->quality!=b->quality||a->minquality!=b->minquality||a->mat!=b->mat||a->pre!=b->pre)return 0;
+ for(size_t i=0;i<N;i++)if(a->x[i]!=b->x[i])return 0;
+ for(size_t i=0;i<3*K*N;i++)if(a->basis[i]!=b->basis[i])return 0;
+ return 1;
+}
+
 static uint64_t mat,pre,stop;
 static int fault_kind,forced_status;
 static LIS_INT external(LIS_SOLVER s)
@@ -64,9 +72,12 @@ static int sequence(int mode,answer out[3],int fault_rep,uint64_t fail_at,int ki
   }
   C(!lis_matrix_set_type(A,LIS_MATRIX_CSR));C(!lis_matrix_assemble(A));
   C(!lis_vector_duplicate(A,&b));C(!lis_vector_duplicate(A,&x));
-  double exact[N];for(int i=0;i<N;i++)exact[i]=sin(.19*i+.1*rep)+.4;
+  LIS_SCALAR exact[N];for(int i=0;i<N;i++)exact[i]=sin(.19*i+.1*rep)+.4;
+#ifdef _COMPLEX
+  for(int j=0;j<N;j++)exact[j]+=I*(.15+.007*j);
+#endif
   for(LIS_INT i=0;i<N;i++){
-   double rhs=(2.6+.008*i+shift)*exact[i]-(i?.7*exact[i-1]:0)-(i+1<N?1.1*exact[i+1]:0);
+   LIS_SCALAR rhs=(2.6+.008*i+shift)*exact[i]-(i?.7*exact[i-1]:0)-(i+1<N?1.1*exact[i+1]:0);
    C(!lis_vector_set_value(LIS_INS_VALUE,i,rhs,b));C(!lis_vector_set_value(LIS_INS_VALUE,i,.1,x));
   }
   stop=rep==fault_rep?fail_at:0;fault_kind=kind;forced_status=0;mat=pre=0;
@@ -86,12 +97,12 @@ static int sequence(int mode,answer out[3],int fault_rep,uint64_t fail_at,int ki
   C(!lis_vector_get_values(x,0,N,a->x));
   for(int i=0;i<N;i++)C(fabs(a->x[i]-exact[i])<1e-8);
   for(LIS_INT j=0;j<a->dim;j++){
-   memcpy(a->basis+j*N,s->recycle_u[j]->value,N*sizeof(double));
-   memcpy(a->basis+K*N+j*N,s->recycle_zu[j]->value,N*sizeof(double));
-   memcpy(a->basis+2*K*N+j*N,s->recycle_c[j]->value,N*sizeof(double));
+   memcpy(a->basis+j*N,s->recycle_u[j]->value,N*sizeof(LIS_SCALAR));
+   memcpy(a->basis+K*N+j*N,s->recycle_zu[j]->value,N*sizeof(LIS_SCALAR));
+   memcpy(a->basis+2*K*N+j*N,s->recycle_c[j]->value,N*sizeof(LIS_SCALAR));
   }
   a->mat=mat;a->pre=pre;
-  if(!fail_at)printf("GCRO mode=%d rhs=%d iter=%lld dim=%lld action=%lld cross=%lld A=%llu P=%llu residual=%.17g\n",mode,rep,(long long)a->iter,(long long)a->dim,(long long)a->action,(long long)a->cross,(unsigned long long)mat,(unsigned long long)pre,a->residual);
+  if(!fail_at)printf("GCRO mode=%d rhs=%d iter=%lld dim=%lld action=%lld cross=%lld A=%llu P=%llu residual=%.17g\n",mode,rep,(long long)a->iter,(long long)a->dim,(long long)a->action,(long long)a->cross,(unsigned long long)mat,(unsigned long long)pre,(double)a->residual);
   lis_vector_destroy(b);b=NULL;lis_vector_destroy(x);x=NULL;lis_matrix_destroy(A);A=NULL;
  }
 cleanup:
@@ -107,7 +118,7 @@ int main(int argc,char **argv)
  uint64_t requests[3];
  for(int i=0;i<3;i++){
   C(c[i].mat&&c[i].pre);requests[i]=c[i].mat+c[i].pre;c[i].mat=c[i].pre=0;
-  C(!memcmp(a+i,b+i,sizeof(answer))&&!memcmp(a+i,c+i,sizeof(answer)));
+  C(equal_answer(a+i,b+i)&&equal_answer(a+i,c+i));
  }
  C(a[1].cross>a[0].cross&&a[2].cross>a[1].cross);
  /* All observed callbacks on both a cold and a warm solve, including
@@ -116,7 +127,7 @@ int main(int argc,char **argv)
  uint64_t faults=0;
  for(int rep=0;rep<2;rep++)for(uint64_t f=1;f<=requests[rep];f++)
   for(int kind=1;kind<=3;kind++){C(!sequence(2,scratch,rep,f,kind));faults++;}
- printf("NATIVE GCRO PASS: three-way bitwise sequence and recycle basis, %llu phase fault scenarios\n",(unsigned long long)faults);
+ printf("NATIVE GCRO PASS: three-way exact-value sequence and recycle basis, %llu phase fault scenarios\n",(unsigned long long)faults);
 cleanup:
  lis_finalize();return rc;
 }
