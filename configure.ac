@@ -33,6 +33,12 @@ AC_ARG_ENABLE([rci], AS_HELP_STRING([--enable-rci],[enable experimental real-dou
 AS_CASE([$enable_rci], [yes|no], [], [AC_MSG_ERROR([--enable-rci accepts yes or no])])
 AC_ARG_ENABLE([native-rci], AS_HELP_STRING([--enable-native-rci],[enable experimental shared native RCI cores [[default=no]]]), [], [enable_native_rci=no])
 AS_CASE([$enable_native_rci], [yes|no], [], [AC_MSG_ERROR([--enable-native-rci accepts yes or no])])
+if test "x$enable_native_rci" = xyes; then
+  if test "x$enable_mpi" = xyes || test "x$enable_quad" = xyes; then
+    AC_MSG_ERROR([native RCI requires non-MPI LIS without double-double solver mode])
+  fi
+fi
+
 
 AC_ARG_ENABLE(omp, AS_HELP_STRING([--enable-omp],[build with OpenMP library [[default=no]]]))
 AC_ARG_ENABLE(quad, AS_HELP_STRING([--enable-quad],[enable quadruple precision operations [[default=no]]]))
