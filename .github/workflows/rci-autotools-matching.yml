@@ -1,0 +1,48 @@
+name: RCI regenerate with upstream generator versions
+on:
+  push:
+    branches: ['qualification/rci-autotools-matching-20261127']
+permissions:
+  contents: write
+jobs:
+  regenerate:
+    if: github.repository == '3rav/lis' && github.ref == 'refs/heads/qualification/rci-autotools-matching-20261127'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Generate only RCI-affected files using existing macro set
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoconf --version | sed -n '1p'
+          automake --version | sed -n '1p'
+          autoconf --version | grep -F '2.72'
+          automake --version | grep -F '1.18.1'
+          # Keep the existing aclocal/libtool macro and helper versions coherent.
+          # No libtoolize/aclocal or unrelated generator updates.
+          autoconf -f
+          autoheader -f
+          automake --add-missing --copy
+          paths=(configure Makefile.in include/Makefile.in include/lis_config.h.in src/Makefile.in test/Makefile.in)
+          git diff --stat -- "${paths[@]}"
+          git add -- "${paths[@]}"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Regenerate only RCI-affected tracked build inputs'
+          git worktree add --detach "$RUNNER_TEMP/clean" HEAD
+          cd "$RUNNER_TEMP/clean"
+          ./configure --help | grep -F -- '--enable-rci'
+          for mode in serial openmp; do
+            mkdir "build-$mode"; cd "build-$mode"
+            opts=(--enable-rci --enable-test --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg)
+            if [ "$mode" = openmp ]; then opts+=(--enable-omp); else opts+=(--disable-omp); fi
+            ../configure "${opts[@]}"
+            make -C src -j2
+            make -C test -j2 testrci testrcirange testrcimodel testrcistate testrcibridge
+            for t in testrci testrcirange testrcimodel testrcistate testrcibridge; do OMP_NUM_THREADS=2 "./test/$t"; done
+            cd ..
+          done
+          # Match the existing upstream CA-MFAMG regeneration check exactly.
+          autoreconf -fiv
+          git diff --exit-code -- include/Makefile.in src/matrix/Makefile.in src/precon/Makefile.in test/Makefile.in
+          echo 'RCI TRACKED BUILD AND UPSTREAM AUTOMAKE CHECK PASS'
+          git push origin HEAD:refs/heads/qualification/rci-autotools-matching-20261127
