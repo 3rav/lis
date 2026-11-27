@@ -217,9 +217,9 @@ done:
  * SAFE rebuilds after a value-generation change; FROZEN_PATTERN
  * must refresh the existing factors. Timings include all setup work
  * in lis_precon_create (including ordering), not just the LU kernel. */
-static int benchmark_grid(int mode)
+static int benchmark_grid(int mode,LIS_INT width)
 {
-    const LIS_INT width=40,n=1600;
+    const LIS_INT n=width*width;
     const int steps=6;
     const char *names[]={"legacy","symbolic","symbolic-md","symbolic-md-reuse"};
     const char *opts[]={"-ilutp_symbolic 0 -ilutp_md 0 -ilutp_reuse 0",
@@ -231,8 +231,8 @@ static int benchmark_grid(int mode)
     LIS_VECTOR b=NULL,x=NULL,t=NULL,r=NULL;
     LIS_INT i,j,k,status,it,fill=0;
     int step,bc,br,failed=1;
-    double start,total,first=0,subsequent=0,first_setup=0,subsequent_setup=0,maxres=0;
-    LIS_REAL rn,bn;
+    double start,total,first=0,subsequent=0,first_setup=0,subsequent_setup=0,maxres=0,maxerr=0;
+    LIS_REAL rn,bn,en,tn;
     OK(lis_matrix_create(LIS_COMM_WORLD,&A));
     OK(lis_matrix_set_size(A,0,n));
     for(i=0;i<n;i++) {
@@ -286,20 +286,24 @@ static int benchmark_grid(int mode)
         OK(lis_vector_nrm2(r,&rn)); OK(lis_vector_nrm2(b,&bn));
         CHECK(bn>0 && isfinite(rn) && rn/bn<1e-11);
         if(rn/bn>maxres)maxres=rn/bn;
+        OK(lis_vector_copy(x,r)); OK(lis_vector_axpy(-1,t,r));
+        OK(lis_vector_nrm2(r,&en)); OK(lis_vector_nrm2(t,&tn));
+        CHECK(tn>0 && isfinite(en) && en/tn<1e-10);
+        if(en/tn>maxerr)maxerr=en/tn;
         if(step==0) {
             first=total; first_setup=create_seconds+refresh_seconds;
             for(i=0;i<n;i++)fill+=s->sequence_precon->L->nnz[i]+s->sequence_precon->U->nnz[i];
         } else {
             subsequent+=total; subsequent_setup+=create_seconds+refresh_seconds;
         }
-        printf("BENCH_STEP mode=%s step=%d total_s=%.9g create_s=%.9g refresh_s=%.9g iter=%d residual=%.9g\n",
-               names[mode],step,total,create_seconds,refresh_seconds,(int)it,(double)(rn/bn));
+        printf("BENCH_STEP mode=%s n=%d step=%d total_s=%.9g create_s=%.9g refresh_s=%.9g iter=%d residual=%.9g\n",
+               names[mode],(int)n,step,total,create_seconds,refresh_seconds,(int)it,(double)(rn/bn));
     }
     CHECK(creates-bc==(mode==3?1:steps));
     CHECK(refreshes-br==(mode==3?steps-1:0));
-    printf("BENCH mode=%s n=%d nnz=%d fill=%d first_s=%.9g first_setup_s=%.9g next_mean_s=%.9g next_setup_mean_s=%.9g max_residual=%.9g creates=%d refreshes=%d\n",
+    printf("BENCH mode=%s n=%d nnz=%d fill=%d first_s=%.9g first_setup_s=%.9g next_mean_s=%.9g next_setup_mean_s=%.9g max_residual=%.9g max_forward_error=%.9g creates=%d refreshes=%d\n",
            names[mode],(int)n,(int)A->nnz,(int)fill,first,first_setup,
-           subsequent/(steps-1),subsequent_setup/(steps-1),maxres,creates-bc,refreshes-br);
+           subsequent/(steps-1),subsequent_setup/(steps-1),maxres,maxerr,creates-bc,refreshes-br);
     failed=0;
 done:
     measure=0;
@@ -369,8 +373,10 @@ int main(int argc,char **argv)
     CHECK(!test_grid(1));
     CHECK(!test_near_singular());
 #ifndef _OPENMP
-    /* Compare timings only from the optimized serial job, not ASan. */
-    for(i=0;i<4;i++)CHECK(!benchmark_grid((int)i));
+    /* Both serial builds exercise the benchmark; compare timings only
+     * from the optimized build, not the instrumented ASan build. */
+    for(i=0;i<4;i++)CHECK(!benchmark_grid((int)i,40));
+    for(i=0;i<4;i++)CHECK(!benchmark_grid((int)i,80));
 #endif
     failed=0;
 done:
