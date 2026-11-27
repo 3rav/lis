@@ -20,6 +20,8 @@ int lis_rci_native_fgcro_restore_cancel(lis_rci_native_fgcro_restore *,uint64_t)
 int lis_rci_native_fgcro_restore_status(const lis_rci_native_fgcro_restore *,LIS_INT *,uint64_t *,uint64_t *);
 typedef LIS_INT (*lis_rci_native_fgcro_test_driver)(LIS_SOLVER);
 void lis_rci_native_fgcro_test_select(int,lis_rci_native_fgcro_test_driver);
+/* Test-only copy of private W/Z/C basis; capacity measured in scalar entries. */
+LIS_INT lis_rci_native_fgcro_test_basis(LIS_SOLVER, LIS_SCALAR *, size_t);
 #ifdef __cplusplus
 }
 #endif
