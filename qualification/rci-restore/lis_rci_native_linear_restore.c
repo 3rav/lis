@@ -5,10 +5,19 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-#if defined(USE_MPI) || defined(USE_QUAD_PRECISION) || defined(_COMPLEX)
-#error "native linear continuation qualification is non-MPI non-quad real"
+#if defined(USE_MPI) || defined(USE_QUAD_PRECISION)
+#error "native linear continuation qualification is non-MPI without double-double solver mode"
 #endif
 #include "linear_continuation.inc"
+
+static int scalar_finite(LIS_SCALAR v)
+{
+#ifdef _COMPLEX
+ return isfinite(creal(v))&&isfinite(cimag(v));
+#else
+ return isfinite(v);
+#endif
+}
 
 static int map_native(LIS_INT rc)
 {
@@ -39,7 +48,7 @@ static int linear_suspend(lis_rci_native_linear_restore *K,uint32_t op,LIS_MATRI
  if(K->token==UINT64_MAX)return abort_linear(K,LIS_RCI_PROTOCOL);
  if(K->strict){
   if(!in||!out||in==out||in->n!=out->n)return abort_linear(K,LIS_RCI_BADARG);
-  for(LIS_INT i=0;i<in->n;i++)if(!isfinite(in->value[i]))return abort_linear(K,LIS_RCI_NONFINITE);
+  for(LIS_INT i=0;i<in->n;i++)if(!scalar_finite(in->value[i]))return abort_linear(K,LIS_RCI_NONFINITE);
   for(LIS_INT i=0;i<out->n;i++)out->value[i]=NAN;
  }
  if(op==LIS_RCI_OP_A)K->matvecs++;else K->precons++;
@@ -79,7 +88,7 @@ int lis_rci_native_linear_restore_advance(lis_rci_native_linear_restore *K,uint6
  if(token!=K->token)return LIS_RCI_PROTOCOL;
  if(K->strict&&!code){
   LIS_VECTOR out=K->request.out;
-  for(LIS_INT i=0;i<out->n;i++)if(!isfinite(out->value[i])){
+  for(LIS_INT i=0;i<out->n;i++)if(!scalar_finite(out->value[i])){
    (void)abort_linear(K,LIS_RCI_NONFINITE);*q=K->request;return K->status;
   }
  }

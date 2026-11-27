@@ -17,7 +17,7 @@ extern "C" {
  * status is available separately; cancellation can leave a partial iterate.
  * The classical driver preserves native behavior; strict external mode
  * additionally requires every output entry to be filled and finite.
- * No MPI or quad mode. Native scalar precision is determined by LIS.
+ * No MPI or double-double solver mode. Native scalar precision is determined by LIS.
  */
 typedef struct lis_rci_native_linear_restore lis_rci_native_linear_restore;
 typedef struct {
