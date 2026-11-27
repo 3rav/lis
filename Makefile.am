@@ -654,3 +654,5 @@ ACLOCAL_AMFLAGS = -I m4
 AUTOMAKE_OPTIONS = dist-zip
 
 EXTRA_DIST += tools/differential_schur_stdlib.py
+
+EXTRA_DIST += doc/generic-rci.md

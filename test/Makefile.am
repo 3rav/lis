@@ -531,3 +531,15 @@ testbicgstablinit_SOURCES = testbicgstablinit.c
 testbicgstablinit_LDADD = $(LDADD) -lm
 TESTS += testbicgstablinit$(EXEEXT)
 
+
+if ENABLE_RCI
+test_PROGRAMS += testrci testrcibridge testrcilarge
+testrci_SOURCES = testrci.c
+testrcibridge_SOURCES = testrcibridge.c
+testrcilarge_SOURCES = testrcilarge.c
+testrci_LDADD = $(LDADD) -lm
+testrcibridge_LDADD = $(LDADD) -lm
+testrcilarge_LDADD = $(LDADD) -lm
+TESTS += testrci$(EXEEXT) testrcibridge$(EXEEXT) testrcilarge$(EXEEXT)
+endif
+EXTRA_DIST += testrciabi.c testrcicxx.cpp
