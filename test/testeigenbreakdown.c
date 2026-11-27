@@ -8019,6 +8019,68 @@ cleanup:
 #endif
 
 
+
+#if !defined(_COMPLEX) && !defined(USE_COMPLEX)
+/* A failed preconditioner factory must not leave a dangling pointer in
+ * transformed Block GLI cleanup. Also exercise the existing CSR rebuild
+ * fallback for the native ILUTP preconditioner. */
+static LIS_INT
+test_transformed_block_precon_ownership(void)
+{
+    LIS_MATRIX A=NULL,B=NULL;
+    LIS_VECTOR x=NULL;
+    LIS_ESOLVER e=NULL;
+    LIS_SCALAR lam;
+    LIS_INT err,api,status,mode,pre,j,i;
+    const LIS_INT transforms[]={LIS_EIGEN_TRANSFORM_BUCKLING,LIS_EIGEN_TRANSFORM_SHIFT_INVERT};
+    const char *linear[]={
+        "-i fgmres -p ilut -ilutp 1 -tol 1e-13 -maxiter 500 -omp_num_threads 1",
+        "-i bicgstab -p mfamg -tol 1e-13 -maxiter 500 -omp_num_threads 1",
+        "-i fgmres -p mfamg_ilutp -tol 1e-13 -maxiter 500 -omp_num_threads 1"
+    };
+    err=lis_matrix_create(LIS_COMM_WORLD,&A); if(err)goto done;
+    err=lis_matrix_set_size(A,0,12); if(err)goto done;
+    if(A->nprocs!=1) { err=LIS_SUCCESS; goto done; }
+    err=lis_matrix_create(LIS_COMM_WORLD,&B); if(err)goto done;
+    err=lis_matrix_set_size(B,0,12); if(err)goto done;
+    for(i=0;i<12;i++) {
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,1.0,A); if(err)goto done;
+        err=lis_matrix_set_value(LIS_INS_VALUE,i,i,i==0?1.0:(i==1?1.0/1.01:1.0/(3.0+i*.15)),B); if(err)goto done;
+    }
+    err=lis_matrix_set_type(A,LIS_MATRIX_CSR); if(err)goto done;
+    err=lis_matrix_set_type(B,LIS_MATRIX_CSR); if(err)goto done;
+    err=lis_matrix_assemble(A); if(err)goto done;
+    err=lis_matrix_assemble(B); if(err)goto done;
+    for(mode=0;mode<2;mode++) for(pre=0;pre<3;pre++) {
+        err=block_lanczos_test_setup(A,transforms[mode],0.98,0,&e,&x); if(err)goto done;
+        err=lis_esolver_set_option("-ss 12 -nev 2 -etol 1e-8 -emaxiter 500",e); if(err)goto done;
+        err=lis_esolver_set_linear_options((char*)linear[pre],e); if(err)goto done;
+        for(j=0;j<2;j++) {
+            err=lis_vector_set_all(1.0,x); if(err)goto done;
+            api=lis_gesolve(A,B,x,&lam,e);
+            err=lis_esolver_get_status(e,&status); if(err)goto done;
+            if(pre==0) {
+                if(api!=LIS_SUCCESS || status!=LIS_SUCCESS || e->nev<2 ||
+                   fabs((double)lam-1.0)>1e-7 || !isfinite((double)e->resid[0]) ||
+                   e->resid[0]>1e-8) {err=LIS_FAILS;goto done;}
+            } else if((status!=LIS_ERR_ILL_ARG && status!=LIS_ERR_NOT_IMPLEMENTED) ||
+                      (api!=LIS_SUCCESS && api!=status)) {err=LIS_FAILS;goto done;}
+        }
+        lis_esolver_destroy(e); e=NULL;
+        lis_vector_destroy(x); x=NULL;
+    }
+    printf("PASS: transformed Block GLI preconditioner ownership\n");
+    err=LIS_SUCCESS;
+done:
+    if(e)lis_esolver_destroy(e);
+    if(x)lis_vector_destroy(x);
+    if(B)lis_matrix_destroy(B);
+    if(A)lis_matrix_destroy(A);
+    return err;
+}
+#endif
+
+
 int
 main(
     int argc,
@@ -8419,6 +8481,12 @@ main(
         return 1;
     }
 
+    if( test_transformed_block_precon_ownership()!=LIS_SUCCESS )
+    {
+        printf("LIS_EIGEN_BLOCK_LANCZOS_PRECON_OWNERSHIP FAILED\n");
+        lis_finalize();
+        return 1;
+    }
     if( check_generalized_block_lanczos_regression()!=LIS_SUCCESS )
     {
         printf("LIS_EIGEN_BLOCK_LANCZOS_REGRESSION FAILED\n");
