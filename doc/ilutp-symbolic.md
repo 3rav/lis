@@ -12,7 +12,10 @@ Configuration (all new options default to 0, accept only 0/1):
 Symbolic factors require a sorted, duplicate-free, structurally symmetric
 CSR matrix in a non-MPI real-double int32 build, no scaling, half storage,
 RAS, Schur, or additive Schwarz. Numerical factorization uses the original
-scalar row kernel and does not dynamically pivot. Explicit symbolic
+scalar row kernel and does not dynamically pivot: symbolic mode requires
+zero column-pivot threshold. Dynamic column-pivot permutations are not
+cached or refreshed by this path. A zero or unusable numeric pivot fails
+rather than altering the symbolic graph. Explicit symbolic
 selection rejects unsupported inputs instead of silently selecting a
 different factorization. OpenMP outer Krylov operations may use threads;
 triangular substitutions remain serial. Minimum degree is optional;
@@ -119,3 +122,12 @@ Use an optimized non-sanitized serial build, record the CPU and compiler,
 and report medians/ranges across repeated processes. Peak RSS includes
 all process allocations, not just LU factors. The private CCX fixture
 and ABI acceptance remain outstanding.
+
+## Release distribution
+
+The internal ILUTP, minimum-degree and refactor includes are listed in
+`src/precon/Makefile.am` and its tracked `Makefile.in`. The focused test
+and this document are also in the top-level distribution manifest. The
+serial CI checks archive membership and runs `make distcheck` with the
+non-MPI real-double test configuration; no new installed header or
+Fortran option index is needed for these internal includes.

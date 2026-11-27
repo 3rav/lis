@@ -7,6 +7,8 @@ on:
       - 'src/solver/**'
       - 'include/**'
       - 'test/testilutp_symbolic.c'
+      - 'Makefile.am'
+      - 'Makefile.in'
       - '.github/workflows/ilutp-symbolic.yml'
   pull_request:
     paths:
@@ -14,6 +16,8 @@ on:
       - 'src/solver/**'
       - 'include/**'
       - 'test/testilutp_symbolic.c'
+      - 'Makefile.am'
+      - 'Makefile.in'
       - '.github/workflows/ilutp-symbolic.yml'
   workflow_dispatch:
 permissions:
@@ -81,6 +85,19 @@ jobs:
               /usr/bin/time -f 'BENCH_PROCESS elapsed_s=%e peak_rss_kib=%M' ./sequence-audit --benchmark 160 "$mode" 2>&1 | tee -a sequence-audit-rss.log
             done
           done
+      - name: Verify release archive and distcheck
+        if: matrix.mode == 'serial'
+        run: |
+          set -euo pipefail
+          make dist 2>&1 | tee sequence-audit-dist.log
+          archive=$(find . -maxdepth 1 -name 'lis-*.tar.gz' -print -quit)
+          test -n "$archive"
+          tar -tzf "$archive" > sequence-audit-dist-files.log
+          distdir=$(basename "$archive" .tar.gz)
+          for file in src/precon/lis_precon_ilutp.inc src/precon/lis_ilut_min_degree.inc src/precon/lis_ilutp_refactor.inc doc/ilutp-symbolic.md test/testilutp_symbolic.c; do
+            grep -Fx "$distdir/$file" sequence-audit-dist-files.log
+          done
+          make -j2 distcheck DISTCHECK_CONFIGURE_FLAGS='--enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-shared' 2>&1 | tee sequence-audit-distcheck.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
