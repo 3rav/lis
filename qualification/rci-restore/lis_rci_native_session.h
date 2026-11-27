@@ -8,32 +8,7 @@
 extern "C" {
 #endif
 typedef struct lis_rci_native_session lis_rci_native_session;
-enum { LIS_NR_LINEAR=1,LIS_NR_GCRO=2,LIS_NR_FGCRO=3,LIS_NR_FEAST=4,LIS_NR_KRYLOV=5 };
-enum { LIS_NR_VECTOR=1,LIS_NR_SPLIT=2,LIS_NR_RAW64=3 };
-enum { LIS_NR_STALE=-9 };
-/* Same operation codes as the opaque Generic RCI protocol. Vector arrays
- * are borrowed native handles; raw64 arrays are borrowed double buffers.
- * Shift sign explicitly identifies sigma B-A (+1) versus A-sigma B (-1).
- * Scalar/block dispatch is preserved even for a one-column block.
- * The prepared solver/eigensolver is exclusively borrowed; setup and
- * teardown are still caller responsibilities, not a public lis_solve API.
- * Context kind is fixed, tokens survive restarts, wrong tokens are retryable.
- * Output descriptors are unchanged on nonconsuming errors. */
-typedef struct {
- uint64_t token;
- uint32_t operation,representation;
- LIS_INT count;
- int block,shift_sign;
- LIS_MATRIX A,B;
- LIS_SOLVER solver;
- LIS_VECTOR *in,*out;
- LIS_VECTOR in_real,in_imag,out_real,out_imag;
- LIS_REAL zr,zi;
- int64_t n64;
- const double *raw_in;
- double *raw_out;
- double sigma;
-} lis_rci_native_session_request;
+#include "lis_rci_native.h"
 lis_rci_native_session *lis_rci_native_session_create(int kind);
 void lis_rci_native_session_destroy(lis_rci_native_session *);
 int lis_rci_native_session_start_linear(lis_rci_native_session *,LIS_SOLVER,LIS_INT method,lis_rci_native_session_request *);
