@@ -953,8 +953,15 @@ LIS_INT lis_eigen_block_linear_combination(
 }
 
 
+
+#if defined(USE_NATIVE_RCI)
+LIS_INT lis_eigen_block_rank_transform(
+
+#else
 static LIS_INT
 lis_eigen_block_rank_transform(
+
+#endif /* native RCI */
     LIS_INT n,
     LIS_REAL rank_tol,
     LIS_SCALAR *gram,
@@ -1187,8 +1194,15 @@ lis_eigen_block_rank_transform(
 }
 
 
+
+#if defined(USE_NATIVE_RCI)
+LIS_INT lis_eigen_block_zero_outputs(
+
+#else
 static LIS_INT
 lis_eigen_block_zero_outputs(
+
+#endif /* native RCI */
     LIS_INT capacity,
     LIS_INT start,
     LIS_VECTOR source,

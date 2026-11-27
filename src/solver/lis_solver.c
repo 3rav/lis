@@ -6802,3 +6802,9 @@ LIS_INT lis_solver_set_shadowresidual(LIS_SOLVER solver, LIS_VECTOR r0, LIS_VECT
 	LIS_DEBUG_FUNC_OUT;
 	return LIS_SUCCESS;
 }
+
+#if defined(USE_NATIVE_RCI) && !defined(_COMPLEX) && !defined(_LONG__DOUBLE)
+
+#include "../rci_native/lis_rci_native_full.c"
+
+#endif /* native RCI */

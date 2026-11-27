@@ -16,10 +16,7 @@ extern "C" {
 #define LIS_RCI_OPAQUE_VERSION 1u
 typedef void *lis_rci_handle;
 typedef struct { long double real, imag; } lis_rci_complex_coeff;
-enum lis_rci_opaque_operation {
- LIS_RCI_OP_A=101, LIS_RCI_OP_B, LIS_RCI_OP_PRECON,
- LIS_RCI_OP_SHIFTED_SOLVE, LIS_RCI_OP_ZERO, LIS_RCI_OP_AXPBY
-};
+#include "lis_rci_native_protocol.h"
 typedef struct {
  uint32_t version, size, operation, flags;
  uint64_t token, generation_a, generation_b;

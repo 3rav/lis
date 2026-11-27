@@ -1,8 +1,17 @@
+#ifdef HAVE_CONFIG_H
+#include "lis_config.h"
+#endif
 /* Native thick-restarted symmetric Rayleigh-Ritz subspace eigensolver.
  * Copyright (C) 2026, contributors to LIS.
  * Redistribution and use are governed by the LIS project BSD license.
  */
 #include "lis_krylov.h"
+
+#if defined(USE_NATIVE_RCI)
+#define LIS_RCI_KRYLOV_NATIVE_LIBRARY 1
+#include "../rci_native/lis_rci_krylov_restore.h"
+
+#endif /* native RCI */
 #include <float.h>
 #include <limits.h>
 #include <math.h>
@@ -1542,8 +1551,16 @@ int lis_krylov_symmetric_ex64(const lis_krylov_problem64 *p,
     lis_krylov_workspace *workspace,double *values,double *vectors,
     double *residuals,lis_krylov_stats *stats,lis_krylov_ext_stats *ext_stats)
 {
+
+#if defined(USE_NATIVE_RCI)
+    return lis_rci_krylov_restore_classic64(p,o,ext,workspace,NULL,values,
+                                           vectors,residuals,stats,ext_stats,NULL);
+
+#else
     return lis_krylov_symmetric_core(workspace,p,o,ext,values,vectors,
                                       residuals,stats,ext_stats);
+
+#endif /* native RCI */
 }
 int lis_krylov_symmetric_ex(const lis_krylov_problem *p,
     const lis_krylov_options *o,const lis_krylov_ext_options *ext,
@@ -1835,3 +1852,17 @@ int lis_krylov_select_converged(int nreturned,const double *values,
     *count=k;
     return LIS_KRYLOV_SUCCESS;
 }
+
+#if defined(USE_NATIVE_RCI)
+
+/* Qualification-only integration, not a proposed permanent include path. */
+#include "../rci_native/lis_rci_krylov_restore.c"
+int lis_rci_krylov_restore_reference64(const lis_krylov_problem64 *p,
+ const lis_krylov_options *o,const lis_krylov_ext_options *ext,
+ lis_krylov_workspace *workspace,double *values,double *vectors,
+ double *residuals,lis_krylov_stats *stats,lis_krylov_ext_stats *ext_stats)
+{
+ return lis_krylov_symmetric_core(workspace,p,o,ext,values,vectors,residuals,stats,ext_stats);
+}
+
+#endif /* native RCI */

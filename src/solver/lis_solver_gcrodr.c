@@ -1389,7 +1389,14 @@ LIS_INT lis_gcrodr_malloc_work(LIS_SOLVER solver)
 
 #undef __FUNC__
 #define __FUNC__ "lis_gcrodr"
+
+#if defined(USE_NATIVE_RCI)
+LIS_INT lis_gcrodr_native_reference(LIS_SOLVER solver)
+
+#else
 LIS_INT lis_gcrodr(LIS_SOLVER solver)
+
+#endif /* native RCI */
 {
     LIS_Comm comm;
     LIS_MATRIX A;
@@ -1888,6 +1895,12 @@ done:
     return err;
 }
 
+
+#if defined(USE_NATIVE_RCI)
+#include "../rci_native/lis_rci_native_gcro_restore.c"
+
+
+#endif /* native RCI */
 #undef GCRODR_NWORK
 #undef GCRODR_TINY
 #undef GCRODR_REORTH_TINY
