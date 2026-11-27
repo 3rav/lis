@@ -138,3 +138,8 @@ error path, which may invalidate the native recycle basis (distinct from
 the transactional generic experiment). This is a real-double-only
 qualification patch, not an installed API. FGCRO-DR native continuation
 and FEAST native continuation remain separate open tasks.
+
+The native GCRO differential harness also injects cancellation, incomplete
+output and a native callback error at each observed request of a cold and
+warm solve, including refresh and harmonic-update calls. It checks that
+native failure semantics invalidate any possibly partial recycle relation.

@@ -18,7 +18,7 @@ typedef struct {
  uint64_t mat,pre;
 } answer;
 static uint64_t mat,pre,stop;
-static int cancelled;
+static int fault_kind,forced_status;
 static LIS_INT external(LIS_SOLVER s)
 {
  lis_rci_native_gcro_restore *g=lis_rci_native_gcro_restore_create();
@@ -32,8 +32,12 @@ static LIS_INT external(LIS_SOLVER s)
   }
   last=q.token;
   if(++step==stop){
-   st=lis_rci_native_gcro_restore_cancel(g,q.token);
-   cancelled=st==LIS_RCI_CANCELLED;
+   if(fault_kind==1)st=lis_rci_native_gcro_restore_cancel(g,q.token);
+   else if(fault_kind==2){
+    q.out->value[0]=0;
+    st=lis_rci_native_gcro_restore_advance(g,q.token,0,&q);
+   }else st=lis_rci_native_gcro_restore_advance(g,q.token,73,&q);
+   forced_status=st;
    break;
   }
   LIS_INT e=q.operation==LIS_RCI_OP_A?lis_matvec(q.A,q.in,q.out):lis_psolve(q.solver,q.in,q.out);
@@ -43,7 +47,7 @@ static LIS_INT external(LIS_SOLVER s)
  if(status!=st)native=98;
  lis_rci_native_gcro_restore_destroy(g);return native;
 }
-static int sequence(int mode,answer out[3],uint64_t cancel_at)
+static int sequence(int mode,answer out[3],int fault_rep,uint64_t fail_at,int kind)
 {
  LIS_MATRIX A=NULL;LIS_VECTOR b=NULL,x=NULL;LIS_SOLVER s=NULL;
  int rc=0;memset(out,0,3*sizeof(*out));
@@ -65,12 +69,13 @@ static int sequence(int mode,answer out[3],uint64_t cancel_at)
    double rhs=(2.6+.008*i+shift)*exact[i]-(i?.7*exact[i-1]:0)-(i+1<N?1.1*exact[i+1]:0);
    C(!lis_vector_set_value(LIS_INS_VALUE,i,rhs,b));C(!lis_vector_set_value(LIS_INS_VALUE,i,.1,x));
   }
-  stop=rep==1?cancel_at:0;cancelled=0;mat=pre=0;
+  stop=rep==fault_rep?fail_at:0;fault_kind=kind;forced_status=0;mat=pre=0;
   (void)lis_solve(A,b,x,s);
   answer *a=out+rep;
   C(!lis_solver_get_status(s,&a->status));
   if(stop){
-   C(cancelled&&a->status==LIS_BREAKDOWN&&!s->recycle_valid);
+   C(forced_status==(kind==1?LIS_RCI_CANCELLED:kind==2?LIS_RCI_NONFINITE:LIS_RCI_CALLBACK));
+   C(a->status==(kind==3?73:LIS_BREAKDOWN)&&!s->recycle_valid);
    goto cleanup;
   }
   C(a->status==LIS_SUCCESS);
@@ -86,7 +91,7 @@ static int sequence(int mode,answer out[3],uint64_t cancel_at)
    memcpy(a->basis+2*K*N+j*N,s->recycle_c[j]->value,N*sizeof(double));
   }
   a->mat=mat;a->pre=pre;
-  printf("GCRO mode=%d rhs=%d iter=%lld dim=%lld action=%lld cross=%lld A=%llu P=%llu residual=%.17g\n",mode,rep,(long long)a->iter,(long long)a->dim,(long long)a->action,(long long)a->cross,(unsigned long long)mat,(unsigned long long)pre,a->residual);
+  if(!fail_at)printf("GCRO mode=%d rhs=%d iter=%lld dim=%lld action=%lld cross=%lld A=%llu P=%llu residual=%.17g\n",mode,rep,(long long)a->iter,(long long)a->dim,(long long)a->action,(long long)a->cross,(unsigned long long)mat,(unsigned long long)pre,a->residual);
   lis_vector_destroy(b);b=NULL;lis_vector_destroy(x);x=NULL;lis_matrix_destroy(A);A=NULL;
  }
 cleanup:
@@ -98,15 +103,20 @@ int main(int argc,char **argv)
 {
  if(lis_initialize(&argc,&argv))return 1;
  answer a[3],b[3],c[3],scratch[3];int rc=0;
- C(!sequence(0,a,0));C(!sequence(1,b,0));C(!sequence(2,c,0));
+ C(!sequence(0,a,-1,0,0));C(!sequence(1,b,-1,0,0));C(!sequence(2,c,-1,0,0));
+ uint64_t requests[3];
  for(int i=0;i<3;i++){
-  C(c[i].mat&&c[i].pre);c[i].mat=c[i].pre=0;
+  C(c[i].mat&&c[i].pre);requests[i]=c[i].mat+c[i].pre;c[i].mat=c[i].pre=0;
   C(!memcmp(a+i,b+i,sizeof(answer))&&!memcmp(a+i,c+i,sizeof(answer)));
  }
  C(a[1].cross>a[0].cross&&a[2].cross>a[1].cross);
- /* Exercise cancellation during the actual native refresh and solve. */
- for(uint64_t f=1;f<=12;f++)C(!sequence(2,scratch,f));
- puts("NATIVE GCRO PASS: three-way bitwise sequence and recycle basis, 12 cancellation boundaries");
+ /* All observed callbacks on both a cold and a warm solve, including
+  * initial residual, Arnoldi, policy assessment, refresh and update.
+  * Failures must use the original cleanup and invalidate partial recycle. */
+ uint64_t faults=0;
+ for(int rep=0;rep<2;rep++)for(uint64_t f=1;f<=requests[rep];f++)
+  for(int kind=1;kind<=3;kind++){C(!sequence(2,scratch,rep,f,kind));faults++;}
+ printf("NATIVE GCRO PASS: three-way bitwise sequence and recycle basis, %llu phase fault scenarios\n",(unsigned long long)faults);
 cleanup:
  lis_finalize();return rc;
 }
