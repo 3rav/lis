@@ -1,0 +1,97 @@
+name: Materialize optional native RCI installable source candidate
+on:
+  push:
+    branches: ['qualification/rci-rc3-package-20261127']
+permissions:
+  contents: read
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      commit: ${{ steps.publish.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 qualification/rci-restore/materialize_native_rc3.py
+          autoreconf -fi
+          git diff --check
+          git status --short
+          ./configure --enable-native-rci --enable-rci --enable-test --enable-shared --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg --disable-omp
+          make -C src -j2
+          cc -std=gnu11 -DHAVE_CONFIG_H -O2 -Iinclude -Iqualification/rci-restore qualification/rci-restore/test_full_native.c -Lsrc/.libs -Wl,-rpath,"$PWD/src/.libs" -llis -lm -o "$RUNNER_TEMP/full"
+          "$RUNNER_TEMP/full"
+      - id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add configure.ac configure Makefile.am Makefile.in include/Makefile.am include/Makefile.in include/lis_config.h.in include/lis_rci.h include/lis_rci_status.h include/lis_rci_native_protocol.h include/lis_rci_native_session.h include/lis_rci_native_full.h src/rci_native src/solver/*.c src/esolver/*.c qualification/rci-restore/lis_rci_restore.h doc/native-rci.md
+          git commit -m 'Materialize opt-in shared native RCI sources and installed API'
+          git push origin HEAD:refs/heads/qualification/rci-rc3-installable-20261127
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  install:
+    needs: materialize
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [disabled, serial, openmp, complex, binary128]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.materialize.outputs.commit }}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          opts=(--enable-shared --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg --prefix="$RUNNER_TEMP/install")
+          flags=(-std=gnu11 -DHAVE_CONFIG_H -O2)
+          case "${{ matrix.mode }}" in
+            disabled) opts+=(--disable-native-rci --enable-rci --enable-test --disable-omp);;
+            serial) opts+=(--enable-native-rci --enable-rci --enable-test --disable-omp);;
+            openmp) opts+=(--enable-native-rci --enable-rci --enable-test --enable-omp --enable-longlong); flags+=(-fopenmp -D_LONG__LONG);;
+            complex) opts+=(--enable-native-rci --disable-rci --enable-complex --disable-test --disable-omp);;
+            binary128) opts+=(--enable-native-rci --disable-rci --enable-longdouble --disable-test --disable-omp);;
+          esac
+          ./configure "${opts[@]}"
+          make -j2
+          make install
+          if [ "${{ matrix.mode }}" = disabled ]; then
+            test ! -e "$RUNNER_TEMP/install/include/lis_rci_native_session.h"
+            if nm -D src/.libs/liblis.so | grep -q ' lis_rci_native_session_create$'; then exit 1; fi
+          else
+            test -f "$RUNNER_TEMP/install/include/lis_rci_native_session.h"
+            cat > "$RUNNER_TEMP/client.c" <<'EOF'
+          #include "lis_config.h"
+          #include "lis_rci_native_session.h"
+          int main(void) {
+            lis_rci_native_session *s=lis_rci_native_session_create();
+            if(!s)return 1;
+            lis_rci_native_session_destroy(s);
+            return 0;
+          }
+          EOF
+            cc "${flags[@]}" -I"$RUNNER_TEMP/install/include" "$RUNNER_TEMP/client.c" -L"$RUNNER_TEMP/install/lib" -Wl,-rpath,"$RUNNER_TEMP/install/lib" -llis -lm -lquadmath -o "$RUNNER_TEMP/client"
+            "$RUNNER_TEMP/client"
+          fi
+          case "${{ matrix.mode }}" in
+            disabled|serial|openmp)
+              if [ "${{ matrix.mode }}" = openmp ]; then export OMP_NUM_THREADS=4; else export OMP_NUM_THREADS=1; fi
+              make -C test -j2 check
+              if [ "${{ matrix.mode }}" != disabled ]; then
+                for t in full_native native_session linear_native gcro_native fgcro_native krylov_restore feast_native; do
+                  cc "${flags[@]}" -DLIS_RCI_KRYLOV_NATIVE_LIBRARY -Iinclude -Iqualification/rci-restore "qualification/rci-restore/test_$t.c" -Lsrc/.libs -Wl,-rpath,"$PWD/src/.libs" -llis -lm -o "$RUNNER_TEMP/$t"
+                  "$RUNNER_TEMP/$t"
+                done
+              fi;;
+            complex|binary128)
+              for t in linear_precision feast_native; do
+                cc "${flags[@]}" -Iinclude -Iqualification/rci-restore "qualification/rci-restore/test_$t.c" -Lsrc/.libs -Wl,-rpath,"$PWD/src/.libs" -llis -lm -lquadmath -o "$RUNNER_TEMP/$t"
+                "$RUNNER_TEMP/$t"
+              done;;
+          esac
+          echo "INSTALLABLE NATIVE RCI PASS ${{ matrix.mode }}"
