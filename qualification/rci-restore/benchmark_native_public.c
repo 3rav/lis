@@ -80,7 +80,7 @@ int main(int argc,char **argv)
 {
  CHECK(!lis_initialize(&argc,&argv));
  LIS_ABI_INFO client,lib;memset(&client,0,sizeof client);memset(&lib,0,sizeof lib);
- lis_abi_get_client_info(&client);CHECK(!lis_abi_get_info(&lib));
+ lis_abi_get_client_info(&client);CHECK(!lis_abi_get_info(&lib,sizeof lib));
  CHECK(!memcmp(&client,&lib,sizeof client));puts("BASELINE CLIENT ABI INFO MATCH");
  const char *methods[]={"cg","bicgstab","gmres","fgmres","gcrodr","fgcrodr"};
  for(int m=0;m<6;m++){linear(methods[m],37,100);linear(methods[m],32768,6);}
