@@ -1,0 +1,153 @@
+name: Native RCI release gate
+on:
+  push:
+    branches: ['qualification/rci-rc3-pr267-ready-20261127']
+permissions:
+  contents: read
+jobs:
+  regenerate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      commit: ${{ steps.regen.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - id: regen
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fi
+          git add -u
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'Regenerate Autotools with native RCI public tests'
+            git push origin HEAD:refs/heads/qualification/rci-rc3-pr267-ready-20261127
+          fi
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  qualify:
+    needs: regenerate
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [serial, openmp, asan, complex, extended, binary128, complex-extended, complex-binary128]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.regenerate.outputs.commit }}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          opts=(--enable-native-rci --enable-shared --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg --prefix="$RUNNER_TEMP/install")
+          export OMP_NUM_THREADS=1 OMP_DYNAMIC=FALSE
+          flags=(-std=gnu11 -DHAVE_CONFIG_H -O2)
+          case "${{ matrix.mode }}" in
+            serial) opts+=(--enable-rci --enable-test --disable-omp);;
+            openmp) opts+=(--enable-rci --enable-test --enable-omp --enable-longlong); flags+=(-fopenmp -D_LONG__LONG); export OMP_NUM_THREADS=4;;
+            asan) opts+=(--enable-rci --enable-test --disable-omp --enable-longlong)
+              flags+=(-D_LONG__LONG -fsanitize=address,undefined -fno-omit-frame-pointer -no-pie)
+              export CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' LDFLAGS='-fsanitize=address,undefined'
+              export ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1;;
+            complex) opts+=(--disable-rci --disable-test --disable-omp --enable-complex);;
+            extended) opts+=(--disable-rci --disable-test --disable-omp --enable-longdouble); export ac_cv_header_quadmath_h=no;;
+            binary128) opts+=(--disable-rci --disable-test --disable-omp --enable-longdouble);;
+            complex-extended) opts+=(--disable-rci --disable-test --disable-omp --enable-complex --enable-longdouble); export ac_cv_header_quadmath_h=no;;
+            complex-binary128) opts+=(--disable-rci --disable-test --disable-omp --enable-complex --enable-longdouble);;
+          esac
+          ./configure "${opts[@]}"
+          make -C src -j2
+          make -C include install
+          make -C src install
+          cat > "$RUNNER_TEMP/client.c" <<'EOF'
+          #include "lis_config.h"
+          #include "lis_rci_native_session.h"
+          int main(void) {
+            lis_rci_native_session *s=lis_rci_native_session_create();
+            if(!s)return 1;
+            lis_rci_native_session_destroy(s);
+            return 0;
+          }
+          EOF
+          cc "${flags[@]}" -I"$RUNNER_TEMP/install/include" "$RUNNER_TEMP/client.c" -L"$RUNNER_TEMP/install/lib" -Wl,-rpath,"$RUNNER_TEMP/install/lib" -llis -lm -lquadmath -o "$RUNNER_TEMP/client"
+          "$RUNNER_TEMP/client"
+          case "${{ matrix.mode }}" in
+            serial|openmp|asan)
+              test -f "$RUNNER_TEMP/install/include/lis_rci_native_full.h"
+              cc "${flags[@]}" -I"$RUNNER_TEMP/install/include" test/testrcinativenested.c -L"$RUNNER_TEMP/install/lib" -Wl,-rpath,"$RUNNER_TEMP/install/lib" -llis -lm -o "$RUNNER_TEMP/nested"
+              "$RUNNER_TEMP/nested"
+              cc "${flags[@]}" -Iinclude test/testrcinativefull.c -Lsrc/.libs -Wl,-rpath,"$PWD/src/.libs" -llis -lm -o "$RUNNER_TEMP/full"
+              "$RUNNER_TEMP/full"
+              if [ "${{ matrix.mode }}" != asan ]; then make -C test -j2 check; fi;;
+            *) test ! -e "$RUNNER_TEMP/install/include/lis_rci_native_full.h";;
+          esac
+          if [ "${{ matrix.mode }}" = serial ]; then
+            make dist
+            archive=$(find . -maxdepth 1 -name 'lis*.tar.gz' -print -quit)
+            test -n "$archive"
+            tar -tzf "$archive" > "$RUNNER_TEMP/dist-files"
+            grep -F '/src/rci_native/full_linear_continuation.inc' "$RUNNER_TEMP/dist-files"
+            grep -F '/src/rci_native/lis_rci_native_visibility.h' "$RUNNER_TEMP/dist-files"
+            grep -F '/include/lis_rci_native_session.h' "$RUNNER_TEMP/dist-files"
+          fi
+          echo "NATIVE RELEASE QUALIFICATION PASS ${{ matrix.mode }}"
+  abi:
+    needs: regenerate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.regenerate.outputs.commit }}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          opts=(--enable-rci --enable-shared --disable-test --disable-mpi --disable-quad --disable-omp --disable-fortran --disable-f90 --disable-saamg)
+          for mode in legacy native; do
+            prefix="$RUNNER_TEMP/$mode"
+            feature=--disable-native-rci
+            if [ "$mode" = native ]; then feature=--enable-native-rci; make -C src clean; fi
+            ./configure "${opts[@]}" "$feature" --prefix="$prefix"
+            make -C src -j2
+            make -C include install
+            make -C src install
+            nm -D --defined-only "$prefix/lib/liblis.so" | awk 'NF==3 {print $3,$2}' | LC_ALL=C sort -u > "$prefix/symbols"
+            readelf -d "$prefix/lib/liblis.so" | grep SONAME > "$prefix/soname"
+          done
+          old="$RUNNER_TEMP/legacy"; new="$RUNNER_TEMP/native"
+          comm -23 "$old/symbols" "$new/symbols" > "$RUNNER_TEMP/removed"
+          test ! -s "$RUNNER_TEMP/removed"
+          comm -13 "$old/symbols" "$new/symbols" > "$RUNNER_TEMP/added"
+          cat "$RUNNER_TEMP/added"
+          awk '{print $1}' "$RUNNER_TEMP/added" | LC_ALL=C sort > "$RUNNER_TEMP/added-names"
+          printf '%s\n' lis_rci_native_execute lis_rci_native_full_create lis_rci_native_full_destroy lis_rci_native_full_start_linear lis_rci_native_full_start_feast lis_rci_native_full_advance lis_rci_native_full_cancel lis_rci_native_full_status lis_rci_native_session_create lis_rci_native_session_destroy lis_rci_native_session_start_linear lis_rci_native_session_start_feast lis_rci_native_session_start_krylov lis_rci_native_session_advance lis_rci_native_session_cancel lis_rci_native_session_pending lis_rci_native_session_status | LC_ALL=C sort > "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/added-names"
+          diff -u "$old/soname" "$new/soname"
+          for h in "$old/include/"*.h; do
+            name=$(basename "$h"); if [ "$name" != lis_config.h ]; then cmp "$h" "$new/include/$name"; fi
+          done
+          test ! -e "$old/include/lis_rci_native_session.h"
+          cc -std=gnu11 -DHAVE_CONFIG_H -I"$old/include" test/testrciabi.c -L"$old/lib" -llis -lm -o "$RUNNER_TEMP/old-client"
+          for dir in "$old/lib" "$new/lib"; do
+            LD_LIBRARY_PATH="$dir" "$RUNNER_TEMP/old-client"
+          done
+          echo 'NATIVE ABI EXACT 17 ADDITIONS PASS'
+  reject:
+    needs: regenerate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.regenerate.outputs.commit }}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          for bad in mpi quad; do
+            if ./configure --enable-native-rci "--enable-$bad" > "$RUNNER_TEMP/reject-$bad.log" 2>&1; then exit 1; fi
+            grep -F 'native RCI requires non-MPI' "$RUNNER_TEMP/reject-$bad.log"
+          done
+          if CFLAGS='-O2 -ffast-math' ./configure --enable-native-rci --disable-mpi --disable-quad > "$RUNNER_TEMP/reject-math.log" 2>&1; then exit 1; fi
+          grep -F 'experimental RCI requires IEEE nonfinite checks' "$RUNNER_TEMP/reject-math.log"
+          echo 'NATIVE UNSUPPORTED CONFIGURATIONS REJECTED'
