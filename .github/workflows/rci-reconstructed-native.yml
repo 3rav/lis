@@ -46,3 +46,15 @@ jobs:
           ldd "$RUNNER_TEMP/rci/test"
           OMP_NUM_THREADS=1 timeout 90 "$RUNNER_TEMP/rci/test"
           if [ "${{ matrix.mode }}" = openmp ]; then OMP_NUM_THREADS=4 timeout 90 "$RUNNER_TEMP/rci/test"; fi
+          echo '90681443b885c9b8781354fa6bfeab8ecb8c53f0f7a4a8961cc4469eb6e2a187  qualification/rci-reconstructed/bcsstk01.mtx' | sha256sum -c -
+          echo '113a42d308fd7893c83849a1e5437033880be4d81ad0f260b9219f0885783027  qualification/rci-reconstructed/test_bcsstk01_native.c' | sha256sum -c -
+          echo '836f58db87112a2d6e8339b709da4719201797a09c3e181ea3fb43d887ffc10a  qualification/rci-reconstructed/test_native_large.c' | sha256sum -c -
+          for driver in test_bcsstk01_native test_native_large; do
+            cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -I"$PWD/include" -I"$RUNNER_TEMP/rci" "${flags[@]}" "$RUNNER_TEMP/rci/rci.c" "$RUNNER_TEMP/rci/rci_lis_bridge.c" "qualification/rci-reconstructed/$driver.c" -L"$PWD/src/.libs" -Wl,-rpath,"$PWD/src/.libs" -llis -lm -o "$RUNNER_TEMP/rci/$driver"
+          done
+          OMP_NUM_THREADS=1 timeout 90 "$RUNNER_TEMP/rci/test_bcsstk01_native" qualification/rci-reconstructed/bcsstk01.mtx
+          OMP_NUM_THREADS=1 timeout 90 "$RUNNER_TEMP/rci/test_native_large"
+          if [ "${{ matrix.mode }}" = openmp ]; then
+            OMP_NUM_THREADS=4 timeout 90 "$RUNNER_TEMP/rci/test_bcsstk01_native" qualification/rci-reconstructed/bcsstk01.mtx
+            OMP_NUM_THREADS=4 timeout 90 "$RUNNER_TEMP/rci/test_native_large"
+          fi
