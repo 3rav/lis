@@ -30,7 +30,6 @@ jobs:
       OMP_DYNAMIC: 'FALSE'
       ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
       UBSAN_OPTIONS: halt_on_error=1
-      LIS_MFAMG_SPARSE_TERMINAL: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,6 +50,8 @@ jobs:
       - name: Full legacy regression
         run: make -j2 check
       - name: Observe actual shifted matrix selection and physical eigenpair residuals
+        env:
+          LIS_MFAMG_SPARSE_TERMINAL: '1'
         run: |
           set -euo pipefail
           mkdir -p results
@@ -60,6 +61,8 @@ jobs:
             done
           done
       - name: Baseline comparison (same fixture and options, non-sanitized serial only)
+        env:
+          LIS_MFAMG_SPARSE_TERMINAL: '1'
         if: matrix.mode == 'serial'
         run: |
           set -euo pipefail
