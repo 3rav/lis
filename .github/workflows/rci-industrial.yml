@@ -1,0 +1,71 @@
+name: BCSSTK17 independent shifted Cholesky preconditioner
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  structural:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: bcsstk17, n: 10974, nz: 219812}
+    env:
+      OMP_NUM_THREADS: '4'
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Download public NIST matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://math.nist.gov/pub/MatrixMarket2/Harwell-Boeing/bcsstruc2/${{ matrix.name }}.mtx.gz"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 60 "$url" -o "$RUNNER_TEMP/matrix.gz"
+          gzip -t "$RUNNER_TEMP/matrix.gz"
+          sha256sum "$RUNNER_TEMP/matrix.gz"
+          gzip -dc "$RUNNER_TEMP/matrix.gz" > "$RUNNER_TEMP/matrix.mtx"
+          head -n 5 "$RUNNER_TEMP/matrix.mtx"
+      - name: Verify or install required toolchain without third-party repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for tool in gcc make autoconf automake autoreconf libtoolize; do
+            command -v "$tool" || missing=1
+          done
+          if [ "$missing" = 1 ]; then
+            opts=(-o Acquire::Retries=3)
+            if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+              opts+=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=-)
+            elif [ -f /etc/apt/sources.list ]; then
+              opts+=(-o Dir::Etc::sourcelist=/etc/apt/sources.list -o Dir::Etc::sourceparts=-)
+            fi
+            sudo apt-get "${opts[@]}" update
+            sudo apt-get "${opts[@]}" install -y --no-install-recommends build-essential autoconf automake libtool libtool-bin
+          fi
+      - name: Install SuiteSparse development package
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f /usr/include/suitesparse/cholmod.h ]; then
+            opts=(-o Acquire::Retries=3 -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=-)
+            sudo apt-get "${opts[@]}" update
+            sudo apt-get "${opts[@]}" install -y --no-install-recommends libsuitesparse-dev
+          fi
+      - name: Build installed native LIS with RCI
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          ./configure --enable-rci --enable-shared --enable-longlong --enable-omp --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg --prefix="$RUNNER_TEMP/install"
+          make -C src -j2
+          make -C include install
+          make -C src install
+      - name: Real structural matrices
+        shell: bash
+        run: |
+          set -euo pipefail
+          cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -D_LONG__LONG -fopenmp -I"$RUNNER_TEMP/install/include" qualification/rci-reconstructed/industrial_cholesky.c -L"$RUNNER_TEMP/install/lib" -Wl,-rpath,"$RUNNER_TEMP/install/lib" -I/usr/include/suitesparse -llis -lcholmod -lm -o "$RUNNER_TEMP/industrial"
+          timeout 360 "$RUNNER_TEMP/industrial" "$RUNNER_TEMP/matrix.mtx" "${{ matrix.n }}" "${{ matrix.nz }}"
