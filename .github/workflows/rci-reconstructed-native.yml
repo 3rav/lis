@@ -38,7 +38,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/rci"
           tar -xzf qualification/rci-reconstructed/smoke.tar.gz -C "$RUNNER_TEMP/rci"
           flags=()
+          if [ "${{ matrix.index }}" = int64 ]; then flags+=(-D_LONG__LONG); fi
           if [ "${{ matrix.mode }}" = openmp ]; then flags+=(-fopenmp); fi
+          cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -I"$PWD/include" "${flags[@]}" qualification/rci-reconstructed/abi_probe.c -L"$PWD/src/.libs" -Wl,-rpath,"$PWD/src/.libs" -llis -lm -o "$RUNNER_TEMP/rci/abi_probe"
+          "$RUNNER_TEMP/rci/abi_probe" "${{ matrix.index }}" "${{ matrix.mode }}"
           cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -I"$PWD/include" "${flags[@]}" "$RUNNER_TEMP/rci/rci.c" "$RUNNER_TEMP/rci/rci_lis_bridge.c" "$RUNNER_TEMP/rci/test_lis_bridge.c" -L"$PWD/src/.libs" -Wl,-rpath,"$PWD/src/.libs" -llis -lm -o "$RUNNER_TEMP/rci/test"
           ldd "$RUNNER_TEMP/rci/test"
           OMP_NUM_THREADS=1 timeout 90 "$RUNNER_TEMP/rci/test"
