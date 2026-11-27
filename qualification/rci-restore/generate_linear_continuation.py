@@ -58,7 +58,7 @@ def no_quad(s):
         if m:
             kind,arg=m[1],m[2].strip()
             if kind in ("ifdef","ifndef","if"):
-                known=(arg=="USE_QUAD_PRECISION" or (REAL_ONLY and arg=="_COMPLEX")) and kind in ("ifdef","ifndef")
+                known=(arg=="USE_QUAD_PRECISION" or (REAL_ONLY and arg in ("_COMPLEX","USE_MPI"))) and kind in ("ifdef","ifndef")
                 active=(kind=="ifndef") if known else True
                 stack.append((active,known))
                 if parent and not known: out.append(line)
@@ -95,7 +95,7 @@ def frame(name,func,path,sha):
         fields[m[2]]=m[1].strip()
     # Local declarations occupy the beginning of each native function.
     # No initialized automatic object is live only on the C call stack.
-    decl=re.compile(r"^([ \t]*)(LIS_Comm|LIS_MATRIX|LIS_VECTOR|LIS_PRECON|LIS_SCALAR|LIS_REAL|LIS_INT|LIS_GCRODR_EIG|double)[ \t]+([^;]+);",re.M)
+    decl=re.compile(r"^([ \t]*)(LIS_Comm|LIS_MATRIX|LIS_VECTOR|LIS_PRECON|LIS_SCALAR|LIS_REAL|LIS_INT|LIS_GCRODR_EIG|LIS_FGCRODR_EIG|LIS_FGCRODR_STATE|size_t|double)[ \t]+([^;]+);",re.M)
     def hoist(m):
         out=[]
         for v in args(m[3]):
