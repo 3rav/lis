@@ -108,3 +108,17 @@ external RCI consumer against the actual rebuilt liblis.so and runs all
 17 existing upstream Krylov regression executables. The patch is never
 committed to native source; these are qualification builds, not changes
 to the default upstream PR or installed headers.
+
+The source-specific native linear generator targets actual CG, BiCGSTAB,
+GMRES and FGMRES plus the shared initial-residual helper. It exposes native
+LIS_VECTOR A/PRECON requests at the real call sites, leaving reductions,
+convergence, residual histories and work vectors under native LIS policy.
+A disposable qualification patch redirects the four existing classical
+symbols through a blocking continuation driver while retaining original
+reference functions. The normal lis_solve setup/teardown is unchanged.
+Strict external mode validates output; classic mode preserves native
+behavior. Callback wait time is included in native preconditioner timing.
+Cancellation may leave the native iterate partially updated. This is not
+yet a replacement for the existing generic real-double RCI API, nor an
+installed native interface. Precision and native-policy coverage require
+qualification rather than an assumed equivalence.
