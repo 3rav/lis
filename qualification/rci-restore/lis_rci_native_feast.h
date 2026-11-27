@@ -15,6 +15,7 @@ typedef struct {
  int operation;
  LIS_MATRIX A,B;
  LIS_INT count;
+ int block; /* Preserve the native scalar vs block dispatch even for count=1. */
  LIS_VECTOR *in,*out;
  LIS_REAL zr,zi;
  LIS_VECTOR in_real,in_imag,out_real,out_imag;

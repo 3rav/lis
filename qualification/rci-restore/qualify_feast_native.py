@@ -128,7 +128,7 @@ out.extend("case "+str(ids[name])+":return nf_step_"+name+"(K);" for name in fra
 out.append("default:return nf_return(K,0,LIS_BREAKDOWN);}}")
 (g.DIR/"feast_native_continuation.inc").write_text("\n".join(out)+"\n")
 src=sources[p]
-a="LIS_INT lis_efeast(LIS_ESOLVER esolver)"
+a="LIS_INT lis_efeast(\n        LIS_ESOLVER esolver)"
 assert src.count(a)==1
 src=src.replace(a,"LIS_INT lis_efeast_native_reference(LIS_ESOLVER esolver)")
 (g.ROOT/p).write_text(src+'\n#include "../../qualification/rci-restore/lis_rci_native_feast.c"\n')

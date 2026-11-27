@@ -32,13 +32,15 @@ static int nf_block(lis_rci_native_feast *K,int op,LIS_MATRIX A,LIS_INT n,LIS_VE
   for(LIS_INT i=0;i<n;i++)for(LIS_INT j=0;j<n;j++)if(in[i]==out[j]||(i!=j&&out[i]==out[j]))return nf_force(K,NF_BADARG);
   for(LIS_INT i=0;i<n;i++)nf_poison(out[i]);
  }
- K->request=(lis_rci_native_feast_request){.token=++K->token,.operation=op,.A=A,.count=n,.in=in,.out=out};
+ K->request=(lis_rci_native_feast_request){.token=++K->token,.operation=op,.A=A,.count=n,.block=1,.in=in,.out=out};
  return K->status=op;
 }
 static int nf_one(lis_rci_native_feast *K,int op,LIS_MATRIX A,LIS_VECTOR in,LIS_VECTOR out)
 {
  K->one_in=in;K->one_out=out;
- return nf_block(K,op,A,1,&K->one_in,&K->one_out);
+ int st=nf_block(K,op,A,1,&K->one_in,&K->one_out);
+ if(st==op)K->request.block=0;
+ return st;
 }
 static int nf_shift(lis_rci_native_feast *K,LIS_MATRIX A,LIS_MATRIX B,LIS_REAL zr,LIS_REAL zi,
  LIS_VECTOR ir,LIS_VECTOR ii,LIS_VECTOR or,LIS_VECTOR oi,LIS_SOLVER s)
@@ -106,7 +108,7 @@ LIS_INT lis_efeast(LIS_ESOLVER e)
  int st=lis_rci_native_feast_start(K,e,0,&q);
  while(st>0){
   LIS_INT rc=q.operation==NF_SHIFT?lis_efeast_shifted_solve_split(q.A,q.B,q.zr,q.zi,q.in_real,q.in_imag,q.out_real,q.out_imag,q.solver):
-    (q.count==1?lis_matvec(q.A,q.in[0],q.out[0]):lis_matvec_block(q.A,q.count,q.in,q.out));
+    (!q.block?lis_matvec(q.A,q.in[0],q.out[0]):lis_matvec_block(q.A,q.count,q.in,q.out));
   st=lis_rci_native_feast_advance(K,q.token,rc,&q);
  }
  LIS_INT rc=st==NF_BADARG?LIS_ERR_ILL_ARG:lis_rci_native_feast_native(K);

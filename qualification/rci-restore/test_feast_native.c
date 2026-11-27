@@ -30,7 +30,7 @@ static LIS_INT external(LIS_ESOLVER e)
   if(q.operation==NF_SHIFT){
    lis_vector_set_all(0,q.out_real);lis_vector_set_all(0,q.out_imag);
    err=lis_efeast_shifted_solve_split(q.A,q.B,q.zr,q.zi,q.in_real,q.in_imag,q.out_real,q.out_imag,q.solver);
-  }else err=q.count==1?lis_matvec(q.A,q.in[0],q.out[0]):lis_matvec_block(q.A,q.count,q.in,q.out);
+  }else err=!q.block?lis_matvec(q.A,q.in[0],q.out[0]):lis_matvec_block(q.A,q.count,q.in,q.out);
   st=lis_rci_native_feast_advance(K,q.token,err,&q);
  }
  terminal=st;
