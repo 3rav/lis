@@ -1,0 +1,32 @@
+name: RCI deep audit probes
+on:
+  push:
+    branches: ['qualification/rci-deep-audit-20261127']
+permissions:
+  contents: read
+jobs:
+  core-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Archive model vs actual public consensus; OOM; numeric and compiler probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cc in gcc clang; do
+            for opt in -O2 "-O1 -fsanitize=undefined -fno-sanitize-recover=undefined"; do
+              $cc $opt -std=c11 -Iinclude src/lis_rci.c qualification/rci-audit-model.c -lm -o "$RUNNER_TEMP/model"
+              "$RUNNER_TEMP/model"
+            done
+          done
+          gcc -O2 -std=c11 -Iinclude src/lis_rci.c qualification/rci-audit-oom.c -Wl,--wrap=calloc,--wrap=free -lm -o "$RUNNER_TEMP/oom"
+          "$RUNNER_TEMP/oom"
+          gcc -O2 -std=c11 -Iinclude -c qualification/rci-audit-probes.c -o "$RUNNER_TEMP/probes.o"
+          for opt in -O2 "-O2 -ffast-math"; do
+            echo "AUDIT CORE COMPILER FLAGS $opt"
+            gcc $opt -std=c11 -Iinclude -c src/lis_rci.c -o "$RUNNER_TEMP/core.o"
+            gcc "$RUNNER_TEMP/probes.o" "$RUNNER_TEMP/core.o" -lm -o "$RUNNER_TEMP/probes"
+            "$RUNNER_TEMP/probes"
+          done
+          echo "AUDIT observational probe results above; job success does not mean findings are closed"
