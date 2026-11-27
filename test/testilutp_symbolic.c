@@ -50,7 +50,7 @@ static LIS_INT setup(LIS_SOLVER *s)
     if((err=lis_solver_set_option("-i fgmres -p ilut -ilutp 1 -ilutp_threshold 0 -ilutp_full 1 -ilutp_full_limit 10000 -ilutp_symbolic 1 -ilutp_md 1 -ilutp_reuse 1 -tol 1e-12 -maxiter 40 -restart 20 -print none",*s)))return err;
     return lis_solver_set_sequence_precon_refresh_policy(*s,LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN);
 }
-static int solve_compare(LIS_MATRIX A,LIS_SOLVER s,LIS_VECTOR b,LIS_VECTOR x,LIS_VECTOR truth,LIS_VECTOR scratch)
+static int solve_compare_tol(LIS_MATRIX A,LIS_SOLVER s,LIS_VECTOR b,LIS_VECTOR x,LIS_VECTOR truth,LIS_VECTOR scratch,double forward_tol)
 {
     LIS_SOLVER fresh=NULL;
     LIS_VECTOR y=NULL;
@@ -67,7 +67,7 @@ static int solve_compare(LIS_MATRIX A,LIS_SOLVER s,LIS_VECTOR b,LIS_VECTOR x,LIS
     if(lis_matvec(A,x,scratch)||lis_vector_axpy(-1,b,scratch)||lis_vector_nrm2(scratch,&r)||lis_vector_nrm2(b,&bnorm))goto done;
     if(!(bnorm>0)||!isfinite(r)||r/bnorm>1e-11)goto done;
     if(lis_vector_copy(x,scratch)||lis_vector_axpy(-1,truth,scratch)||lis_vector_nrm2(scratch,&errnorm)||lis_vector_nrm2(truth,&tnorm))goto done;
-    if(!(tnorm>0)||!isfinite(errnorm)||errnorm/tnorm>1e-10)goto done;
+    if(!(tnorm>0)||!isfinite(errnorm)||errnorm/tnorm>forward_tol)goto done;
     if(setup(&fresh)||lis_vector_duplicate(A,&y)||lis_vector_set_all(0,y))goto done;
     if(lis_solve_sequence(A,b,y,fresh)||lis_solver_get_status(fresh,&status)||status!=LIS_SUCCESS)goto done;
     q=fresh->sequence_precon;
@@ -78,13 +78,17 @@ static int solve_compare(LIS_MATRIX A,LIS_SOLVER s,LIS_VECTOR b,LIS_VECTOR x,LIS
         for(j=0;j<p->U->nnz[i];j++)if(p->U->index[i][j]!=q->U->index[i][j] || !isfinite((double)p->U->value[i][j]) || !isfinite((double)q->U->value[i][j]) || fabs(p->U->value[i][j]-q->U->value[i][j])>1e-12)goto done;
     }
     if(lis_vector_axpy(-1,x,y)||lis_vector_nrm2(y,&delta))goto done;
-    if(!isfinite(delta)||delta/tnorm>1e-10)goto done;
+    if(!isfinite(delta)||delta/tnorm>forward_tol)goto done;
     printf("EQUIVALENCE residual=%.17g known_error=%.17g fresh_delta=%.17g\n",(double)(r/bnorm),(double)(errnorm/tnorm),(double)(delta/tnorm));
     failed=0;
 done:
     if(fresh)lis_solver_destroy(fresh);
     if(y)lis_vector_destroy(y);
     return failed;
+}
+static int solve_compare(LIS_MATRIX A,LIS_SOLVER s,LIS_VECTOR b,LIS_VECTOR x,LIS_VECTOR truth,LIS_VECTOR scratch)
+{
+    return solve_compare_tol(A,s,b,x,truth,scratch,1e-10);
 }
 /* A 6 x 8 grid has cycles and nontrivial elimination fill even after
  * minimum-degree ordering. Opposite diagonal signs give an indefinite
@@ -130,9 +134,66 @@ static int test_grid(int symmetric_values)
     OK(lis_matrix_mark_values_changed(A));
     CHECK(!solve_compare(A,s,b,x,t,r));
     CHECK(creates-before_create==1 && refreshes-before_refresh==1);
-    printf("PASS grid %s n=%d factor_offdiag=%d input_offdiag=%d\\n",
+    printf("PASS grid %s n=%d factor_offdiag=%d input_offdiag=%d\n",
            symmetric_values?"indefinite":"nonsymmetric",
            (int)n,(int)fill,(int)(A->nnz-n));
+    failed=0;
+done:
+    if(s)lis_solver_destroy(s);
+    if(b)lis_vector_destroy(b);
+    if(x)lis_vector_destroy(x);
+    if(t)lis_vector_destroy(t);
+    if(r)lis_vector_destroy(r);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
+/* A nonsingular 2x2 block approaches rank one. Its second pivot is
+ * small but representable; a zero second pivot must invalidate the
+ * refresh after the first row has already been processed. */
+static int test_near_singular(void)
+{
+    const double eps=0x1p-24;
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER s=NULL;
+    LIS_VECTOR b=NULL,x=NULL,t=NULL,r=NULL;
+    LIS_INT i,j,k,status,rc;
+    int before_create,before_refresh,before_errors,failed=1;
+    OK(lis_matrix_create(LIS_COMM_WORLD,&A));
+    OK(lis_matrix_set_size(A,0,2));
+    for(i=0;i<2;i++)for(j=0;j<2;j++)
+        OK(lis_matrix_set_value(LIS_INS_VALUE,i,j,
+            (i==1 && j==1)?1.0+eps:1.0,A));
+    OK(lis_matrix_set_type(A,LIS_MATRIX_CSR));
+    OK(lis_matrix_assemble(A));
+    OK(setup(&s));
+    OK(lis_vector_duplicate(A,&b)); OK(lis_vector_duplicate(A,&x));
+    OK(lis_vector_duplicate(A,&t)); OK(lis_vector_duplicate(A,&r));
+    t->value[0]=1.0; t->value[1]=2.0;
+    /* Forward error is condition-sensitive, unlike the residual. */
+    CHECK(!solve_compare_tol(A,s,b,x,t,r,1e-6));
+    CHECK(fabs(s->sequence_precon->D->value[1])>1e6);
+    before_create=creates; before_refresh=refreshes;
+    for(k=A->ptr[1];k<A->ptr[2];k++)
+        if(A->index[k]==1)A->value[k]=1.0+2.0*eps;
+    OK(lis_matrix_mark_values_changed(A));
+    CHECK(!solve_compare_tol(A,s,b,x,t,r,1e-6));
+    CHECK(creates-before_create==1 && refreshes-before_refresh==1);
+    puts("PASS near-singular nonzero pivot refresh");
+    before_errors=refresh_errors; before_create=creates;
+    for(k=A->ptr[1];k<A->ptr[2];k++)
+        if(A->index[k]==1)A->value[k]=1.0;
+    OK(lis_matrix_mark_values_changed(A));
+    OK(lis_vector_set_all(1,b)); OK(lis_vector_set_all(0,x));
+    rc=lis_solve_sequence(A,b,x,s);
+    OK(lis_solver_get_status(s,&status));
+    CHECK(rc!=LIS_SUCCESS || status!=LIS_SUCCESS);
+    CHECK(refresh_errors>before_errors && creates>before_create);
+    CHECK(s->sequence_precon==NULL && s->precon==NULL);
+    for(k=A->ptr[1];k<A->ptr[2];k++)
+        if(A->index[k]==1)A->value[k]=1.0+eps;
+    OK(lis_matrix_mark_values_changed(A));
+    CHECK(!solve_compare_tol(A,s,b,x,t,r,1e-6));
+    puts("PASS late zero pivot cleanup and recovery");
     failed=0;
 done:
     if(s)lis_solver_destroy(s);
@@ -199,6 +260,7 @@ int main(int argc,char **argv)
     puts("PASS sequence option snapshot rebuild");
     CHECK(!test_grid(0));
     CHECK(!test_grid(1));
+    CHECK(!test_near_singular());
     failed=0;
 done:
     if(s)lis_solver_destroy(s);
