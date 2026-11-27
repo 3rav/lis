@@ -1,0 +1,66 @@
+name: Isolated GLI ownership regression
+on:
+  push:
+    branches: [ci/buckle-gli-precon-ownership]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: baseline
+            revision: 3b511e15fd775274675cb837e75c7d74f03a9b62
+          - mode: rebuild-only
+            revision: b421ceb5bfabc6adadd96e32275b406c0ee315bf
+          - mode: full-patch03
+            revision: 9bc0f69340c07f1d81b3431171a61059bd0e7089
+    env:
+      OMP_NUM_THREADS: '1'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build comparison revision
+        env:
+          REVISION: ${{ matrix.revision }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+          cp test/rc32_gli_ownership.c "$RUNNER_TEMP/ownership.c"
+          git checkout --detach "$REVISION"
+          CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined" ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-shared
+          make -j2
+          gcc -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Iinclude "$RUNNER_TEMP/ownership.c" src/.libs/liblis.a -lm -o ownership-test
+      - name: Public API reproduction without wrapping
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          failed=0
+          for transform in buckling shift_invert; do
+            for pre in ilutp mfamg mfamg_ilutp; do
+              log="results/${pre}_${transform}.log"
+              rc=0
+              ./ownership-test "$pre" "$transform" > "$log" 2>&1 || rc=$?
+              cat "$log"
+              echo "CASE $MODE $pre $transform exit=$rc"
+              if [[ "$MODE" == baseline ]]; then
+                if [[ "$rc" == 0 ]] || ! grep -Eq 'AddressSanitizer: (heap-use-after-free|attempting double-free|double-free)' "$log"; then failed=1; fi
+              elif [[ "$rc" != 0 ]] || ! grep -q '^PASS ownership regression' "$log"; then failed=1; fi
+            done
+          done
+          exit "$failed"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ownership-${{ matrix.mode }}
+          path: results/
+          if-no-files-found: ignore
