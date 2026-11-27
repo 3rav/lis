@@ -10,18 +10,26 @@
 #define CHECK(c) do { if (!(c)) { fprintf(stderr,"FAIL line=%d: %s\n",__LINE__,#c); goto done; } } while (0)
 #define OK(c) CHECK((c)==LIS_SUCCESS)
 static int creates,refreshes,refresh_errors;
+static int measure;
+static double create_seconds,refresh_seconds;
 extern LIS_INT __real_lis_precon_create(LIS_SOLVER,LIS_PRECON *);
 extern LIS_INT __real_lis_precon_update_ilut_frozen(LIS_SOLVER,LIS_PRECON);
 LIS_INT __wrap_lis_precon_create(LIS_SOLVER s,LIS_PRECON *p)
 {
+    LIS_INT err;
+    double start=measure?lis_wtime():0.0;
     creates++;
-    return __real_lis_precon_create(s,p);
+    err=__real_lis_precon_create(s,p);
+    if(measure)create_seconds+=lis_wtime()-start;
+    return err;
 }
 LIS_INT __wrap_lis_precon_update_ilut_frozen(LIS_SOLVER s,LIS_PRECON p)
 {
     LIS_INT err;
+    double start=measure?lis_wtime():0.0;
     refreshes++;
     err=__real_lis_precon_update_ilut_frozen(s,p);
+    if(measure)refresh_seconds+=lis_wtime()-start;
     if(err)refresh_errors++;
     return err;
 }
@@ -204,6 +212,94 @@ done:
     if(A)lis_matrix_destroy(A);
     return failed;
 }
+/* Informational timing only. Identical generated CSR, values, RHS,
+ * zero initial guess, solver tolerance and fill cap in all modes.
+ * SAFE rebuilds after a value-generation change; FROZEN_PATTERN
+ * must refresh the existing factors. Timings include all setup work
+ * in lis_precon_create (including ordering), not just the LU kernel. */
+static int benchmark_grid(int mode)
+{
+    const LIS_INT width=40,n=1600;
+    const int steps=6;
+    const char *names[]={"legacy","symbolic","symbolic-md","symbolic-md-reuse"};
+    const char *opts[]={"-ilutp_symbolic 0 -ilutp_md 0 -ilutp_reuse 0",
+        "-ilutp_symbolic 1 -ilutp_md 0 -ilutp_reuse 0",
+        "-ilutp_symbolic 1 -ilutp_md 1 -ilutp_reuse 0",
+        "-ilutp_symbolic 1 -ilutp_md 1 -ilutp_reuse 1"};
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER s=NULL;
+    LIS_VECTOR b=NULL,x=NULL,t=NULL,r=NULL;
+    LIS_INT i,j,k,status,it,fill=0;
+    int step,bc,br,failed=1;
+    double start,total,first=0,subsequent=0,first_setup=0,subsequent_setup=0,maxres=0;
+    LIS_REAL rn,bn;
+    OK(lis_matrix_create(LIS_COMM_WORLD,&A));
+    OK(lis_matrix_set_size(A,0,n));
+    for(i=0;i<n;i++) {
+        OK(lis_matrix_set_value(LIS_INS_VALUE,i,i,6.0,A));
+        if(i%width) OK(lis_matrix_set_value(LIS_INS_VALUE,i,i-1,-0.4,A));
+        if(i%width!=width-1) OK(lis_matrix_set_value(LIS_INS_VALUE,i,i+1,-0.3,A));
+        if(i>=width) OK(lis_matrix_set_value(LIS_INS_VALUE,i,i-width,-0.2,A));
+        if(i<n-width) OK(lis_matrix_set_value(LIS_INS_VALUE,i,i+width,-0.1,A));
+    }
+    OK(lis_matrix_set_type(A,LIS_MATRIX_CSR));
+    OK(lis_matrix_assemble(A));
+    OK(lis_solver_create(&s));
+    OK(lis_solver_set_option("-i fgmres -p ilut -ilutp 1 -ilutp_threshold 0 -ilutp_full 1 -ilutp_full_limit 2000000 -tol 1e-12 -maxiter 40 -restart 20 -print none",s));
+    OK(lis_solver_set_option((char*)opts[mode],s));
+    OK(lis_solver_set_sequence_precon_refresh_policy(s,mode==3?
+        LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN:LIS_SEQUENCE_PRECON_REFRESH_SAFE));
+    OK(lis_vector_duplicate(A,&b)); OK(lis_vector_duplicate(A,&x));
+    OK(lis_vector_duplicate(A,&t)); OK(lis_vector_duplicate(A,&r));
+    for(i=0;i<n;i++)t->value[i]=0.5+0.1*(i%13);
+    bc=creates; br=refreshes;
+    for(step=0;step<steps;step++) {
+        for(i=0;i<n;i++)for(k=A->ptr[i];k<A->ptr[i+1];k++) {
+            j=A->index[k];
+            A->value[k]*=1.0+0.001*((i+j+step)%7);
+        }
+        OK(lis_matrix_mark_values_changed(A));
+        OK(lis_matvec(A,t,b)); OK(lis_vector_set_all(0,x));
+        create_seconds=refresh_seconds=0;
+        measure=1;
+        start=lis_wtime();
+        OK(lis_solve_sequence(A,b,x,s));
+        total=lis_wtime()-start;
+        measure=0;
+        OK(lis_solver_get_status(s,&status)); CHECK(status==LIS_SUCCESS);
+        OK(lis_solver_get_iter(s,&it));
+        CHECK(s->sequence_precon && s->sequence_precon->L && s->sequence_precon->U);
+        if(mode)CHECK(s->sequence_precon->ilutp_symbolic_factor && s->sequence_precon->ilutp_symbolic_valid);
+        if(mode==3)CHECK(s->sequence_precon->ilutp_reuse);
+        OK(lis_matvec(A,x,r)); OK(lis_vector_axpy(-1,b,r));
+        OK(lis_vector_nrm2(r,&rn)); OK(lis_vector_nrm2(b,&bn));
+        CHECK(bn>0 && isfinite(rn) && rn/bn<1e-11);
+        if(rn/bn>maxres)maxres=rn/bn;
+        if(step==0) {
+            first=total; first_setup=create_seconds+refresh_seconds;
+            for(i=0;i<n;i++)fill+=s->sequence_precon->L->nnz[i]+s->sequence_precon->U->nnz[i];
+        } else {
+            subsequent+=total; subsequent_setup+=create_seconds+refresh_seconds;
+        }
+        printf("BENCH_STEP mode=%s step=%d total_s=%.9g create_s=%.9g refresh_s=%.9g iter=%d residual=%.9g\n",
+               names[mode],step,total,create_seconds,refresh_seconds,(int)it,(double)(rn/bn));
+    }
+    CHECK(creates-bc==(mode==3?1:steps));
+    CHECK(refreshes-br==(mode==3?steps-1:0));
+    printf("BENCH mode=%s n=%d nnz=%d fill=%d first_s=%.9g first_setup_s=%.9g next_mean_s=%.9g next_setup_mean_s=%.9g max_residual=%.9g creates=%d refreshes=%d\n",
+           names[mode],(int)n,(int)A->nnz,(int)fill,first,first_setup,
+           subsequent/(steps-1),subsequent_setup/(steps-1),maxres,creates-bc,refreshes-br);
+    failed=0;
+done:
+    measure=0;
+    if(s)lis_solver_destroy(s);
+    if(b)lis_vector_destroy(b);
+    if(x)lis_vector_destroy(x);
+    if(t)lis_vector_destroy(t);
+    if(r)lis_vector_destroy(r);
+    if(A)lis_matrix_destroy(A);
+    return failed;
+}
 int main(int argc,char **argv)
 {
     LIS_MATRIX A=NULL,B=NULL;
@@ -261,6 +357,10 @@ int main(int argc,char **argv)
     CHECK(!test_grid(0));
     CHECK(!test_grid(1));
     CHECK(!test_near_singular());
+#ifndef _OPENMP
+    /* Compare timings only from the optimized serial job, not ASan. */
+    for(i=0;i<4;i++)CHECK(!benchmark_grid((int)i));
+#endif
     failed=0;
 done:
     if(s)lis_solver_destroy(s);
