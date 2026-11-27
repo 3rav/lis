@@ -30,7 +30,24 @@ jobs:
           sha256sum "$RUNNER_TEMP/matrix.gz"
           gzip -dc "$RUNNER_TEMP/matrix.gz" > "$RUNNER_TEMP/matrix.mtx"
           head -n 5 "$RUNNER_TEMP/matrix.mtx"
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential autoconf automake libtool libtool-bin
+      - name: Verify or install required toolchain without third-party repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for tool in gcc make autoconf automake autoreconf libtoolize; do
+            command -v "$tool" || missing=1
+          done
+          if [ "$missing" = 1 ]; then
+            opts=(-o Acquire::Retries=3)
+            if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+              opts+=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=-)
+            elif [ -f /etc/apt/sources.list ]; then
+              opts+=(-o Dir::Etc::sourcelist=/etc/apt/sources.list -o Dir::Etc::sourceparts=-)
+            fi
+            sudo apt-get "${opts[@]}" update
+            sudo apt-get "${opts[@]}" install -y --no-install-recommends build-essential autoconf automake libtool libtool-bin
+          fi
       - name: Build installed native LIS with RCI
         shell: bash
         run: |
