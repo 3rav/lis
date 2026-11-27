@@ -21,7 +21,7 @@ extern "C" {
  * No API/ABI stability promise is made for this experimental interface. */
 typedef struct lis_rci_context lis_rci_context;
 typedef enum { LIS_RCI_CG=1, LIS_RCI_BICGSTAB, LIS_RCI_GMRES, LIS_RCI_FGMRES } lis_rci_method;
-typedef enum { LIS_RCI_DONE=0, LIS_RCI_MATVEC=1, LIS_RCI_PRECON=2, LIS_RCI_DOT=3, LIS_RCI_NORM=4, LIS_RCI_MAXITER=-1,
+typedef enum { LIS_RCI_DONE=0, LIS_RCI_MATVEC=1, LIS_RCI_PRECON=2, LIS_RCI_DOT=3, LIS_RCI_NORM=4, LIS_RCI_AXPBY=5, LIS_RCI_DIVIDE=6, LIS_RCI_MAXITER=-1,
  LIS_RCI_BREAKDOWN=-2, LIS_RCI_BADARG=-3, LIS_RCI_CALLBACK=-4, LIS_RCI_NONFINITE=-5,
  LIS_RCI_STATE=-6, LIS_RCI_PROTOCOL=-7 } lis_rci_status;
 typedef struct { size_t n, maxiter, restart; double rtol, atol; lis_rci_method method; } lis_rci_options;
@@ -55,6 +55,21 @@ typedef struct {
 } lis_rci_request_ex;
 int lis_rci_start_ex(lis_rci_context *c,const double *b,const double *x0,lis_rci_request_ex *q);
 int lis_rci_advance_ex(lis_rci_context *c,uint64_t token,int callback_code,long double scalar,lis_rci_request_ex *q);
+/* Full mode additionally externalizes computational vector algebra.
+ * AXPBY: out[i] = alpha*in[i] + beta*in2[i], omit the second term if in2==NULL.
+ * DIVIDE: out[i] = in[i]/alpha (positive divisor), in2==NULL.
+ * Evaluate in long double, then convert to double. Output never aliases input.
+ * Input snapshots, scratch commits and the small dense Hessenberg algebra
+ * remain internal. The three interface modes cannot be mixed during a solve.
+ * The full-mode BiCGSTAB direction update uses two AXPBYs (intermediate rounding
+ * may differ from legacy). No allocation occurs during start/advance.
+ */
+typedef struct {
+ lis_rci_request_ex request;
+ long double alpha,beta;
+} lis_rci_request_full;
+int lis_rci_start_full(lis_rci_context *c,const double *b,const double *x0,lis_rci_request_full *q);
+int lis_rci_advance_full(lis_rci_context *c,uint64_t token,int callback_code,long double scalar,lis_rci_request_full *q);
 /* Optional transport-independent status consensus. One record per unique rank.
  * token and tag are opaque uint64_t values compared bitwise (not doubles).
  * Merge is componentwise unsigned MAX. Error 0 means success; the lowest

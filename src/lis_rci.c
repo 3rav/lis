@@ -12,13 +12,17 @@ enum phase {
  CG_P, CG_RZ, CG_A, CG_PV, CG_NORM,
  BI_P, BI_RHO_FIRST, BI_A, BI_SV, BI_NORM_S, BI_S, BI_T,
  BI_TT, BI_TS, BI_NORM_R, BI_RHO_NEXT,
- GM_P, GM_A, GM_BEFORE, GM_DOT, GM_AFTER, END
+ GM_P, GM_A, GM_BEFORE, GM_DOT, GM_AFTER,
+ RES_VECTOR, CG_P_READY, CG_X_READY, CG_R_READY,
+ BI_SHADOW_READY, BI_P_READY, BI_S_READY, BI_SHORT_READY,
+ BI_X1_READY, BI_X2_READY, BI_R_READY, BI_TMP_READY, BI_NEW_P_READY,
+ GM_V_READY, GM_ORTH_READY, GM_NEXT_V_READY, GM_UPDATE_READY, END
 };
 struct lis_rci_context {
  lis_rci_options o; lis_rci_info info; enum phase phase; int verify_reason;
- double *mem,*b,*x,*r,*z,*p,*v,*s,*t,*shadow,*ax,*V,*Z,*H,*cs,*sn,*g,*y,*out;
- size_t j, orth_i; long double tol,rho,alpha,omega,work,before;
- int fresh, orth_pass, external;
+ double *mem,*b,*x,*r,*z,*p,*v,*s,*t,*shadow,*ax,*V,*Z,*H,*cs,*sn,*g,*y,*out,*scratch,*lin_dest;
+ size_t j, orth_i, update_i, update_k; long double tol,rho,alpha,omega,work,before,lin_a,lin_b;
+ int fresh, orth_pass, external, update_reason, happy;
  uint64_t token;
 };
 static int mul(size_t a,size_t b,size_t *z){if(b && a>SIZE_MAX/b)return 0;*z=a*b;return 1;}
@@ -53,7 +57,7 @@ static void axpy(double *a,const double *b,long double k,size_t n){
 /* Request tokens are context-local and never reset on context reuse. */
 static int end(lis_rci_context *c,int status,lis_rci_request_ex *q)
 {
- c->phase=END; c->info.status=status; c->out=NULL;
+ c->phase=END; c->info.status=status; c->out=NULL; c->lin_dest=NULL;
  *q=(lis_rci_request_ex){0}; return status;
 }
 static int request(lis_rci_context *c,enum phase p,int status,
@@ -75,16 +79,33 @@ static int req(lis_rci_context *c,enum phase p,int status,
 static int scalar_req(lis_rci_context *c,enum phase p,const double *in,
  const double *in2,lis_rci_request_ex *q)
 {return request(c,p,in2?LIS_RCI_DOT:LIS_RCI_NORM,in,in2,NULL,q);}
+/* Full mode stages vector output separately so a callback never overwrites
+ * an input operand, even when the algorithm updates a vector in place. */
+static int linear_req(lis_rci_context *c,enum phase p,int op,double *dest,
+ const double *a,const double *b,long double alpha,long double beta,
+ lis_rci_request_ex *q)
+{
+ if(!isfinite(alpha)||!isfinite(beta)||(op==LIS_RCI_DIVIDE&&alpha<=0))
+  return end(c,LIS_RCI_NONFINITE,q);
+ c->lin_dest=dest;c->lin_a=alpha;c->lin_b=beta;
+ return request(c,p,op,a,b,c->scratch,q);
+}
+static int combine(lis_rci_context *c,enum phase p,double *dest,
+ const double *a,const double *b,long double alpha,long double beta,lis_rci_request_ex *q)
+{return linear_req(c,p,LIS_RCI_AXPBY,dest,a,b,alpha,beta,q);}
+static int divide_req(lis_rci_context *c,enum phase p,double *dest,const double *a,
+ long double divisor,lis_rci_request_ex *q)
+{return linear_req(c,p,LIS_RCI_DIVIDE,dest,a,NULL,divisor,0,q);}
 static int verify(lis_rci_context *c,int reason,lis_rci_request_ex *q)
 {c->verify_reason=reason;return req(c,VERIFY,LIS_RCI_MATVEC,c->x,c->ax,q);}
 lis_rci_context *lis_rci_create(const lis_rci_options*o){
  if(!o||!o->n||!o->maxiter||o->method<LIS_RCI_CG||o->method>LIS_RCI_FGMRES||!isfinite(o->rtol)||!isfinite(o->atol)||o->rtol<0||o->atol<0||(!o->rtol&&!o->atol))return NULL;
- size_t n=o->n,m=0,total,tmp,mp=0;if(!mul(n,10,&total))return NULL;
+ size_t n=o->n,m=0,total,tmp,mp=0;if(!mul(n,11,&total))return NULL;
  if(o->method>=LIS_RCI_GMRES){if(!o->restart)return NULL;m=o->restart;if(m>o->maxiter)m=o->maxiter;if(m>n)m=n;if(!add(m,1,&mp)||!mul(mp,n,&tmp)||!add(total,tmp,&total)||!mul(m,n,&tmp)||!add(total,tmp,&total)||!mul(mp,m,&tmp)||!add(total,tmp,&total)||!mul(m,4,&tmp)||!add(total,tmp,&total)||!add(total,1,&total))return NULL;}
  if(!mul(total,sizeof(double),&tmp))return NULL;
  lis_rci_context*c=calloc(1,sizeof(*c));if(!c)return NULL;c->mem=calloc(total,sizeof(double));if(!c->mem){free(c);return NULL;}c->o=*o;c->o.restart=m;c->info.status=LIS_RCI_STATE;c->info.residual=NAN;
  double *d=c->mem;
- c->b=d;d+=n;c->x=d;d+=n;c->r=d;d+=n;c->z=d;d+=n;c->p=d;d+=n;c->v=d;d+=n;c->s=d;d+=n;c->t=d;d+=n;c->shadow=d;d+=n;c->ax=d;d+=n;
+ c->b=d;d+=n;c->x=d;d+=n;c->r=d;d+=n;c->z=d;d+=n;c->p=d;d+=n;c->v=d;d+=n;c->s=d;d+=n;c->t=d;d+=n;c->shadow=d;d+=n;c->ax=d;d+=n;c->scratch=d;d+=n;
  if(m){c->V=d;d+=mp*n;c->Z=d;d+=m*n;c->H=d;d+=mp*m;c->cs=d;d+=m;c->sn=d;d+=m;c->g=d;d+=mp;c->y=d;}
  return c;
 }
@@ -99,12 +120,14 @@ static int cycle(lis_rci_context *c,long double rn,lis_rci_request_ex *q)
  c->fresh=1;c->rho=c->alpha=c->omega=1;
  if(c->o.method==LIS_RCI_CG)return req(c,CG_P,LIS_RCI_PRECON,c->r,c->z,q);
  if(c->o.method==LIS_RCI_BICGSTAB){
+  if(c->external==2)return combine(c,BI_SHADOW_READY,c->shadow,c->r,NULL,1,0,q);
   copy(c->shadow,c->r,n);copy(c->p,c->r,n);
   return req(c,BI_P,LIS_RCI_PRECON,c->p,c->z,q);
  }
  if(rn>DBL_MAX)return end(c,LIS_RCI_NONFINITE,q);
  c->j=0;memset(c->H,0,(m+1)*m*sizeof(double));
  memset(c->g,0,(m+1)*sizeof(double));c->g[0]=(double)rn;
+ if(c->external==2)return divide_req(c,GM_V_READY,c->V,c->r,rn,q);
  for(size_t i=0;i<n;i++)c->V[i]=(double)((long double)c->r[i]/rn);
  return req(c,GM_P,LIS_RCI_PRECON,c->V,c->Z,q);
 }
@@ -122,7 +145,23 @@ static int start_impl(lis_rci_context *c,const double *b,const double *x0,
 }
 static int gm_update(lis_rci_context*c,size_t k,int reason,lis_rci_request_ex*q){size_t n=c->o.n,m=c->o.restart;
  for(size_t ii=k;ii>0;ii--){size_t i=ii-1;long double a=c->g[i];for(size_t j=i+1;j<k;j++)a-=(long double)c->H[j*(m+1)+i]*c->y[j];double d=c->H[i*(m+1)+i];if(d==0||!isfinite(d))return verify(c,LIS_RCI_BREAKDOWN,q);c->y[i]=(double)(a/d);if(!isfinite(c->y[i]))return verify(c,LIS_RCI_BREAKDOWN,q);}
+ if(c->external==2){
+  c->update_i=0;c->update_k=k;c->update_reason=reason;
+  return combine(c,GM_UPDATE_READY,c->x,c->x,c->Z,1,c->y[0],q);
+ }
  for(size_t j=0;j<k;j++)axpy(c->x,c->Z+j*n,c->y[j],n);return verify(c,reason,q);}
+static int gm_finish_column(lis_rci_context *c,lis_rci_request_ex *q)
+{
+ size_t j=c->j,m=c->o.restart,n=c->o.n;double *h=c->H+j*(m+1);
+ for(size_t i=0;i<j;i++){double u=h[i],w=h[i+1];h[i]=c->cs[i]*u+c->sn[i]*w;h[i+1]=-c->sn[i]*u+c->cs[i]*w;}
+ double d=hypot(h[j],h[j+1]);
+ if(!isfinite(d)||d==0){if(j)return gm_update(c,j,LIS_RCI_BREAKDOWN,q);return verify(c,LIS_RCI_BREAKDOWN,q);}
+ c->cs[j]=h[j]/d;c->sn[j]=h[j+1]/d;h[j]=d;h[j+1]=0;
+ c->g[j+1]=-c->sn[j]*c->g[j];c->g[j]*=c->cs[j];c->info.iterations++;
+ if(c->happy||fabs(c->g[j+1])<=c->tol||j+1==m||c->info.iterations>=c->o.maxiter)
+  return gm_update(c,j+1,c->happy?LIS_RCI_BREAKDOWN:LIS_RCI_MAXITER,q);
+ c->j++;return req(c,GM_P,LIS_RCI_PRECON,c->V+c->j*n,c->Z+c->j*n,q);
+}
 static int advance_impl(lis_rci_context *c,uint64_t token,int code,
  long double scalar,lis_rci_request_ex *q)
 {
@@ -135,6 +174,9 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
   if(!isfinite(scalar)||(c->info.status==LIS_RCI_NORM&&scalar<0))
    return end(c,LIS_RCI_NONFINITE,q);
  }else if(!finite_vec(c->out,c->o.n))return end(c,LIS_RCI_NONFINITE,q);
+ if(c->info.status==LIS_RCI_AXPBY||c->info.status==LIS_RCI_DIVIDE){
+  copy(c->lin_dest,c->scratch,c->o.n);c->lin_dest=NULL;
+ }
  size_t n=c->o.n,m=c->o.restart;long double a,b,rn;
  switch(c->phase){
  case B_NORM:
@@ -142,8 +184,10 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
   if(!isfinite(c->tol))return end(c,LIS_RCI_NONFINITE,q);
   return req(c,INITIAL,LIS_RCI_MATVEC,c->x,c->ax,q);
  case INITIAL:case VERIFY:
+  if(c->external==2)return combine(c,RES_VECTOR,c->r,c->b,c->ax,1,-1,q);
   for(size_t i=0;i<n;i++)c->r[i]=c->b[i]-c->ax[i];
-  return scalar_req(c,RES_NORM,c->r,NULL,q);
+  /* fall through */
+ case RES_VECTOR:return scalar_req(c,RES_NORM,c->r,NULL,q);
  case RES_NORM:
   c->info.residual=(double)scalar;
   if(scalar<=c->tol)return end(c,LIS_RCI_DONE,q);
@@ -152,19 +196,33 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
  case CG_P:return scalar_req(c,CG_RZ,c->r,c->z,q);
  case CG_RZ:
   a=scalar;if(a<=0)return verify(c,LIS_RCI_BREAKDOWN,q);
+  if(c->external==2){
+   b=c->fresh?0:a/c->rho;c->fresh=0;c->rho=a;
+   return combine(c,CG_P_READY,c->p,c->z,b==0?NULL:c->p,1,b,q);
+  }
   if(c->fresh){copy(c->p,c->z,n);c->fresh=0;}
   else{b=a/c->rho;for(size_t i=0;i<n;i++)c->p[i]=(double)((long double)c->z[i]+b*c->p[i]);}
-  c->rho=a;return req(c,CG_A,LIS_RCI_MATVEC,c->p,c->v,q);
+  c->rho=a;
+  /* fall through */
+ case CG_P_READY:return req(c,CG_A,LIS_RCI_MATVEC,c->p,c->v,q);
  case CG_A:return scalar_req(c,CG_PV,c->p,c->v,q);
  case CG_PV:
   if(scalar<=0)return verify(c,LIS_RCI_BREAKDOWN,q);
   b=c->rho/scalar;if(!isfinite(b))return verify(c,LIS_RCI_BREAKDOWN,q);
-  axpy(c->x,c->p,b,n);axpy(c->r,c->v,-b,n);c->info.iterations++;
+  if(c->external==2){c->work=b;return combine(c,CG_X_READY,c->x,c->x,c->p,1,b,q);}
+  axpy(c->x,c->p,b,n);axpy(c->r,c->v,-b,n);
+  goto cg_residual;
+ case CG_X_READY:return combine(c,CG_R_READY,c->r,c->r,c->v,1,-c->work,q);
+ case CG_R_READY:
+ cg_residual:
+  c->info.iterations++;
   if(!finite_vec(c->x,n))return end(c,LIS_RCI_NONFINITE,q);
   return scalar_req(c,CG_NORM,c->r,NULL,q);
  case CG_NORM:
   if(scalar<=c->tol||c->info.iterations>=c->o.maxiter)return verify(c,LIS_RCI_MAXITER,q);
   return req(c,CG_P,LIS_RCI_PRECON,c->r,c->z,q);
+ case BI_SHADOW_READY:return combine(c,BI_P_READY,c->p,c->r,NULL,1,0,q);
+ case BI_P_READY:return req(c,BI_P,LIS_RCI_PRECON,c->p,c->z,q);
  case BI_P:
   if(c->fresh)return scalar_req(c,BI_RHO_FIRST,c->shadow,c->r,q);
   return req(c,BI_A,LIS_RCI_MATVEC,c->z,c->v,q);
@@ -175,11 +233,18 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
  case BI_SV:
   if(!scalar)return verify(c,LIS_RCI_BREAKDOWN,q);
   c->alpha=c->rho/scalar;if(!isfinite(c->alpha))return verify(c,LIS_RCI_BREAKDOWN,q);
+  if(c->external==2)return combine(c,BI_S_READY,c->s,c->r,c->v,1,-c->alpha,q);
   copy(c->s,c->r,n);axpy(c->s,c->v,-c->alpha,n);
+  /* fall through */
+ case BI_S_READY:
   return scalar_req(c,BI_NORM_S,c->s,NULL,q);
  case BI_NORM_S:
-  if(scalar<=c->tol){axpy(c->x,c->z,c->alpha,n);c->info.iterations++;return verify(c,LIS_RCI_MAXITER,q);}
+  if(scalar<=c->tol){
+   if(c->external==2)return combine(c,BI_SHORT_READY,c->x,c->x,c->z,1,c->alpha,q);
+   axpy(c->x,c->z,c->alpha,n);c->info.iterations++;return verify(c,LIS_RCI_MAXITER,q);
+  }
   return req(c,BI_S,LIS_RCI_PRECON,c->s,c->ax,q);
+ case BI_SHORT_READY:c->info.iterations++;return verify(c,LIS_RCI_MAXITER,q);
  case BI_S:return req(c,BI_T,LIS_RCI_MATVEC,c->ax,c->t,q);
  case BI_T:return scalar_req(c,BI_TT,c->t,c->t,q);
  case BI_TT:
@@ -187,8 +252,15 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
   c->work=scalar;return scalar_req(c,BI_TS,c->t,c->s,q);
  case BI_TS:
   c->omega=scalar/c->work;if(!c->omega||!isfinite(c->omega))return verify(c,LIS_RCI_BREAKDOWN,q);
+  if(c->external==2)return combine(c,BI_X1_READY,c->x,c->x,c->z,1,c->alpha,q);
   axpy(c->x,c->z,c->alpha,n);axpy(c->x,c->ax,c->omega,n);
-  copy(c->r,c->s,n);axpy(c->r,c->t,-c->omega,n);c->info.iterations++;
+  copy(c->r,c->s,n);axpy(c->r,c->t,-c->omega,n);
+  goto bi_residual;
+ case BI_X1_READY:return combine(c,BI_X2_READY,c->x,c->x,c->ax,1,c->omega,q);
+ case BI_X2_READY:return combine(c,BI_R_READY,c->r,c->s,c->t,1,-c->omega,q);
+ case BI_R_READY:
+ bi_residual:
+  c->info.iterations++;
   if(!finite_vec(c->x,n))return end(c,LIS_RCI_NONFINITE,q);
   return scalar_req(c,BI_NORM_R,c->r,NULL,q);
  case BI_NORM_R:
@@ -198,8 +270,15 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
   if(!scalar||!c->omega)return verify(c,LIS_RCI_BREAKDOWN,q);
   b=(scalar/c->rho)*(c->alpha/c->omega);
   if(!isfinite(b))return verify(c,LIS_RCI_BREAKDOWN,q);
+  if(c->external==2){
+   c->rho=scalar;c->work=b;
+   return combine(c,BI_TMP_READY,c->s,c->p,c->v,1,-c->omega,q);
+  }
   for(size_t i=0;i<n;i++)c->p[i]=(double)((long double)c->r[i]+b*((long double)c->p[i]-c->omega*c->v[i]));
   c->rho=scalar;return req(c,BI_P,LIS_RCI_PRECON,c->p,c->z,q);
+ case BI_TMP_READY:return combine(c,BI_NEW_P_READY,c->p,c->r,c->s,1,c->work,q);
+ case BI_NEW_P_READY:return req(c,BI_P,LIS_RCI_PRECON,c->p,c->z,q);
+ case GM_V_READY:return req(c,GM_P,LIS_RCI_PRECON,c->V,c->Z,q);
  case GM_P:return req(c,GM_A,LIS_RCI_MATVEC,c->Z+c->j*n,c->v,q);
  case GM_A:return scalar_req(c,GM_BEFORE,c->v,NULL,q);
  case GM_BEFORE:
@@ -207,7 +286,12 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
   return scalar_req(c,GM_DOT,c->V,c->v,q);
  case GM_DOT:{
   double *h=c->H+c->j*(m+1);size_t i=c->orth_i;
-  h[i]+=(double)scalar;axpy(c->v,c->V+i*n,-scalar,n);
+  h[i]+=(double)scalar;
+  if(c->external==2)return combine(c,GM_ORTH_READY,c->v,c->v,c->V+i*n,1,-scalar,q);
+  axpy(c->v,c->V+i*n,-scalar,n);
+  /* fall through */
+ }
+ case GM_ORTH_READY:{
   if(++c->orth_i>c->j){c->orth_i=0;c->orth_pass++;}
   if(c->orth_pass<2)return scalar_req(c,GM_DOT,c->V+c->orth_i*n,c->v,q);
   return scalar_req(c,GM_AFTER,c->v,NULL,q);
@@ -215,17 +299,18 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
  case GM_AFTER:{
   size_t j=c->j;double *h=c->H+j*(m+1);rn=scalar;
   if(rn>DBL_MAX)return end(c,LIS_RCI_NONFINITE,q);
-  h[j+1]=(double)rn;int happy=rn<=DBL_EPSILON*c->before;
-  if(!happy)for(size_t i=0;i<n;i++)c->V[(j+1)*n+i]=(double)((long double)c->v[i]/rn);
-  for(size_t i=0;i<j;i++){double u=h[i],w=h[i+1];h[i]=c->cs[i]*u+c->sn[i]*w;h[i+1]=-c->sn[i]*u+c->cs[i]*w;}
-  double d=hypot(h[j],h[j+1]);
-  if(!isfinite(d)||d==0){if(j)return gm_update(c,j,LIS_RCI_BREAKDOWN,q);return verify(c,LIS_RCI_BREAKDOWN,q);}
-  c->cs[j]=h[j]/d;c->sn[j]=h[j+1]/d;h[j]=d;h[j+1]=0;
-  c->g[j+1]=-c->sn[j]*c->g[j];c->g[j]*=c->cs[j];c->info.iterations++;
-  if(happy||fabs(c->g[j+1])<=c->tol||j+1==m||c->info.iterations>=c->o.maxiter)
-   return gm_update(c,j+1,happy?LIS_RCI_BREAKDOWN:LIS_RCI_MAXITER,q);
-  c->j++;return req(c,GM_P,LIS_RCI_PRECON,c->V+c->j*n,c->Z+c->j*n,q);
+  h[j+1]=(double)rn;c->happy=rn<=DBL_EPSILON*c->before;
+  if(!c->happy){
+   if(c->external==2)return divide_req(c,GM_NEXT_V_READY,c->V+(j+1)*n,c->v,rn,q);
+   for(size_t i=0;i<n;i++)c->V[(j+1)*n+i]=(double)((long double)c->v[i]/rn);
+  }
+  return gm_finish_column(c,q);
  }
+ case GM_NEXT_V_READY:return gm_finish_column(c,q);
+ case GM_UPDATE_READY:
+  if(++c->update_i<c->update_k)
+   return combine(c,GM_UPDATE_READY,c->x,c->x,c->Z+c->update_i*n,1,c->y[c->update_i],q);
+  return verify(c,c->update_reason,q);
  default:return end(c,LIS_RCI_STATE,q);
  }
 }
@@ -234,8 +319,31 @@ int lis_rci_start_ex(lis_rci_context *c,const double *b,const double *x0,lis_rci
 int lis_rci_advance_ex(lis_rci_context *c,uint64_t token,int code,long double scalar,lis_rci_request_ex *q)
 {
  if(!c||!q)return LIS_RCI_BADARG;
- if(!c->external)return LIS_RCI_STATE;
+ if(c->external!=1)return LIS_RCI_STATE;
  return advance_impl(c,token,code,scalar,q);
+}
+/* Full-mode output uses a new structure; the old request ABI is unchanged. */
+static void full_request(const lis_rci_context *c,int s,const lis_rci_request_ex *e,lis_rci_request_full *q)
+{
+ *q=(lis_rci_request_full){0};q->request=*e;
+ if(s==LIS_RCI_AXPBY||s==LIS_RCI_DIVIDE){q->alpha=c->lin_a;q->beta=c->lin_b;}
+}
+int lis_rci_start_full(lis_rci_context *c,const double *b,const double *x0,lis_rci_request_full *q)
+{
+ if(!q)return LIS_RCI_BADARG;
+ lis_rci_request_ex e={0};int s=start_impl(c,b,x0,2,&e);
+ if(s!=LIS_RCI_BADARG&&s!=LIS_RCI_STATE)full_request(c,s,&e,q);
+ return s;
+}
+int lis_rci_advance_full(lis_rci_context *c,uint64_t token,int code,long double scalar,lis_rci_request_full *q)
+{
+ if(!c||!q)return LIS_RCI_BADARG;
+ if(c->external!=2)return LIS_RCI_STATE;
+ lis_rci_request_ex e={0};int s=advance_impl(c,token,code,scalar,&e);
+ /* A wrong token must not alter the caller's outstanding descriptor. */
+ if(s!=LIS_RCI_BADARG&&s!=LIS_RCI_STATE&&(s!=LIS_RCI_PROTOCOL||c->phase==END))
+  full_request(c,s,&e,q);
+ return s;
 }
 /* Compatibility entry points complete scalar reductions with the local backend. */
 static int local_continue(lis_rci_context *c,int status,lis_rci_request_ex *e,lis_rci_request *q)

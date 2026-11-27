@@ -89,3 +89,22 @@ original RC3 protocol/API.
 tests stale tokens and reuse, and checks 8192 deterministic consensus scenarios
 and a token difference above 2^53. The installed-library CI runs both legacy
 and extended APIs.
+
+## Full vector-algebra mode
+
+Use `lis_rci_start_full` and `lis_rci_advance_full` to additionally receive
+AXPBY (out = alpha*in + beta*in2, with an optional second operand) and
+DIVIDE (out = in/alpha). These operations cover iterative vector updates,
+residual formation, direction updates, Arnoldi orthogonalization and basis
+normalization. Evaluate the formula in long double and convert to double.
+The output is a separate context-owned staging vector; a completed finite
+result is copied into the actual destination only after token/status validation.
+One extra length-n vector is reserved at context creation, with no per-request
+allocation. The small dense Hessenberg and Givens operations, input snapshots
+and scratch commits remain internal. BiCGSTAB full mode uses two AXPBYs for
+its direction recurrence, so intermediate rounding may differ from legacy.
+The earlier two modes continue to perform these operations internally.
+This is not an opaque-vector/device-resident or distributed backend interface.
+`test/testrcifull.c` exercises all methods, context reuse, mode isolation,
+stale tokens and both callback failures and incomplete/nonfinite outputs at
+every request position of a deterministic solve.

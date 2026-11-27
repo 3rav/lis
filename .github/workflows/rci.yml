@@ -46,10 +46,10 @@ jobs:
           make -C src -j2
           make -C include install
           make -C src install
-          make -C test -j2 testrci testrcibridge testrcilarge testrciext
+          make -C test -j2 testrci testrcibridge testrcilarge testrciext testrcifull
           lib="$RUNNER_TEMP/install/lib"; inc="$RUNNER_TEMP/install/include"
           export LD_LIBRARY_PATH="$lib"
-          for t in testrci testrcibridge testrcilarge testrciext; do
+          for t in testrci testrcibridge testrcilarge testrciext testrcifull; do
             # Libtool's test/$t may be a shell wrapper; compile an installed-library consumer.
             cc "${flags[@]}" -I"$inc" "test/$t.c" -L"$lib" -Wl,-rpath,"$lib" -llis -lm -o "$RUNNER_TEMP/$t"
             ldd "$RUNNER_TEMP/$t" | grep -F "$lib/liblis.so"
