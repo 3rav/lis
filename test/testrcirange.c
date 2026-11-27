@@ -21,7 +21,13 @@ static int arnoldi_range(void)
   if(s==LIS_RCI_NORM)scalar=hypotl(q.in[0],q.in[1]);
   else if(s==LIS_RCI_DOT)scalar=(long double)q.in[0]*q.in2[0]+(long double)q.in[1]*q.in2[1];
   else if(s==LIS_RCI_PRECON){for(size_t i=0;i<2;i++)q.out[i]=q.in[i];}
-  else if(s==LIS_RCI_MATVEC){for(size_t i=0;i<2;i++)q.out[i]=q.in[i]==0?0:DBL_MAX;}
+  else if(s==LIS_RCI_MATVEC){
+   /* A = DBL_MAX * [[1,1/4],[1/4,1]], finite for these inputs. */
+   for(size_t i=0;i<2;i++){
+    long double v=(long double)DBL_MAX*((long double)q.in[i]+.25L*q.in[1-i]);
+    C(fabsl(v)<=DBL_MAX);q.out[i]=(double)v;
+   }
+  }
   else {lis_rci_destroy(c);return 1;}
   s=lis_rci_advance_ex(c,q.token,0,scalar,&q);
  }
