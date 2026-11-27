@@ -92,6 +92,7 @@ static int sequence(int mode,answer out[3],int fail_rep,uint64_t fail_at,int kin
   C(!lis_solver_get_iter(s,&a->iter));C(!lis_solver_get_residualnorm(s,&a->residual));
   C(a->dim>0&&a->dim<=3);
   C(!lis_fgcrodr_validate_recycle(s,&a->orth,&a->relation));
+  if(!(a->orth<1e-8&&a->relation<1e-8))fprintf(stderr,"FGCRO RECYCLE mode=%d rep=%d orth=%.17g relation=%.17g\n",mode,rep,(double)a->orth,(double)a->relation);
   C(a->orth<1e-8&&a->relation<1e-8);
   C(!lis_rci_native_fgcro_test_basis(s,a->basis,3*3*N));
   C(!lis_vector_get_values(x,0,N,a->x));

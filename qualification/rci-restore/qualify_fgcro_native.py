@@ -7,7 +7,7 @@ import re
 import generate_linear_continuation as g
 
 p = "src/solver/lis_solver_fgcrodr.c"
-sha = "fea73bea4d85b65d1204c0715ae7e8660a76bbdc"
+sha = "a0cccf9503b7f0571c3eafa2bdf96e1df5719a10"
 specs = [
     ("install", "install_recycle", ["solver", "v", "z", "jdim"], 1),
     ("harmonic_build", "try_harmonic_build", ["solver", "v", "z", "jdim", "hraw", "hld"], 1),

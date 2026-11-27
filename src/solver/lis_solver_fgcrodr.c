@@ -3064,8 +3064,8 @@ lis_fgcrodr_install_recycle(
             for(j=0;j<keep;j++)
             {
                 lis_vector_dot(
-                    state->c[keep],
                     state->c[j],
+                    state->c[keep],
                     &alpha);
 
 
@@ -6053,8 +6053,8 @@ lis_fgcrodr_flexible_core(
             for(k=0;k<i;k++)
             {
                 lis_vector_dot(
-                    v[i1v],
                     v[k],
+                    v[i1v],
                     &t);
 
                 h[k+iih] = t;
