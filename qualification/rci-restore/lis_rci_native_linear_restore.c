@@ -66,18 +66,27 @@ lis_rci_native_linear_restore *lis_rci_native_linear_restore_create(void)
 }
 void lis_rci_native_linear_restore_destroy(lis_rci_native_linear_restore *K)
 {if(K){if(K->active)(void)abort_linear(K,LIS_RCI_CANCELLED);free(K);}}
-int lis_rci_native_linear_restore_start_method(lis_rci_native_linear_restore *K,LIS_SOLVER solver,LIS_INT method,int strict,lis_rci_native_linear_request *q)
+/* The private blocking driver and external session initialize exactly
+ * the same frame; only the external driver copies request descriptors. */
+static int linear_valid(LIS_SOLVER solver,LIS_INT method)
 {
- if(!K||!q||!solver||!solver->A||!solver->b||!solver->x||!solver->work||
-    (strict!=0&&strict!=1))return LIS_RCI_BADARG;
- if(K->active)return LIS_RCI_STATE;
- if(method!=LIS_SOLVER_CG&&method!=LIS_SOLVER_BICGSTAB&&method!=LIS_SOLVER_GMRES&&method!=LIS_SOLVER_FGMRES)return LIS_RCI_BADARG;
- uint64_t token=K->token;memset(K,0,sizeof(*K));K->token=token;K->solver=solver;K->strict=strict;
- K->method=method;
+ return solver&&solver->A&&solver->b&&solver->x&&solver->work&&
+  (method==LIS_SOLVER_CG||method==LIS_SOLVER_BICGSTAB||method==LIS_SOLVER_GMRES||method==LIS_SOLVER_FGMRES);
+}
+static void linear_prepare(lis_rci_native_linear_restore *K,LIS_SOLVER solver,LIS_INT method,int strict)
+{
+ K->solver=solver;K->strict=strict;K->method=method;
  if(method==LIS_SOLVER_CG){K->active=2;K->cg.solver=solver;}
  else if(method==LIS_SOLVER_BICGSTAB){K->active=3;K->bi.solver=solver;}
  else if(method==LIS_SOLVER_GMRES){K->active=4;K->gm.solver=solver;}
  else{K->active=5;K->fgm.solver=solver;}
+}
+int lis_rci_native_linear_restore_start_method(lis_rci_native_linear_restore *K,LIS_SOLVER solver,LIS_INT method,int strict,lis_rci_native_linear_request *q)
+{
+ if(!K||!q||!linear_valid(solver,method)||(strict!=0&&strict!=1))return LIS_RCI_BADARG;
+ if(K->active)return LIS_RCI_STATE;
+ uint64_t token=K->token;memset(K,0,sizeof(*K));K->token=token;
+ linear_prepare(K,solver,method,strict);
  return drive(K,q);
 }
 int lis_rci_native_linear_restore_start(lis_rci_native_linear_restore *K,LIS_SOLVER solver,int strict,lis_rci_native_linear_request *q)
@@ -112,16 +121,21 @@ int lis_rci_native_linear_restore_status(const lis_rci_native_linear_restore *K,
 }
 static LIS_INT classic_method(LIS_SOLVER solver,LIS_INT method)
 {
- lis_rci_native_linear_restore *K=lis_rci_native_linear_restore_create();if(!K)return LIS_ERR_OUT_OF_MEMORY;
- lis_rci_native_linear_request q;
- int st=lis_rci_native_linear_restore_start_method(K,solver,method,0,&q);
- while(st>0){
-  LIS_INT e=q.operation==LIS_RCI_OP_A?lis_matvec(q.A,q.in,q.out):lis_psolve(q.solver,q.in,q.out);
-  st=lis_rci_native_linear_restore_advance(K,q.token,e,&q);
+ if(!linear_valid(solver,method))return LIS_ERR_ILL_ARG;
+ /* A bounded, small control frame is local to the blocking invocation.
+  * No vector storage is moved to the stack. The numerical steps and
+  * native callback boundary are identical to the external session. */
+ _Static_assert(sizeof(lis_rci_native_linear_restore)<=8192,"linear control frame exceeds stack budget");
+ lis_rci_native_linear_restore K={0};
+ linear_prepare(&K,solver,method,0);
+ int step;
+ while((step=linear_step(&K))!=L_STEP_STOP){
+  if(step==L_STEP_YIELD){
+   const lis_rci_native_linear_request *q=&K.request;
+   K.retval=q->operation==LIS_RCI_OP_A?lis_matvec(q->A,q->in,q->out):lis_psolve(q->solver,q->in,q->out);
+  }else if(step!=L_STEP_AGAIN){(void)abort_linear(&K,LIS_RCI_PROTOCOL);break;}
  }
- LIS_INT native=K->native_code;
- if(st==LIS_RCI_BADARG&&K->status==LIS_RCI_STATE)native=LIS_ERR_ILL_ARG;
- lis_rci_native_linear_restore_destroy(K);return native;
+ return K.native_code;
 }
 LIS_INT lis_rci_native_linear_restore_classic(LIS_SOLVER solver)
 {
