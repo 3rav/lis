@@ -1,0 +1,68 @@
+name: RCI native release symbol and performance gate
+on:
+  push:
+    branches: ['qualification/rci-native-release-gate-20261127']
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [serial, openmp]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - shell: bash
+        run: |
+          set -euo pipefail
+          opts=(--enable-rci --enable-test --enable-shared --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg)
+          flags=(-std=gnu11 -DHAVE_CONFIG_H -O2)
+          if [ "${{ matrix.mode }}" = openmp ]; then opts+=(--enable-omp); flags+=(-fopenmp); export OMP_NUM_THREADS=4; else opts+=(--disable-omp); export OMP_NUM_THREADS=1; fi
+          ./configure "${opts[@]}"
+          make -C src -j2
+          mkdir "$RUNNER_TEMP/baseline"
+          cp -a src/.libs/liblis.so* "$RUNNER_TEMP/baseline/"
+          nm -D --defined-only src/.libs/liblis.so | awk '{print $3}' | LC_ALL=C sort -u > "$RUNNER_TEMP/symbols"
+          readelf -d src/.libs/liblis.so | grep SONAME > "$RUNNER_TEMP/soname"
+          { echo '{ global:'; sed 's/$/;/' "$RUNNER_TEMP/symbols"; echo 'local: *; };'; } > "$RUNNER_TEMP/exports.map"
+          for t in native_release_abi native_benchmark; do
+            cc "${flags[@]}" -Iinclude "qualification/rci-restore/$t.c" -Lsrc/.libs -llis -lm -o "$RUNNER_TEMP/$t"
+          done
+          LD_LIBRARY_PATH="$RUNNER_TEMP/baseline" "$RUNNER_TEMP/native_release_abi" > "$RUNNER_TEMP/baseline.abi"
+          make -C src clean
+          python3 qualification/rci-restore/qualify_all_native.py
+          make -C src -j2 LDFLAGS="-Wl,--version-script=$RUNNER_TEMP/exports.map"
+          nm -D --defined-only src/.libs/liblis.so | awk '{print $3}' | LC_ALL=C sort -u > "$RUNNER_TEMP/combined.symbols"
+          readelf -d src/.libs/liblis.so | grep SONAME > "$RUNNER_TEMP/combined.soname"
+          diff -u "$RUNNER_TEMP/symbols" "$RUNNER_TEMP/combined.symbols"
+          diff -u "$RUNNER_TEMP/soname" "$RUNNER_TEMP/combined.soname"
+          LD_LIBRARY_PATH="$PWD/src/.libs" "$RUNNER_TEMP/native_release_abi" > "$RUNNER_TEMP/combined.abi"
+          diff -u "$RUNNER_TEMP/baseline.abi" "$RUNNER_TEMP/combined.abi"
+          echo 'EXACT EXPORT SET, SONAME AND RUNTIME ABI DESCRIPTOR PASS'
+          for phase in baseline combined combined baseline; do
+            lib="$RUNNER_TEMP/baseline"; if [ "$phase" = combined ]; then lib="$PWD/src/.libs"; fi
+            echo "BENCHMARK PHASE $phase"
+            LD_LIBRARY_PATH="$lib" "$RUNNER_TEMP/native_benchmark" | tee -a "$RUNNER_TEMP/$phase.log"
+          done
+          grep '^RESULT ' "$RUNNER_TEMP/baseline.log" > "$RUNNER_TEMP/base.results"
+          grep '^RESULT ' "$RUNNER_TEMP/combined.log" > "$RUNNER_TEMP/core.results"
+          diff -u "$RUNNER_TEMP/base.results" "$RUNNER_TEMP/core.results"
+          python3 - "$RUNNER_TEMP" <<'PY'
+          import sys, statistics, pathlib
+          root=pathlib.Path(sys.argv[1])
+          def load(name):
+              data={}
+              for line in (root/(name+'.log')).read_text().splitlines():
+                  if line.startswith('TIME '):
+                      _,method,n,t=line.split()
+                      data.setdefault((method,n),[]).append(float(t))
+              return {k:statistics.median(v) for k,v in data.items()}
+          a,b=load('baseline'),load('combined')
+          for k,v in a.items():
+              print('BENCH_RATIO',*k,'baseline_s',v,'combined_s',b[k],'ratio',b[k]/v)
+          PY
+          echo 'BENCHMARK NUMERICAL PARITY PASS'
+          if ! make -C test -j2 check; then cat test/test-suite.log; exit 1; fi
+          cat test/test-suite.log
