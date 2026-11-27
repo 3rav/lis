@@ -1,0 +1,45 @@
+name: Reconstructed RCI native LIS qualification
+on:
+  push:
+    branches: ['qualification/rci-reconstructed-native-20261127']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        index: [int32, int64]
+        mode: [serial, openmp]
+    env:
+      OMP_DYNAMIC: 'FALSE'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential autoconf automake libtool libtool-bin
+      - name: Build actual LIS (no MPI)
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoreconf -fiv
+          opts=(--disable-mpi --disable-fortran --disable-f90 --disable-saamg)
+          if [ "${{ matrix.index }}" = int64 ]; then opts+=(--enable-longlong); fi
+          if [ "${{ matrix.mode }}" = openmp ]; then opts+=(--enable-omp); else opts+=(--disable-omp); fi
+          ./configure "${opts[@]}"
+          make -C src -j2
+      - name: Verify input and link reconstructed RCI to real LIS
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '95fdea9d68dbf892b98878518ac61e5ae5b39d75bad72941120ab6402a413425  qualification/rci-reconstructed/smoke.tar.gz' | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/rci"
+          tar -xzf qualification/rci-reconstructed/smoke.tar.gz -C "$RUNNER_TEMP/rci"
+          flags=()
+          if [ "${{ matrix.mode }}" = openmp ]; then flags+=(-fopenmp); fi
+          cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -I"$PWD/include" "${flags[@]}" "$RUNNER_TEMP/rci/rci.c" "$RUNNER_TEMP/rci/rci_lis_bridge.c" "$RUNNER_TEMP/rci/test_lis_bridge.c" -L"$PWD/src/.libs" -Wl,-rpath,"$PWD/src/.libs" -llis -lm -o "$RUNNER_TEMP/rci/test"
+          ldd "$RUNNER_TEMP/rci/test"
+          OMP_NUM_THREADS=1 timeout 90 "$RUNNER_TEMP/rci/test"
+          if [ "${{ matrix.mode }}" = openmp ]; then OMP_NUM_THREADS=4 timeout 90 "$RUNNER_TEMP/rci/test"; fi
