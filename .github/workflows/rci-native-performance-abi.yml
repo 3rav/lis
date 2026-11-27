@@ -1,0 +1,39 @@
+name: Native RCI performance and baseline client ABI
+on:
+  push:
+    branches: ['qualification/rci-native-performance-abi-20261127']
+permissions:
+  contents: read
+jobs:
+  performance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {mode: serial, index: int32, threads: 1}
+          - {mode: openmp, index: int64, threads: 4}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - shell: bash
+        run: |
+          set -euo pipefail
+          export OMP_NUM_THREADS=${{ matrix.threads }} OMP_DYNAMIC=FALSE
+          opts=(--enable-rci --enable-shared --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg)
+          flags=(-std=gnu11 -DHAVE_CONFIG_H -O2)
+          if [ "${{ matrix.mode }}" = openmp ]; then opts+=(--enable-omp --enable-longlong); flags+=(-fopenmp -D_LONG__LONG); else opts+=(--disable-omp); fi
+          ./configure "${opts[@]}"
+          make -C src -j2
+          mkdir "$RUNNER_TEMP/base"
+          cp -a src/.libs/liblis.so* "$RUNNER_TEMP/base/"
+          cc "${flags[@]}" -Iinclude qualification/rci-restore/benchmark_native_public.c -L"$RUNNER_TEMP/base" -llis -lm -o "$RUNNER_TEMP/old-client"
+          nm -D --defined-only src/.libs/liblis.so | awk '{print $2,$3}' | LC_ALL=C sort -u > "$RUNNER_TEMP/base.symbols"
+          make -C src clean
+          python3 qualification/rci-restore/qualify_all_native.py
+          make -C src -j2
+          nm -D --defined-only src/.libs/liblis.so | awk '{print $2,$3}' | LC_ALL=C sort -u > "$RUNNER_TEMP/new.symbols"
+          comm -23 "$RUNNER_TEMP/base.symbols" "$RUNNER_TEMP/new.symbols" > "$RUNNER_TEMP/missing"
+          cat "$RUNNER_TEMP/missing"; test ! -s "$RUNNER_TEMP/missing"
+          python3 qualification/rci-restore/benchmark_native_public.py "$RUNNER_TEMP/old-client" "$RUNNER_TEMP/base" "$PWD/src/.libs" "$RUNNER_TEMP/report.json"
+          cat "$RUNNER_TEMP/report.json"
