@@ -5,6 +5,11 @@
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
+#ifdef LIS_RCI_KRYLOV_NATIVE_LIBRARY
+#define REFERENCE lis_rci_krylov_restore_reference64
+#else
+#define REFERENCE lis_krylov_symmetric_ex64
+#endif
 #define N 24
 #define NEV 3
 #define C(e) do{if(!(e)){fprintf(stderr,"KRYLOV FAIL %d: %s\n",__LINE__,#e);return 1;}}while(0)
@@ -38,7 +43,7 @@ static int compare(int mode,int psd,int locking,int adaptive,const char *which,i
  if(reuse_flag){C(!lis_krylov_workspace_create64(&p,&o,&ext,&w1));C(!lis_krylov_workspace_create64(&p2,&o,&ext,&w2));C(!lis_krylov_workspace_create64(&p3,&o,&ext,&w3));}
  double v1[NEV]={0},v2[NEV]={0},x1[NEV*N]={0},x2[NEV*N]={0},r1[NEV]={0},r2[NEV]={0};
  lis_krylov_stats s1,s2;lis_krylov_ext_stats e1,e2;lis_krylov_ext_stats_default(&e1);lis_krylov_ext_stats_default(&e2);
- int rc1=lis_krylov_symmetric_ex64(&p,&o,&ext,w1,v1,x1,r1,&s1,&e1);
+ int rc1=REFERENCE(&p,&o,&ext,w1,v1,x1,r1,&s1,&e1);
  lis_rci_krylov_restore *K=lis_rci_krylov_restore_create();C(K);
  lis_rci_krylov_restore_request q;
  int st=lis_rci_krylov_restore_start(K,&p2,&o,&ext,w2,NULL,v2,x2,r2,&s2,&e2,&q);
@@ -103,7 +108,7 @@ static int interleaved(void)
  lis_krylov_options o;lis_krylov_options_default(&o);o.nev=NEV;o.ncv=9;o.inner_tol=1e-12;o.maxiter=60;
  double va[NEV]={0},xa[NEV*N]={0},ra[NEV]={0},vb[NEV]={0},xb[NEV*N]={0},rb[NEV]={0},vr[NEV]={0},xr[NEV*N]={0},rr[NEV]={0};
  lis_krylov_stats sa,sb,sr;
- int r=lis_krylov_symmetric_ex64(&ref,&o,NULL,NULL,vr,xr,rr,&sr,NULL);
+ int r=REFERENCE(&ref,&o,NULL,NULL,vr,xr,rr,&sr,NULL);
  lis_rci_krylov_restore *ka=lis_rci_krylov_restore_create(),*kb=lis_rci_krylov_restore_create();C(ka&&kb);
  lis_rci_krylov_restore_request qa,qb;
  int aa=lis_rci_krylov_restore_start(ka,&pa,&o,NULL,NULL,NULL,va,xa,ra,&sa,NULL,&qa);
@@ -131,7 +136,7 @@ static int large(void)
  double v1[2]={0},v2[2]={0},r1[2]={0},r2[2]={0};
  double *x1=calloc((size_t)n*nev,sizeof(double)),*x2=calloc((size_t)n*nev,sizeof(double));C(x1&&x2);
  lis_krylov_stats s1,s2;lis_krylov_budget_stats counts;
- int r=lis_krylov_symmetric_ex64(&p,&o,NULL,NULL,v1,x1,r1,&s1,NULL);
+ int r=REFERENCE(&p,&o,NULL,NULL,v1,x1,r1,&s1,NULL);
  int r2code=lis_rci_krylov_restore_classic64(&p2,&o,NULL,NULL,NULL,v2,x2,r2,&s2,NULL,&counts);
  C(r==r2code&&t1.hash==t2.hash&&t1.count==t2.count&&counts.total==t1.count);
  C(!memcmp(v1,v2,sizeof v1)&&!memcmp(r1,r2,sizeof r1)&&!memcmp(x1,x2,(size_t)n*nev*sizeof(double)));

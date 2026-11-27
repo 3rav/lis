@@ -99,3 +99,12 @@ blocking driver. An interleaved-session probe cancels one context while
 the other continues; a 32768-vector test crosses the native OpenMP
 threshold with four threads. No existing classical entry point is
 redirected yet.
+
+A disposable native integration job uses qualify_krylov_native.py to patch
+the exact audited source in a fresh checkout, redirect the existing
+lis_krylov_symmetric_ex64 entry point to the blocking continuation driver,
+and retain the original core as a differential reference. It links an
+external RCI consumer against the actual rebuilt liblis.so and runs all
+17 existing upstream Krylov regression executables. The patch is never
+committed to native source; these are qualification builds, not changes
+to the default upstream PR or installed headers.

@@ -41,6 +41,12 @@ int lis_rci_krylov_restore_status(const lis_rci_krylov_restore *,int *,lis_krylo
 int lis_rci_krylov_restore_classic64(const lis_krylov_problem64 *,const lis_krylov_options *,
  const lis_krylov_ext_options *,lis_krylov_workspace *,const lis_krylov_budget *,
  double *,double *,double *,lis_krylov_stats *,lis_krylov_ext_stats *,lis_krylov_budget_stats *);
+#ifdef LIS_RCI_KRYLOV_NATIVE_LIBRARY
+/* Test-only direct original reference, available in the patched native build. */
+int lis_rci_krylov_restore_reference64(const lis_krylov_problem64 *,const lis_krylov_options *,
+ const lis_krylov_ext_options *,lis_krylov_workspace *,double *,double *,double *,
+ lis_krylov_stats *,lis_krylov_ext_stats *);
+#endif
 #ifdef __cplusplus
 }
 #endif

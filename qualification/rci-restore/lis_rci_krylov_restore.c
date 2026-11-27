@@ -3,7 +3,9 @@
 #include "lis_rci_krylov_restore.h"
 /* Compile original native source in the same TU, sharing all non-suspending
  * numerical kernels and workspace helpers. Not linked into liblis yet. */
+#ifndef LIS_RCI_KRYLOV_NATIVE_LIBRARY
 #include "../../src/esolver/lis_krylov.c"
+#endif
 #include "krylov_continuation.inc"
 
 static int map_status(int rc)
