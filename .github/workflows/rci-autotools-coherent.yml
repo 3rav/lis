@@ -1,0 +1,47 @@
+name: Qualify coherent tracked Autotools regeneration
+on:
+  push:
+    branches: ['qualification/rci-autotools-coherent-20261127']
+permissions:
+  contents: write
+jobs:
+  regenerate:
+    if: github.repository == '3rav/lis' && github.ref == 'refs/heads/qualification/rci-autotools-coherent-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Regenerate tracked build inputs and test in a clean checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          autoconf --version | sed -n '1p'
+          automake --version | sed -n '1p'
+          libtoolize --version | sed -n '1p'
+          autoreconf -fiv
+          # Keep the entire coherent tracked generator set (including ltmain.sh,
+          # macros and recursive templates) rather than mixing tool versions.
+          git diff --name-only > "$RUNNER_TEMP/generated-paths"
+          cat "$RUNNER_TEMP/generated-paths"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          paths=Path(os.environ["RUNNER_TEMP"],"generated-paths").read_text().splitlines()
+          assert paths
+          for p in paths:
+              n=Path(p).name
+              assert n in {"configure","Makefile.in","lis_config.h.in","aclocal.m4","ltmain.sh","config.guess","config.sub","compile","depcomp","install-sh","missing","test-driver","ar-lib","config.h.in","config.rpath","ylwrap"} or p.startswith("m4/"), p
+          PY
+          git add -u
+          git diff --cached --stat
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Regenerate coherent tracked Autotools inputs for RCI'
+          git worktree add --detach "$RUNNER_TEMP/clean" HEAD
+          cd "$RUNNER_TEMP/clean"
+          ./configure --help | grep -F -- '--enable-rci'
+          ./configure --enable-rci --enable-test --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg --enable-omp
+          make -C src -j2
+          make -C test -j2 testrci testrcistate testrcimodel testrcirange testrcibridge
+          for t in testrci testrcistate testrcimodel testrcirange testrcibridge; do OMP_NUM_THREADS=2 "./test/$t"; done
+          git diff --exit-code -- configure aclocal.m4 ltmain.sh
+          echo 'RCI COHERENT TRACKED BUILD PASS'
+          git push origin HEAD:refs/heads/qualification/rci-autotools-coherent-20261127
