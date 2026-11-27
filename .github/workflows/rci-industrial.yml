@@ -1,4 +1,4 @@
-name: BCSSTK17 SSOR all methods
+name: BCSSTK17 independent shifted Cholesky preconditioner
 on:
   push:
     branches: ['qualification/rci-industrial-20261127']
@@ -47,6 +47,15 @@ jobs:
             sudo apt-get "${opts[@]}" update
             sudo apt-get "${opts[@]}" install -y --no-install-recommends build-essential autoconf automake libtool libtool-bin
           fi
+      - name: Install SuiteSparse development package
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f /usr/include/suitesparse/cholmod.h ]; then
+            opts=(-o Acquire::Retries=3 -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=-)
+            sudo apt-get "${opts[@]}" update
+            sudo apt-get "${opts[@]}" install -y --no-install-recommends libsuitesparse-dev
+          fi
       - name: Build installed native LIS with RCI
         shell: bash
         run: |
@@ -60,5 +69,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -D_LONG__LONG -fopenmp -I"$RUNNER_TEMP/install/include" qualification/rci-reconstructed/industrial_ssor.c -L"$RUNNER_TEMP/install/lib" -Wl,-rpath,"$RUNNER_TEMP/install/lib" -llis -lm -o "$RUNNER_TEMP/industrial"
+          cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -D_LONG__LONG -fopenmp -I"$RUNNER_TEMP/install/include" qualification/rci-reconstructed/industrial_cholesky.c -L"$RUNNER_TEMP/install/lib" -Wl,-rpath,"$RUNNER_TEMP/install/lib" -I/usr/include/suitesparse -llis -lcholmod -lm -o "$RUNNER_TEMP/industrial"
           timeout 360 "$RUNNER_TEMP/industrial" "$RUNNER_TEMP/matrix.mtx" "${{ matrix.n }}" "${{ matrix.nz }}"
