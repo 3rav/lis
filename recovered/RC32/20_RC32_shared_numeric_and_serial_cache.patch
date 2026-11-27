@@ -1,0 +1,208 @@
+--- a/src/precon/lis_precon_ilut.c
++++ b/src/precon/lis_precon_ilut.c
+@@ -692,7 +692,7 @@
+ 		precon);
+ 
+ 	if( err ) return err;
+-#if defined(_OPENMP) && !defined(USE_MPI) && !defined(_COMPLEX) && !defined(USE_COMPLEX)
++#if !defined(USE_MPI) && !defined(_COMPLEX) && !defined(USE_COMPLEX)
+     err=reuse_attach(solver,precon);if(err)return err;
+ #endif
+ 
+--- a/src/precon/lis_precon_ilutp.inc
++++ b/src/precon/lis_precon_ilutp.inc
+@@ -120,7 +120,6 @@
+     LIS_INT x=*(const LIS_INT*)a,y=*(const LIS_INT*)b;
+     return (x>y)-(x<y);
+ }
+-#ifdef _OPENMP
+ /* Each row writes its own factors, reads only completed dependency rows. */
+ static LIS_INT lis_ilutp_numeric_row(LIS_MATRIX A,LIS_MATRIX_ILU L,LIS_MATRIX_ILU U,LIS_VECTOR D,
+   LIS_INT i,LIS_SCALAR *w,const unsigned char *pairable,const LIS_INT *sp,const LIS_INT *se,
+@@ -287,14 +286,13 @@
+         }
+     return LIS_SUCCESS;
+ }
+-#endif
+ static LIS_INT lis_ilutp_full_symbolic(LIS_MATRIX A,LIS_PRECON precon,uint64_t limit)
+ {
+-    LIS_INT n=A->n,i,j,k,t,m,lo,hi,mid,c,err=LIS_SUCCESS;
++    LIS_INT n=A->n,i,j,k,t,m,lo,hi,mid,err=LIS_SUCCESS;
+     LIS_INT *parent=NULL,*mark=NULL,*reach=NULL,*count=NULL,*perm=NULL;
+     LIS_MATRIX_ILU L=NULL,U=NULL;
+     LIS_VECTOR D=NULL;
+-    LIS_SCALAR *w=NULL,f,pivot;
++    LIS_SCALAR *w=NULL;
+     uint64_t used=0,segments=0,contiguous=0;
+     LIS_INT *sp=NULL,*se=NULL,si,start,end,sc,k0;
+     double clock0=lis_wtime(),validate_time=0,symbolic_time=0,segment_time=0,numeric_time=0;
+@@ -460,155 +458,9 @@
+     } else
+ #endif
+     for(i=0;i<n;i++) {
+-        for(k=A->ptr[i];k<A->ptr[i+1];k++) w[A->index[k]]=A->value[k];
+-        for(t=0;t<L->nnz[i];t++) {
+-            j=L->index[i][t]; f=w[j]*D->value[j];
+-            if(!isfinite((double)f)) {err=LIS_BREAKDOWN;goto done;}
+-            L->value[i][t]=f; w[j]=0;
+-            /* Eight-row fused update, with the same sequential arithmetic. */
+-            if(group8 && groups && pairs && f!=0 && j+7<n && t+7<L->nnz[i] &&
+-               pairable[j+0] && pairable[j+1] && pairable[j+2] && pairable[j+3] && pairable[j+4] && pairable[j+5] && pairable[j+6] &&
+-               L->index[i][t+1]==j+1 && L->index[i][t+2]==j+2 && L->index[i][t+3]==j+3 && L->index[i][t+4]==j+4 && L->index[i][t+5]==j+5 && L->index[i][t+6]==j+6 && L->index[i][t+7]==j+7) {
+-                const LIS_SCALAR *v0=U->value[j+0]; const LIS_SCALAR *v1=U->value[j+1]; const LIS_SCALAR *v2=U->value[j+2]; const LIS_SCALAR *v3=U->value[j+3]; const LIS_SCALAR *v4=U->value[j+4]; const LIS_SCALAR *v5=U->value[j+5]; const LIS_SCALAR *v6=U->value[j+6]; const LIS_SCALAR *v7=U->value[j+7];
+-                LIS_SCALAR f1,f2,f3,f4,f5,f6,f7;
+-                const LIS_INT *idx=U->index[j+7]; LIS_INT len=U->nnz[j+7];
+-                w[j+1]-=f*v0[0];
+-                f1=w[j+1]*D->value[j+1];
+-                if(!isfinite((double)f1)) {err=LIS_BREAKDOWN;goto done;}
+-                L->value[i][t+1]=f1; w[j+1]=0;
+-                w[j+2]-=f*v0[1];
+-                if(f1!=0) w[j+2]-=f1*v1[0];
+-                f2=w[j+2]*D->value[j+2];
+-                if(!isfinite((double)f2)) {err=LIS_BREAKDOWN;goto done;}
+-                L->value[i][t+2]=f2; w[j+2]=0;
+-                w[j+3]-=f*v0[2];
+-                if(f1!=0) w[j+3]-=f1*v1[1];
+-                if(f2!=0) w[j+3]-=f2*v2[0];
+-                f3=w[j+3]*D->value[j+3];
+-                if(!isfinite((double)f3)) {err=LIS_BREAKDOWN;goto done;}
+-                L->value[i][t+3]=f3; w[j+3]=0;
+-                w[j+4]-=f*v0[3];
+-                if(f1!=0) w[j+4]-=f1*v1[2];
+-                if(f2!=0) w[j+4]-=f2*v2[1];
+-                if(f3!=0) w[j+4]-=f3*v3[0];
+-                f4=w[j+4]*D->value[j+4];
+-                if(!isfinite((double)f4)) {err=LIS_BREAKDOWN;goto done;}
+-                L->value[i][t+4]=f4; w[j+4]=0;
+-                w[j+5]-=f*v0[4];
+-                if(f1!=0) w[j+5]-=f1*v1[3];
+-                if(f2!=0) w[j+5]-=f2*v2[2];
+-                if(f3!=0) w[j+5]-=f3*v3[1];
+-                if(f4!=0) w[j+5]-=f4*v4[0];
+-                f5=w[j+5]*D->value[j+5];
+-                if(!isfinite((double)f5)) {err=LIS_BREAKDOWN;goto done;}
+-                L->value[i][t+5]=f5; w[j+5]=0;
+-                w[j+6]-=f*v0[5];
+-                if(f1!=0) w[j+6]-=f1*v1[4];
+-                if(f2!=0) w[j+6]-=f2*v2[3];
+-                if(f3!=0) w[j+6]-=f3*v3[2];
+-                if(f4!=0) w[j+6]-=f4*v4[1];
+-                if(f5!=0) w[j+6]-=f5*v5[0];
+-                f6=w[j+6]*D->value[j+6];
+-                if(!isfinite((double)f6)) {err=LIS_BREAKDOWN;goto done;}
+-                L->value[i][t+6]=f6; w[j+6]=0;
+-                w[j+7]-=f*v0[6];
+-                if(f1!=0) w[j+7]-=f1*v1[5];
+-                if(f2!=0) w[j+7]-=f2*v2[4];
+-                if(f3!=0) w[j+7]-=f3*v3[3];
+-                if(f4!=0) w[j+7]-=f4*v4[2];
+-                if(f5!=0) w[j+7]-=f5*v5[1];
+-                if(f6!=0) w[j+7]-=f6*v6[0];
+-                f7=w[j+7]*D->value[j+7];
+-                if(!isfinite((double)f7)) {err=LIS_BREAKDOWN;goto done;}
+-                L->value[i][t+7]=f7; w[j+7]=0;
+-                t+=7; groups8++;
+-                if(f1!=0 && f2!=0 && f3!=0 && f4!=0 && f5!=0 && f6!=0 && f7!=0) for(c=0;c<len;c++) { LIS_SCALAR z=w[idx[c]];
+-                    z-=f*v0[c+7];
+-                    z-=f1*v1[c+6];
+-                    z-=f2*v2[c+5];
+-                    z-=f3*v3[c+4];
+-                    z-=f4*v4[c+3];
+-                    z-=f5*v5[c+2];
+-                    z-=f6*v6[c+1];
+-                    z-=f7*v7[c+0];
+-                    w[idx[c]]=z;
+-                } else for(c=0;c<len;c++) { LIS_SCALAR z=w[idx[c]];
+-                    z-=f*v0[c+7];
+-                    if(f1!=0) z-=f1*v1[c+6];
+-                    if(f2!=0) z-=f2*v2[c+5];
+-                    if(f3!=0) z-=f3*v3[c+4];
+-                    if(f4!=0) z-=f4*v4[c+3];
+-                    if(f5!=0) z-=f5*v5[c+2];
+-                    if(f6!=0) z-=f6*v6[c+1];
+-                    if(f7!=0) z-=f7*v7[c+0];
+-                    w[idx[c]]=z;
+-                }
+-                continue;
+-            }
+-            /* Fused three/four-row updates: chain of identical trailing
+-             * patterns, and consecutive entries in this lower row. */
+-            if(groups && pairs && f!=0 && j+2<n && t+2<L->nnz[i] &&
+-               pairable[j] && pairable[j+1] && L->index[i][t+2]==j+2 && L->index[i][t+1]==j+1) {
+-                const LIS_SCALAR *v1=U->value[j],*v2=U->value[j+1],*v3=U->value[j+2];
+-                const LIS_INT *idx; LIS_INT len; LIS_SCALAR g,h;
+-                w[j+1]-=f*v1[0]; g=w[j+1]*D->value[j+1];
+-                w[j+2]-=f*v1[1]; if(g!=0) w[j+2]-=g*v2[0]; h=w[j+2]*D->value[j+2];
+-                if(!isfinite((double)g)||!isfinite((double)h)) {err=LIS_BREAKDOWN;goto done;}
+-                L->value[i][++t]=g; L->value[i][++t]=h; w[j+1]=0; w[j+2]=0;
+-                if(j+3<n && t+1<L->nnz[i] && pairable[j+2] && L->index[i][t+1]==j+3) {
+-                    const LIS_SCALAR *v4=U->value[j+3]; LIS_SCALAR q;
+-                    w[j+3]-=f*v1[2]; if(g!=0) w[j+3]-=g*v2[1]; if(h!=0) w[j+3]-=h*v3[0]; q=w[j+3]*D->value[j+3];
+-                    if(!isfinite((double)q)) {err=LIS_BREAKDOWN;goto done;}
+-                    L->value[i][++t]=q; w[j+3]=0; groups4++;
+-                    idx=U->index[j+3]; len=U->nnz[j+3];
+-                    if(g!=0 && h!=0 && q!=0) for(c=0;c<len;c++) {LIS_SCALAR z=w[idx[c]];z-=f*v1[c+3];z-=g*v2[c+2];z-=h*v3[c+1];z-=q*v4[c];w[idx[c]]=z;}
+-                    else for(c=0;c<len;c++) {LIS_SCALAR z=w[idx[c]];z-=f*v1[c+3];if(g!=0) z-=g*v2[c+2];if(h!=0) z-=h*v3[c+1];if(q!=0) z-=q*v4[c];w[idx[c]]=z;}
+-                } else {
+-                    groups3++; idx=U->index[j+2]; len=U->nnz[j+2];
+-                    if(g!=0 && h!=0) for(c=0;c<len;c++) {LIS_SCALAR z=w[idx[c]];z-=f*v1[c+2];z-=g*v2[c+1];z-=h*v3[c];w[idx[c]]=z;}
+-                    else for(c=0;c<len;c++) {LIS_SCALAR z=w[idx[c]];z-=f*v1[c+2];if(g!=0) z-=g*v2[c+1];if(h!=0) z-=h*v3[c];w[idx[c]]=z;}
+-                }
+-                continue;
+-            }
+-            if(pairs && pairable[j] && t+1<L->nnz[i] && L->index[i][t+1]==j+1 && f!=0) {
+-                const LIS_SCALAR *v1=U->value[j],*v2=U->value[j+1];
+-                const LIS_INT *idx=U->index[j+1]; LIS_INT len=U->nnz[j+1];
+-                LIS_SCALAR g;
+-                w[j+1]-=f*v1[0]; g=w[j+1]*D->value[j+1];
+-                if(!isfinite((double)g)) {err=LIS_BREAKDOWN;goto done;}
+-                L->value[i][++t]=g; w[j+1]=0; pairs_used++;
+-                if(g!=0) for(c=0;c<len;c++) {LIS_SCALAR z=w[idx[c]]; z-=f*v1[c+1]; z-=g*v2[c]; w[idx[c]]=z;}
+-                else for(c=0;c<len;c++) w[idx[c]]-=f*v1[c+1];
+-                continue;
+-            }
+-            if(f!=0) {
+-                LIS_INT len=U->nnz[j]; const LIS_INT *idx=U->index[j]; const LIS_SCALAR *val=U->value[j];
+-                if(runs) {
+-                    LIS_INT seg,beg=0,stop;
+-                    for(seg=sp[j];seg<sp[j+1];seg++) {
+-                        stop=se[seg];
+-                        if(stop>0) {
+-                            LIS_SCALAR *dst=w+idx[beg]; const LIS_SCALAR *src=val+beg;
+-                            LIS_INT count_run=stop-beg;
+-                            #pragma omp simd
+-                            for(c=0;c<count_run;c++) dst[c]-=f*src[c];
+-                        } else {
+-                            stop=-stop;
+-                            for(c=beg;c<stop;c++) w[idx[c]]-=f*val[c];
+-                        }
+-                        beg=stop;
+-                    }
+-                } else for(c=0;c<len;c++) w[idx[c]]-=f*val[c];
+-            }
+-        }
+-        pivot=w[i]; w[i]=0;
+-        if(!isfinite((double)pivot)||pivot==0||!isfinite(1.0/(double)pivot)) {err=LIS_BREAKDOWN;goto done;}
+-        D->value[i]=1.0/pivot;
+-        for(t=0;t<U->nnz[i];t++) {
+-            j=U->index[i][t]; f=w[j]; w[j]=0;
+-            if(!isfinite((double)f)) {err=LIS_BREAKDOWN;goto done;}
+-            U->value[i][t]=f;
+-        }
++        err=lis_ilutp_numeric_row(A,L,U,D,i,w,pairable,sp,se,runs,pairs,groups,group8,
++                                 &pairs_used,&groups3,&groups4,&groups8,NULL,NULL);
++        if(err) goto done;
+     }
+     numeric_time=lis_wtime()-clock0;
+     fprintf(stderr,"LU_PROFILE runs=%d validation=%.6f symbolic=%.6f segment=%.6f numeric=%.6f segments=%llu contiguous=%llu upper=%llu\n",runs,validate_time,symbolic_time,segment_time,numeric_time,(unsigned long long)segments,(unsigned long long)contiguous,(unsigned long long)(used/2));
+--- a/src/precon/lis_ilutp_refactor.inc
++++ b/src/precon/lis_ilutp_refactor.inc
+@@ -4,7 +4,7 @@
+  * Any failed refresh invalidates the factors; destroy/recreate session.
+  * Solver and matrices must remain serial real-double CSR. No scaling.
+  */
+-#if defined(_OPENMP) && !defined(USE_MPI) && !defined(_COMPLEX) && !defined(USE_COMPLEX)
++#if !defined(USE_MPI) && !defined(_COMPLEX) && !defined(USE_COMPLEX)
+ typedef struct LIS_ILUTP_REUSE_STRUCT {
+     LIS_INT n, nnz;
+     LIS_INT *ptr, *index;

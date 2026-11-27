@@ -1,0 +1,189 @@
+Making check in include
+make[1]: Entering directory '/tmp/rc32/lis-2.1.25/include'
+make[1]: Leaving directory '/tmp/rc32/lis-2.1.25/include'
+Making check in src
+make[1]: Entering directory '/tmp/rc32/lis-2.1.25/src'
+Making check in array
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/src/array'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/src/array'
+Making check in esolver
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/src/esolver'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/src/esolver'
+Making check in matrix
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/src/matrix'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/src/matrix'
+Making check in matvec
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/src/matvec'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/src/matvec'
+Making check in precision
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/src/precision'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/src/precision'
+Making check in precon
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/src/precon'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/src/precon'
+Making check in solver
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/src/solver'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/src/solver'
+Making check in system
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/src/system'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/src/system'
+Making check in vector
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/src/vector'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/src/vector'
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/src'
+make[2]: Nothing to be done for 'check-am'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/src'
+make[1]: Leaving directory '/tmp/rc32/lis-2.1.25/src'
+Making check in test
+make[1]: Entering directory '/tmp/rc32/lis-2.1.25/test'
+make  
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/test'
+make[2]: Nothing to be done for 'all'.
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/test'
+make  check-TESTS
+make[2]: Entering directory '/tmp/rc32/lis-2.1.25/test'
+make[3]: Entering directory '/tmp/rc32/lis-2.1.25/test'
+PASS: testuserrow
+PASS: testsnapshot
+PASS: testuserprecon
+PASS: testmatvecblock
+PASS: testvectornrm2mpi
+PASS: testcapabilities
+PASS: test.sh
+PASS: testoperatorrowprecon
+PASS: testsolvercapabilities
+PASS: testsolveroptionreplace
+PASS: testmatrixgraph
+PASS: testompelastic
+PASS: testcomponentnullspace
+PASS: testnullspacelift
+PASS: testhybridnested
+PASS: testpreconlifecycle
+PASS: testjacobiuser
+PASS: testpreconpsd
+PASS: testpreconreuse
+PASS: testprojectedeigen
+PASS: testprojectedhermitian
+PASS: testesubspaceretry
+PASS: testblockgram
+PASS: testblockorthogonal
+PASS: testrqirestore
+PASS: testblockrank
+PASS: testrhistoryerror
+PASS: testrepeatedsystems
+PASS: testpreconpolicy
+PASS: testgmreswork
+PASS: testsolvermonitor
+PASS: testsolvercallbackpaths
+PASS: testsolvercallbackcert
+PASS: testworkcompat
+PASS: testworkreuse
+PASS: testshellscale
+PASS: testprebuiltuser
+PASS: testsymmdiagguard
+PASS: testparamupdate
+PASS: testilupivot
+PASS: testbreakretry
+PASS: testchangingsystem
+PASS: testnearnullspace
+PASS: testeigenbreakdown
+PASS: testcoarsesetup
+PASS: testgcrodroptions
+PASS: testcoarseapply
+PASS: testkrylovrobust
+PASS: testmatrixgeneration
+PASS: testexternalstorage
+PASS: testgcrodrsequence
+PASS: testmatrixmaterialize
+PASS: testmatrixpolicysolve
+PASS: testfrozenilut
+PASS: testsplitview
+PASS: testsplitviewi64
+PASS: testmatrixoperatorlifecycle
+PASS: testsequence
+PASS: testwarmstart
+PASS: testrecovery
+PASS: testthreads
+PASS: testfgcrodrmaxiter
+PASS: testfgcrodrintra
+PASS: testgcrodrconfig
+PASS: testfgcrodr
+PASS: testmfamg
+PASS: testexactnullspace
+PASS: testhalfconfig
+PASS: testhalfconvert
+PASS: testesolverselection
+PASS: testnullspacecandidates
+PASS: testilutp
+PASS: testilutequil
+PASS: testmatrixautosession
+PASS: testabi
+PASS: testvectorreal64
+PASS: testgesolvepair
+PASS: testrcoalloc
+PASS: testfgcrodrblocked
+PASS: testmfamggalerkin
+PASS: testfgcrodrtransport
+PASS: test_krylov_sparse
+PASS: test_krylov_modes
+PASS: test_krylov_lis
+PASS: test_krylov_inertia
+PASS: test_krylov_stress
+PASS: test_krylov_window
+PASS: test_krylov_semidefinite
+PASS: test_krylov_regression
+PASS: test_krylov_workspace
+PASS: test_krylov_unified
+PASS: test_krylov_projected
+PASS: test_krylov_api_contract
+PASS: test_krylov_adaptive_ex
+PASS: test_krylov_be_lock_order
+PASS: testilucbsrsmoke
+PASS: testusercsrbounds
+PASS: testusermpiduplicate
+PASS: testuserbicgerrors
+PASS: testuserbicgadjoint
+PASS: testuserbicgsafe
+PASS: testuserminreserrors
+PASS: testusercgerrors
+PASS: testfgmresprojected
+PASS: test_krylov_both_ends
+PASS: testmfamgfineagg
+PASS: testmfamgdeepmerge
+PASS: testmfamgilutp
+PASS: testcondense_core
+PASS: testcomposite_core
+PASS: test_krylov_residual_reuse
+SKIP: testcondense_oom
+PASS: testcondense_lis
+PASS: testca_mfamg_ilutp.sh
+PASS: testca_mfamg_profiles.sh
+PASS: testcondense_differential.sh
+PASS: testmfamgvcycle
+PASS: test_krylov_openmp
+============================================================================
+Testsuite summary for lis 2.1.25
+============================================================================
+# TOTAL: 126
+# PASS:  125
+# SKIP:  1
+# XFAIL: 0
+# FAIL:  0
+# XPASS: 0
+# ERROR: 0
+============================================================================
+make[3]: Leaving directory '/tmp/rc32/lis-2.1.25/test'
+make[2]: Leaving directory '/tmp/rc32/lis-2.1.25/test'
+make[1]: Leaving directory '/tmp/rc32/lis-2.1.25/test'
+make[1]: Entering directory '/tmp/rc32/lis-2.1.25'
+make[1]: Nothing to be done for 'check-am'.
+make[1]: Leaving directory '/tmp/rc32/lis-2.1.25'

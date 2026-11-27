@@ -1,0 +1,53 @@
+--- a/src/solver/lis_solver_gmres.c
++++ b/src/solver/lis_solver_gmres.c
+@@ -1523,6 +1523,50 @@
+ 	 * Explicit physical-residual certification remains authoritative.
+ 	 */
+ 
++#if !defined(_COMPLEX) && !defined(USE_COMPLEX) && !defined(USE_MPI)
++    /* Optional exact-LU trial. No callback contract is changed: if a custom
++     * monitor or convergence test is installed, keep the original FGMRES.
++     * The candidate uses scratch vectors; a rejected trial leaves x and
++     * the original residual untouched. Its time is included in ptime. */
++    if(getenv("LIS_EXPERIMENT_ILUTP_DIRECT_TRY") && maxiter>0 &&
++       !solver->monitor && !solver->convergence &&
++       solver->options[LIS_OPTIONS_CONV_COND]==LIS_CONV_COND_NRM2_R &&
++       solver->options[LIS_OPTIONS_PRECON]==LIS_PRECON_TYPE_ILUT &&
++       solver->ilutp_enabled && solver->ilutp_full &&
++       solver->ilutp_threshold==0.0 && solver->precon &&
++       solver->precon->ilutp_colperm && !solver->precon->ilutp_swap_count &&
++       !solver->precon->half && solver->precision==LIS_PRECISION_DOUBLE &&
++       solver->options[LIS_OPTIONS_SCALE]==LIS_SCALE_NONE &&
++       !solver->options[LIS_OPTIONS_ADDS])
++    {
++        LIS_VECTOR trial=solver->work[1];
++        time=lis_wtime();
++        err=lis_psolve(solver,v[0],z[0]);
++        ptime+=lis_wtime()-time;
++        if(!err) {
++            lis_vector_copy(x,trial);
++            lis_vector_axpy(1.0,z[0],trial);
++            err=lis_matvec(A,trial,v[1]);
++            if(!err) {
++                lis_vector_xpay(b,-1.0,v[1]);
++                lis_solver_get_residual[0](v[1],solver,&nrm2);
++                if(isfinite((double)nrm2) && nrm2<=tol) {
++                    lis_vector_copy(trial,x);
++                    if(output & LIS_PRINT_MEM) solver->rhistory[1]=nrm2;
++                    if(output & LIS_PRINT_OUT) lis_print_rhistory(comm,1,nrm2);
++                    solver->retcode=LIS_SUCCESS;solver->iter=1;
++                    solver->resid=nrm2;solver->ptime=ptime;
++                    if(getenv("LIS_EXPERIMENT_ILUTP_DIRECT_TRACE"))
++                        fprintf(stderr,"ILUTP_DIRECT accepted residual=%.17g\n",(double)nrm2);
++                    lis_free(h);LIS_DEBUG_FUNC_OUT;return LIS_SUCCESS;
++                }
++                if(getenv("LIS_EXPERIMENT_ILUTP_DIRECT_TRACE"))
++                    fprintf(stderr,"ILUTP_DIRECT rejected residual=%.17g\n",(double)nrm2);
++            }
++        }
++    }
++#endif
++
+ 	iter=0;
+ 	while( iter<maxiter )
+ 	{

@@ -1,0 +1,12 @@
+patching file include/lis_esolver.h
+patching file include/lis.h
+patching file src/esolver/lis_esolver_li.c
+patching file src/esolver/lis_esolver_ii.c
+patching file src/esolver/lis_esolver.c
+patching file src/precon/lis_precon.c
+patching file src/precon/lis_precon_ilut.c
+patching file src/precon/lis_precon_ilutp.inc
+patching file src/precon/lis_ilut_min_degree.inc
+patching file src/precon/lis_ilutp_refactor.inc
+patching file src/precon/Makefile.am
+patching file src/precon/Makefile.in
