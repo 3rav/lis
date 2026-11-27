@@ -1,0 +1,77 @@
+name: Symbolic complete-fill LU regression
+on:
+  push:
+    branches: [feature/ilutp-symbolic-refactor]
+    paths:
+      - 'src/precon/**'
+      - 'src/solver/**'
+      - 'include/**'
+      - 'test/testilutp_symbolic.c'
+      - '.github/workflows/ilutp-symbolic.yml'
+  pull_request:
+    paths:
+      - 'src/precon/**'
+      - 'src/solver/**'
+      - 'include/**'
+      - 'test/testilutp_symbolic.c'
+      - '.github/workflows/ilutp-symbolic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: serial
+            flags: ''
+            cflags: '-O2 -g'
+            ldflags: ''
+          - mode: openmp
+            flags: '--enable-omp'
+            cflags: '-O2 -g'
+            ldflags: '-fopenmp'
+          - mode: sanitizer
+            flags: ''
+            cflags: '-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
+            ldflags: '-fsanitize=address,undefined'
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool libtool-bin
+      - name: Build isolated symbolic LU
+        env:
+          CONFIGURE_OPTIONS: ${{ matrix.flags }}
+          CFLAGS: ${{ matrix.cflags }}
+          LDFLAGS: ${{ matrix.ldflags }}
+        run: |
+          ./configure --enable-test --disable-fortran --disable-f90 --disable-saamg --disable-mpi --disable-shared $CONFIGURE_OPTIONS
+          make -j2
+          gcc $CFLAGS $LDFLAGS -Iinclude test/testilutp_symbolic.c src/.libs/liblis.a -Wl,--wrap=lis_precon_create -Wl,--wrap=lis_precon_update_ilut_frozen -lm -o sequence-audit
+      - name: Full legacy regression
+        run: make -j2 check
+      - name: Sequence lifecycle and reference solution
+        run: |
+          set -euo pipefail
+          ./sequence-audit 2>&1 | tee sequence-audit.log
+          grep -q '^PASS sequence option snapshot rebuild' sequence-audit.log
+          if [[ "${{ matrix.mode }}" == openmp ]]; then
+            OMP_NUM_THREADS=4 ./sequence-audit 2>&1 | tee sequence-audit-omp4.log
+            grep -q '^PASS sequence option snapshot rebuild' sequence-audit-omp4.log
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sequence-audit-${{ matrix.mode }}
+          path: sequence-audit*.log
+          if-no-files-found: ignore

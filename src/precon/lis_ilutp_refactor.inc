@@ -112,12 +112,6 @@ void lis_ilutp_destroy_attached(LIS_PRECON p) {
     p->ilutp_reuse=NULL;
     if(c){c->factors=NULL;lis_ilutp_reuse_destroy(c);}
 }
-static LIS_INT reuse_attached_destroy(LIS_PRECON p) {
-    LIS_ILUTP_REUSE c=p->user_data;
-    p->user_data=NULL;p->user_destroy=NULL;
-    if(c){c->factors=NULL;lis_ilutp_reuse_destroy(c);}
-    return LIS_SUCCESS;
-}
 static LIS_INT reuse_attach(LIS_SOLVER s,LIS_PRECON p) {
     LIS_MATRIX A=s->A; LIS_ILUTP_REUSE c;
     if(!s->ilutp_reuse || !reuse_config(s) || !reuse_matrix(A))return LIS_SUCCESS;
