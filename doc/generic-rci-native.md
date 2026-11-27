@@ -39,3 +39,11 @@ certification callback is launched after that failure. The public driver
 rejects unwritten/nonfinite raw Krylov outputs. Forced linear termination
 invalidates recycling state. Installed-client tests cover these distinctions,
 wrong tokens, stale generations and recovery after interruption.
+
+## Native scalar candidate
+
+`--enable-rci=native` enables only the typed native API, preserving the existing
+real-double array interface's configuration contract. Long double, binary128,
+complex double and complex binary128 are under installed-client qualification.
+Krylov remains fixed-real-double. The complex FGCRO generation applies the
+qualified Hermitian projection-order correction to its private build copy.

@@ -29,7 +29,7 @@ LTCOMPILE = $(LIBTOOL) --mode=compile --tag=CC $(CC) $(AMDEFS) $(DEFS) \
 	$(AM_CFLAGS) $(CFLAGS)
 
 # Native RCI generation is local to this build directory.
-if ENABLE_RCI
+if ENABLE_NATIVE_RCI
 RCI_NATIVE_INPUTS = $(top_srcdir)/src/solver/lis_solver.c \
   $(top_srcdir)/src/solver/lis_solver_cg.c \
   $(top_srcdir)/src/solver/lis_solver_bicgstab.c \
@@ -86,7 +86,7 @@ RCI_NATIVE_INPUTS = $(top_srcdir)/src/solver/lis_solver.c \
   $(top_srcdir)/qualification/rci-restore/build_native_tree.py \
   $(top_srcdir)/include/lis_rci_native.h
 rci-native.stamp: $(RCI_NATIVE_INPUTS) Makefile
-	python3 "$(top_srcdir)/qualification/rci-restore/build_native_tree.py" "$(top_srcdir)" "$(abs_builddir)/rci-generated"
+	python3 "$(top_srcdir)/qualification/rci-restore/build_native_tree.py" "$(top_srcdir)" "$(abs_builddir)/rci-generated" "$(top_builddir)/include/lis_config.h"
 	touch $@
 lis_esolver.lo: rci-native.stamp $(top_builddir)/include/lis_config.h
 	$(LTCOMPILE) -I$(top_builddir)/include -c -o $@ rci-generated/src/esolver/lis_esolver.c

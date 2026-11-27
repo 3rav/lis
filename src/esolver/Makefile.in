@@ -776,17 +776,17 @@ RCI_NATIVE_INPUTS = $(top_srcdir)/src/solver/lis_solver.c \
   $(top_srcdir)/qualification/rci-restore/qualify_native_lifecycle.py \
   $(top_srcdir)/qualification/rci-restore/build_native_tree.py \
   $(top_srcdir)/include/lis_rci_native.h
-@ENABLE_RCI_TRUE@rci-native.stamp: $(RCI_NATIVE_INPUTS) Makefile
-@ENABLE_RCI_TRUE@	python3 "$(top_srcdir)/qualification/rci-restore/build_native_tree.py" "$(top_srcdir)" "$(abs_builddir)/rci-generated"
-@ENABLE_RCI_TRUE@	touch $@
-@ENABLE_RCI_TRUE@lis_esolver.lo: rci-native.stamp $(top_builddir)/include/lis_config.h
-@ENABLE_RCI_TRUE@	$(LTCOMPILE) -I$(top_builddir)/include -c -o $@ rci-generated/src/esolver/lis_esolver.c
-@ENABLE_RCI_TRUE@lis_esolver_block.lo: rci-native.stamp $(top_builddir)/include/lis_config.h
-@ENABLE_RCI_TRUE@	$(LTCOMPILE) -I$(top_builddir)/include -c -o $@ rci-generated/src/esolver/lis_esolver_block.c
-@ENABLE_RCI_TRUE@lis_esolver_feast.lo: rci-native.stamp $(top_builddir)/include/lis_config.h
-@ENABLE_RCI_TRUE@	$(LTCOMPILE) -I$(top_builddir)/include -c -o $@ rci-generated/src/esolver/lis_esolver_feast.c
-@ENABLE_RCI_TRUE@lis_krylov.lo: rci-native.stamp $(top_builddir)/include/lis_config.h
-@ENABLE_RCI_TRUE@	$(LTCOMPILE) -I$(top_builddir)/include -c -o $@ rci-generated/src/esolver/lis_krylov.c
+@ENABLE_NATIVE_RCI_TRUE@rci-native.stamp: $(RCI_NATIVE_INPUTS) Makefile
+@ENABLE_NATIVE_RCI_TRUE@	python3 "$(top_srcdir)/qualification/rci-restore/build_native_tree.py" "$(top_srcdir)" "$(abs_builddir)/rci-generated" "$(top_builddir)/include/lis_config.h"
+@ENABLE_NATIVE_RCI_TRUE@	touch $@
+@ENABLE_NATIVE_RCI_TRUE@lis_esolver.lo: rci-native.stamp $(top_builddir)/include/lis_config.h
+@ENABLE_NATIVE_RCI_TRUE@	$(LTCOMPILE) -I$(top_builddir)/include -c -o $@ rci-generated/src/esolver/lis_esolver.c
+@ENABLE_NATIVE_RCI_TRUE@lis_esolver_block.lo: rci-native.stamp $(top_builddir)/include/lis_config.h
+@ENABLE_NATIVE_RCI_TRUE@	$(LTCOMPILE) -I$(top_builddir)/include -c -o $@ rci-generated/src/esolver/lis_esolver_block.c
+@ENABLE_NATIVE_RCI_TRUE@lis_esolver_feast.lo: rci-native.stamp $(top_builddir)/include/lis_config.h
+@ENABLE_NATIVE_RCI_TRUE@	$(LTCOMPILE) -I$(top_builddir)/include -c -o $@ rci-generated/src/esolver/lis_esolver_feast.c
+@ENABLE_NATIVE_RCI_TRUE@lis_krylov.lo: rci-native.stamp $(top_builddir)/include/lis_config.h
+@ENABLE_NATIVE_RCI_TRUE@	$(LTCOMPILE) -I$(top_builddir)/include -c -o $@ rci-generated/src/esolver/lis_krylov.c
 
 clean-local:
 	rm -rf rci-generated rci-native.stamp

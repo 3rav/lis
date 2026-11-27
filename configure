@@ -682,6 +682,8 @@ ENABLE_QUAD_FALSE
 ENABLE_QUAD_TRUE
 ENABLE_OMP_FALSE
 ENABLE_OMP_TRUE
+ENABLE_NATIVE_RCI_FALSE
+ENABLE_NATIVE_RCI_TRUE
 ENABLE_RCI_FALSE
 ENABLE_RCI_TRUE
 ENABLE_MPI_FALSE
@@ -4279,10 +4281,10 @@ esac
 fi
 
 case $enable_rci in #(
-  yes|no) :
+  yes|no|native) :
      ;; #(
   *) :
-    as_fn_error $? "--enable-rci accepts yes or no" "$LINENO" 5 ;;
+    as_fn_error $? "--enable-rci accepts yes, no or native" "$LINENO" 5 ;;
 esac
 # Check whether --enable-omp was given.
 if test ${enable_omp+y}
@@ -23274,7 +23276,10 @@ if test "x$enable_rci" = xyes; then
 printf "%s\n" "#define USE_RCI 1" >>confdefs.h
 
 fi
-if test "x$enable_rci" = xyes; then
+if test "x$enable_rci" != xno; then
+  if test "x$enable_mpi" = xyes || test "x$enable_quad" = xyes; then
+    as_fn_error $? "native RCI requires non-MPI without double-double solver support" "$LINENO" 5
+  fi
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for nonfinite-aware floating-point compilation required by experimental RCI" >&5
 printf %s "checking for nonfinite-aware floating-point compilation required by experimental RCI... " >&6; }
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
@@ -23350,6 +23355,14 @@ fi
 else
   ENABLE_RCI_TRUE='#'
   ENABLE_RCI_FALSE=
+fi
+
+if test "x$enable_rci" != xno; then
+  ENABLE_NATIVE_RCI_TRUE=
+  ENABLE_NATIVE_RCI_FALSE='#'
+else
+  ENABLE_NATIVE_RCI_TRUE='#'
+  ENABLE_NATIVE_RCI_FALSE=
 fi
 
  if test x"$enable_omp" = xyes; then

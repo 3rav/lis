@@ -1,9 +1,9 @@
 /* Experimental native RCI API; proposed under LIS COPYING, subject to contributor confirmation.
- * Real double, serial/OpenMP, no MPI or double-double mode. Not a stable ABI. */
+ * Native LIS scalar, serial/OpenMP, no MPI or double-double solver mode. Not a stable ABI. */
 #ifndef LIS_RCI_NATIVE_H
 #define LIS_RCI_NATIVE_H
 #include "lis.h"
-#include "lis_rci.h"
+#include "lis_rci_status.h"
 #include "lis_krylov.h"
 #include "lis_abi.h"
 #ifdef __cplusplus
@@ -44,7 +44,7 @@ typedef struct lis_rci_native_context lis_rci_native_context;
 lis_rci_native_context *lis_rci_native_create(int kind,uint32_t version,size_t request_size,const LIS_ABI_INFO *client,size_t client_size);
 void lis_rci_native_destroy(lis_rci_native_context *);
 /* Linear: assembled unscaled CSR, NONE/Jacobi, no conversion, nullspace,
- * ADDS or thread override. FEAST: real CSR A and optional SPD CSR B,
+ * ADDS or thread override. FEAST: Hermitian CSR A and optional SPD CSR B,
  * no conversion, automatic retry or explicit transform. Native setup is
  * synchronous; iterative A/B/P/shift and final linear residual requests
  * are external. x and FEAST value are committed only on DONE.
