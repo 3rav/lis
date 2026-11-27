@@ -236,14 +236,18 @@ static int benchmark_grid(int mode)
     OK(lis_matrix_create(LIS_COMM_WORLD,&A));
     OK(lis_matrix_set_size(A,0,n));
     for(i=0;i<n;i++) {
-        OK(lis_matrix_set_value(LIS_INS_VALUE,i,i,6.0,A));
-        if(i%width) OK(lis_matrix_set_value(LIS_INS_VALUE,i,i-1,-0.4,A));
-        if(i%width!=width-1) OK(lis_matrix_set_value(LIS_INS_VALUE,i,i+1,-0.3,A));
+        /* RCO-to-CSR preserves insertion order; symbolic LU requires
+         * strictly increasing column indices in each input row. */
         if(i>=width) OK(lis_matrix_set_value(LIS_INS_VALUE,i,i-width,-0.2,A));
+        if(i%width) OK(lis_matrix_set_value(LIS_INS_VALUE,i,i-1,-0.4,A));
+        OK(lis_matrix_set_value(LIS_INS_VALUE,i,i,6.0,A));
+        if(i%width!=width-1) OK(lis_matrix_set_value(LIS_INS_VALUE,i,i+1,-0.3,A));
         if(i<n-width) OK(lis_matrix_set_value(LIS_INS_VALUE,i,i+width,-0.1,A));
     }
     OK(lis_matrix_set_type(A,LIS_MATRIX_CSR));
     OK(lis_matrix_assemble(A));
+    for(i=0;i<n;i++)for(k=A->ptr[i]+1;k<A->ptr[i+1];k++)
+        CHECK(A->index[k-1]<A->index[k]);
     OK(lis_solver_create(&s));
     OK(lis_solver_set_option("-i fgmres -p ilut -ilutp 1 -ilutp_threshold 0 -ilutp_full 1 -ilutp_full_limit 2000000 -tol 1e-12 -maxiter 40 -restart 20 -print none",s));
     OK(lis_solver_set_option((char*)opts[mode],s));
@@ -263,9 +267,16 @@ static int benchmark_grid(int mode)
         create_seconds=refresh_seconds=0;
         measure=1;
         start=lis_wtime();
-        OK(lis_solve_sequence(A,b,x,s));
-        total=lis_wtime()-start;
-        measure=0;
+        {
+            LIS_INT rc=lis_solve_sequence(A,b,x,s);
+            total=lis_wtime()-start;
+            measure=0;
+            if(rc!=LIS_SUCCESS) {
+                fprintf(stderr,"BENCH_ERROR mode=%s step=%d rc=%d\n",
+                        names[mode],step,(int)rc);
+                goto done;
+            }
+        }
         OK(lis_solver_get_status(s,&status)); CHECK(status==LIS_SUCCESS);
         OK(lis_solver_get_iter(s,&it));
         CHECK(s->sequence_precon && s->sequence_precon->L && s->sequence_precon->U);
