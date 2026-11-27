@@ -66,7 +66,8 @@ static int solve(int mode,int generalized,int fail,int fault,answer *a)
  for(LIS_INT i=0;i<e->nev;i++){
   a->value[i]=e->evalue[i];a->resid[i]=e->resid[i];a->iter[i]=e->iter[i];a->iter2[i]=e->iter2[i];
   C(e->evector[i]);memcpy(a->vectors+N*i,e->evector[i]->value,N*sizeof(LIS_SCALAR));
-  C(fabs(a->value[i]-(i?4:2))<1e-6&&a->resid[i]<1e-7);
+  printf("FEAST pair gen=%d mode=%d index=%lld value=%.17g residual=%.17g\n",generalized,mode,(long long)i,(double)a->value[i],(double)a->resid[i]);
+  C((fabs(a->value[i]-2)<1e-6||fabs(a->value[i]-4)<1e-6)&&a->resid[i]<=1e-7);
   /* Independent physical residual, not an echo of LIS certification. */
   double ax2=0,bx2=0,r2=0;
   for(int j=0;j<N;j++){
@@ -77,6 +78,7 @@ static int solve(int mode,int generalized,int fail,int fault,answer *a)
   }
   C(sqrt(r2)/(sqrt(ax2)+fabs(a->value[i])*sqrt(bx2))<1e-7);
  }
+ C((fabs(a->value[0]-2)<1e-6&&fabs(a->value[1]-4)<1e-6)||(fabs(a->value[0]-4)<1e-6&&fabs(a->value[1]-2)<1e-6));
 cleanup:
  lis_rci_native_feast_test_select(0,NULL);
  if(e)lis_esolver_destroy(e);if(x)lis_vector_destroy(x);if(B)lis_matrix_destroy(B);if(A)lis_matrix_destroy(A);return rc;
