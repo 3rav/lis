@@ -143,3 +143,15 @@ The native GCRO differential harness also injects cancellation, incomplete
 output and a native callback error at each observed request of a cold and
 warm solve, including refresh and harmonic-update calls. It checks that
 native failure semantics invalidate any possibly partial recycle relation.
+
+Native positive-k FGCRO-DR continuation candidate: the pinned generator
+covers nine native FGCRO-DR functions plus the shared initial-residual
+helper (19 expected continuation sites, including child calls). It preserves
+W/Z/C ownership and the original harmonic build/update and replacement
+routines. The native zero-recycle FGMRES fallback is left unchanged; the
+external positive-k session rejects zero recycle dimension rather than
+silently executing hidden callbacks. This is not a public or installed API.
+The qualification workflow compares original, blocking, and external
+paths, including private W/Z/C snapshots and independent relation checks,
+and exercises cancellation and incomplete output on cold/warm solves.
+CI success and native callback-error injection are not yet established.
