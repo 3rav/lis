@@ -13,7 +13,7 @@ static int run(int method,int fault,int fault_type,int *requests)
  double b[N],x0[N];unsigned seen=0;uint64_t last=0;
  for(int rep=1;rep<=2;rep++){
   for(size_t i=0;i<N;i++){
-   b[i]=(4+i*.2)*(i+1)*rep+(i? (method==LIS_RCI_CG?1:-1)*i*rep:0)+(i+1<N?(i+2)*rep:0);
+   b[i]=(4+i*.2)*(i+1)*rep+(i? (method==LIS_RCI_CG?1.0:-1.0)*(double)i*rep:0)+(i+1<N?(i+2)*rep:0);
    x0[i]=rep==2?.25:0;
   }
   lis_rci_request_full f;int s=lis_rci_start_full(c,b,x0,&f),count=0;
@@ -22,6 +22,7 @@ static int run(int method,int fault,int fault_type,int *requests)
    CHECK(++count<10000&&q->operation==s&&q->n==N&&q->in&&q->token>last);
    seen|=1u<<s;
    if(rep==1&&count==fault){
+    last=q->token;
     if(fault_type==1){CHECK(lis_rci_advance_full(c,q->token,91,0,&f)==LIS_RCI_CALLBACK);}
     else if(q->out){q->out[0]=0;CHECK(lis_rci_advance_full(c,q->token,0,0,&f)==LIS_RCI_NONFINITE);}
     else {CHECK(lis_rci_advance_full(c,q->token,0,NAN,&f)==LIS_RCI_NONFINITE);}
