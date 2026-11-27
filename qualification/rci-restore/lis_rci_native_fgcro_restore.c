@@ -104,3 +104,19 @@ LIS_INT lis_fgcrodr(LIS_SOLVER s)
  if(st==LIS_RCI_BADARG&&K->status==LIS_RCI_STATE)native=LIS_ERR_ILL_ARG;
  lis_rci_native_fgcro_restore_destroy(K);return native;
 }
+
+/* Keep private state private: differential harness receives only a copy. */
+LIS_INT lis_rci_native_fgcro_test_basis(LIS_SOLVER s,LIS_SCALAR *out,size_t capacity)
+{
+ if(!s||!s->fgcrodr_state||!out)return LIS_ERR_ILL_ARG;
+ LIS_FGCRODR_STATE r=s->fgcrodr_state;
+ if(!r->valid||r->dim<=0||!s->A||s->A->n<=0)return LIS_ERR_ILL_ARG;
+ size_t n=(size_t)s->A->n,k=(size_t)r->dim;
+ if(k>capacity/n/3)return LIS_ERR_ILL_ARG;
+ for(size_t i=0;i<k;i++){
+  memcpy(out+i*n,r->w[i]->value,n*sizeof(*out));
+  memcpy(out+(k+i)*n,r->z[i]->value,n*sizeof(*out));
+  memcpy(out+(2*k+i)*n,r->c[i]->value,n*sizeof(*out));
+ }
+ return LIS_SUCCESS;
+}
