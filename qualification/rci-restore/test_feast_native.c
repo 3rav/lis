@@ -27,7 +27,14 @@ static LIS_INT external(LIS_ESOLVER e)
   if(observed==stop){
    if(kind==1)st=lis_rci_native_feast_cancel(K,q.token);
    else if(kind==2)st=lis_rci_native_feast_advance(K,q.token,0,&q);
-   else st=lis_rci_native_feast_advance(K,q.token,LIS_ERR_ILL_ARG,&q);
+   else if(kind==3)st=lis_rci_native_feast_advance(K,q.token,LIS_ERR_ILL_ARG,&q);
+   else {
+    /* Test-only counter injection, without changing numerical values. */
+    if(kind==4)e->A->value_generation++;
+    else if(kind==5)e->A->structure_generation++;
+    else e->B->value_generation++;
+    st=lis_rci_native_feast_advance(K,q.token,0,&q);
+   }
    break;
   }
   LIS_INT err;
@@ -65,7 +72,7 @@ static int solve(int mode,int generalized,int fail,int fault,answer *a)
    * is stored in esolver->retcode even when its public return is SUCCESS. */
   if(e->retcode==LIS_SUCCESS||e->nev!=0)fprintf(stderr,"FEAST fault gen=%d site=%d kind=%d api=%lld native=%lld nev=%lld terminal=%d\n",generalized,fail,fault,(long long)err,(long long)e->retcode,(long long)e->nev,terminal);
   C(e->retcode==(fault==3?LIS_ERR_ILL_ARG:LIS_BREAKDOWN)&&e->nev==0);
-  C(terminal==(fault==1?NF_CANCELLED:fault==2?NF_NONFINITE:NF_ERROR));goto cleanup;
+  C(terminal==(fault==1?NF_CANCELLED:fault==2?NF_NONFINITE:fault==3?NF_ERROR:NF_STALE));goto cleanup;
  }
  C(!err&&e->retcode==LIS_SUCCESS);C(e->nev==2);
  a->nev=e->nev;
@@ -107,6 +114,7 @@ int main(int argc,char **argv)
    for(int j=0;j<5;j++)selected|=f==first[j]||f==last_request[j];
    if(selected)for(int k=1;k<=3;k++){C(!solve(2,gen,f,k,&scratch));faults++;}
   }
+  for(int k=4;k<=(gen?6:5);k++){C(!solve(2,gen,1,k,&scratch));C(!solve(2,gen,n,k,&scratch));faults+=2;}
   printf("NATIVE FULL FEAST PASS generalized=%d requests=%d faults=%d A=%d B=%d ABLOCK=%d BBLOCK=%d SHIFT=%d\n",gen,n,faults,seen[0],seen[1],seen[2],seen[3],seen[4]);
  }
 cleanup:

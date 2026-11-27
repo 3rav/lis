@@ -9,7 +9,7 @@ extern "C" {
 #endif
 typedef struct lis_rci_native_feast lis_rci_native_feast;
 enum { NF_DONE=0,NF_A=1,NF_B=2,NF_SHIFT=4,NF_ERROR=-1,NF_PROTOCOL=-2,
- NF_CANCELLED=-3,NF_NONFINITE=-4,NF_STATE=-5,NF_BADARG=-6 };
+ NF_CANCELLED=-3,NF_NONFINITE=-4,NF_STATE=-5,NF_BADARG=-6,NF_STALE=-7 };
 typedef struct {
  uint64_t token;
  int operation;
@@ -25,7 +25,9 @@ typedef struct {
  * A/B requests use count vectors (including scalar count=1).
  * Shift requests solve (zr+i*zi)B-A in split-complex representation.
  * NULL B means identity. In strict mode all requested output entries
- * must be finite and written. Cancellation exposes no certified eigenpairs.
+ * must be finite and written. A/B identity and generation counters must
+ * remain unchanged until terminal; destruction is forbidden while borrowed.
+ * Cancellation exposes no certified eigenpairs.
  * This is not an installed API. Real-double non-MPI only. */
 lis_rci_native_feast *lis_rci_native_feast_create(void);
 void lis_rci_native_feast_destroy(lis_rci_native_feast *);

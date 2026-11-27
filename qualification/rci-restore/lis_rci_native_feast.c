@@ -22,9 +22,17 @@ static int nf_finite(LIS_VECTOR x)
 static void nf_poison(LIS_VECTOR x){for(LIS_INT i=0;i<x->n;i++)x->value[i]=NAN;}
 static int nf_force(lis_rci_native_feast *K,int status)
 {K->forced=status;K->completion=LIS_BREAKDOWN;return 3;}
+static int nf_generation_ok(const lis_rci_native_feast *K)
+{
+ if(K->esolver->A!=K->owner_a||K->esolver->B!=K->owner_b)return 0;
+ if(K->owner_a&&(K->owner_a->structure_generation!=K->as||K->owner_a->value_generation!=K->av))return 0;
+ if(K->owner_b&&(K->owner_b->structure_generation!=K->bs||K->owner_b->value_generation!=K->bv))return 0;
+ return 1;
+}
 static int nf_block(lis_rci_native_feast *K,int op,LIS_MATRIX A,LIS_INT n,LIS_VECTOR *in,LIS_VECTOR *out)
 {
  if(K->forced)return nf_force(K,K->forced);
+ if(K->strict&&!nf_generation_ok(K))return nf_force(K,NF_STALE);
  if(K->token==UINT64_MAX)return nf_force(K,NF_PROTOCOL);
  if(K->strict){
   if(n<=0||!in||!out)return nf_force(K,NF_BADARG);
@@ -46,6 +54,7 @@ static int nf_shift(lis_rci_native_feast *K,LIS_MATRIX A,LIS_MATRIX B,LIS_REAL z
  LIS_VECTOR ir,LIS_VECTOR ii,LIS_VECTOR or,LIS_VECTOR oi,LIS_SOLVER s)
 {
  if(K->forced)return nf_force(K,K->forced);
+ if(K->strict&&!nf_generation_ok(K))return nf_force(K,NF_STALE);
  if(K->token==UINT64_MAX)return nf_force(K,NF_PROTOCOL);
  if(K->strict){
   if(!nf_finite(ir)||!nf_finite(ii)||!or||!oi||or==oi||or==ir||or==ii||oi==ir||oi==ii)return nf_force(K,NF_NONFINITE);
@@ -73,6 +82,9 @@ int lis_rci_native_feast_start(lis_rci_native_feast *K,LIS_ESOLVER e,int strict,
  if(K->active)return NF_STATE;
  uint64_t token=K->token;memset(K,0,sizeof(*K));K->token=token;
  K->esolver=e;K->feast.esolver=e;K->strict=strict;K->active=9;
+ K->owner_a=e->A;K->owner_b=e->B;
+ if(e->A){K->as=e->A->structure_generation;K->av=e->A->value_generation;}
+ if(e->B){K->bs=e->B->structure_generation;K->bv=e->B->value_generation;}
  return nf_drive(K,q);
 }
 int lis_rci_native_feast_advance(lis_rci_native_feast *K,uint64_t token,LIS_INT rc,lis_rci_native_feast_request *q)
@@ -80,6 +92,7 @@ int lis_rci_native_feast_advance(lis_rci_native_feast *K,uint64_t token,LIS_INT 
  if(!K||!q)return NF_BADARG;
  if(!K->active||!K->request.operation)return NF_STATE;
  if(token!=K->token)return NF_PROTOCOL;
+ if(K->strict&&!nf_generation_ok(K)){K->forced=NF_STALE;rc=LIS_BREAKDOWN;}
  if(K->strict&&!rc){
   int ok=1;
   if(K->request.operation==NF_SHIFT)ok=nf_finite(K->request.out_real)&&nf_finite(K->request.out_imag);

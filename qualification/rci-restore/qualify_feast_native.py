@@ -74,7 +74,7 @@ for name,(fields,_) in frames.items():
     out.append("struct nf_"+name+" { int pc,parent;")
     out.extend(" "+t+" "+n+a+";" for n,(t,a) in fields.items())
     out.append("};")
-out.append("struct lis_rci_native_feast { int active,status,strict,forced; LIS_INT completion,native; uint64_t token; LIS_ESOLVER esolver; lis_rci_native_feast_request request; LIS_VECTOR one_in,one_out;")
+out.append("struct lis_rci_native_feast { int active,status,strict,forced; LIS_INT completion,native; uint64_t token; LIS_ESOLVER esolver; LIS_MATRIX owner_a,owner_b; LIS_UNSIGNED_INT as, av, bs, bv; lis_rci_native_feast_request request; LIS_VECTOR one_in,one_out;")
 out.extend(" struct nf_"+name+" "+name+";" for name in frames)
 out+=["};",
       "static int nf_return(lis_rci_native_feast *,int,LIS_INT);",
