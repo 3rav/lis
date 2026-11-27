@@ -81,17 +81,25 @@ static long double norm(const double *a,size_t n)
  for(size_t i=0;i<n;i++){long double v=(long double)a[i]/m;s+=v*v;}
  return (long double)m*sqrtl(s);
 }
+/* Do not cast a finite long-double intermediate outside the double range.
+ * Existing request validation rejects the resulting nonfinite value. */
+static double narrow(long double value)
+{
+ if(value>DBL_MAX)return INFINITY;
+ if(value< -DBL_MAX)return -INFINITY;
+ return (double)value;
+}
 static void copy(double *a,const double *b,size_t n){memcpy(a,b,n*sizeof(double));}
 static void axpy(double *a,const double *b,long double k,size_t n)
 {
 #ifdef _OPENMP
  if(n>=RCI_OMP_MIN){
 #pragma omp parallel for
-  for(size_t i=0;i<n;i++)a[i]=(double)((long double)a[i]+k*b[i]);
+  for(size_t i=0;i<n;i++)a[i]=narrow((long double)a[i]+k*b[i]);
   return;
  }
 #endif
- for(size_t i=0;i<n;i++)a[i]=(double)((long double)a[i]+k*b[i]);
+ for(size_t i=0;i<n;i++)a[i]=narrow((long double)a[i]+k*b[i]);
 }
 /* Request tokens are context-local and never reset on context reuse. */
 static int end(lis_rci_context *c,int status,lis_rci_request_ex *q)
@@ -175,7 +183,7 @@ static int cycle(lis_rci_context *c,long double rn,lis_rci_request_ex *q)
  c->j=0;memset(c->H,0,(m+1)*m*sizeof(double));
  memset(c->g,0,(m+1)*sizeof(double));c->g[0]=(double)rn;
  if(c->external==2)return divide_req(c,GM_V_READY,c->V,c->r,rn,q);
- for(size_t i=0;i<n;i++)c->V[i]=(double)((long double)c->r[i]/rn);
+ for(size_t i=0;i<n;i++)c->V[i]=narrow((long double)c->r[i]/rn);
  return req(c,GM_P,LIS_RCI_PRECON,c->V,c->Z,q);
 }
 static int start_impl(lis_rci_context *c,const double *b,const double *x0,
@@ -192,7 +200,7 @@ static int start_impl(lis_rci_context *c,const double *b,const double *x0,
  return scalar_req(c,B_NORM,c->b,NULL,q);
 }
 static int gm_update(lis_rci_context*c,size_t k,int reason,lis_rci_request_ex*q){size_t n=c->o.n,m=c->o.restart;
- for(size_t ii=k;ii>0;ii--){size_t i=ii-1;long double a=c->g[i];for(size_t j=i+1;j<k;j++)a-=(long double)c->H[j*(m+1)+i]*c->y[j];double d=c->H[i*(m+1)+i];if(d==0||!isfinite(d))return verify(c,LIS_RCI_BREAKDOWN,q);c->y[i]=(double)(a/d);if(!isfinite(c->y[i]))return verify(c,LIS_RCI_BREAKDOWN,q);}
+ for(size_t ii=k;ii>0;ii--){size_t i=ii-1;long double a=c->g[i];for(size_t j=i+1;j<k;j++)a-=(long double)c->H[j*(m+1)+i]*c->y[j];double d=c->H[i*(m+1)+i];if(d==0||!isfinite(d))return verify(c,LIS_RCI_BREAKDOWN,q);c->y[i]=narrow(a/d);if(!isfinite(c->y[i]))return verify(c,LIS_RCI_BREAKDOWN,q);}
  if(c->external==2){
   c->update_i=0;c->update_k=k;c->update_reason=reason;
   return combine(c,GM_UPDATE_READY,c->x,c->x,c->Z,1,c->y[0],q);
@@ -253,7 +261,7 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
    return combine(c,CG_P_READY,c->p,c->z,b==0?NULL:c->p,1,b,q);
   }
   if(c->fresh){copy(c->p,c->z,n);c->fresh=0;}
-  else{b=a/c->rho;for(size_t i=0;i<n;i++)c->p[i]=(double)((long double)c->z[i]+b*c->p[i]);}
+  else{b=a/c->rho;for(size_t i=0;i<n;i++)c->p[i]=narrow((long double)c->z[i]+b*c->p[i]);}
   c->rho=a;
   /* fall through */
  case CG_P_READY:return req(c,CG_A,LIS_RCI_MATVEC,c->p,c->v,q);
@@ -326,7 +334,7 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
    c->rho=scalar;c->work=b;
    return combine(c,BI_TMP_READY,c->s,c->p,c->v,1,-c->omega,q);
   }
-  for(size_t i=0;i<n;i++)c->p[i]=(double)((long double)c->r[i]+b*((long double)c->p[i]-c->omega*c->v[i]));
+  for(size_t i=0;i<n;i++)c->p[i]=narrow((long double)c->r[i]+b*((long double)c->p[i]-c->omega*c->v[i]));
   c->rho=scalar;return req(c,BI_P,LIS_RCI_PRECON,c->p,c->z,q);
  case BI_TMP_READY:return combine(c,BI_NEW_P_READY,c->p,c->r,c->s,1,c->work,q);
  case BI_NEW_P_READY:return req(c,BI_P,LIS_RCI_PRECON,c->p,c->z,q);
@@ -338,7 +346,10 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
   return scalar_req(c,GM_DOT,c->V,c->v,q);
  case GM_DOT:{
   double *h=c->H+c->j*(m+1);size_t i=c->orth_i;
-  h[i]+=(double)scalar;
+  double d=narrow(scalar);
+  if(!isfinite(d))return end(c,LIS_RCI_NONFINITE,q);
+  h[i]+=d;
+  if(!isfinite(h[i]))return end(c,LIS_RCI_NONFINITE,q);
   if(c->external==2)return combine(c,GM_ORTH_READY,c->v,c->v,c->V+i*n,1,-scalar,q);
   axpy(c->v,c->V+i*n,-scalar,n);
   /* fall through */
@@ -354,7 +365,7 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
   h[j+1]=(double)rn;c->happy=rn<=DBL_EPSILON*c->before;
   if(!c->happy){
    if(c->external==2)return divide_req(c,GM_NEXT_V_READY,c->V+(j+1)*n,c->v,rn,q);
-   for(size_t i=0;i<n;i++)c->V[(j+1)*n+i]=(double)((long double)c->v[i]/rn);
+   for(size_t i=0;i<n;i++)c->V[(j+1)*n+i]=narrow((long double)c->v[i]/rn);
   }
   return gm_finish_column(c,q);
  }

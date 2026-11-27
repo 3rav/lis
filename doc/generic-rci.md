@@ -185,3 +185,21 @@ diagonals, nonfinite input, unchanged output on failure and recovery. This
 adapts earlier mock tests; mock-injected LIS matvec errors and allocation
 failures remain separate qualification work. See `generic-rci-abi.md` for
 the proposed compatibility policy. No MPI or opaque device vectors are added.
+
+## CI and review gates
+
+The experimental RCI workflow covers the four index/thread combinations,
+with ASan/UBSan on each combination as well as release builds. It tests
+installed-library C/C++ consumers, unsupported configure options, and all
+legacy LIS symbols and headers. Exported RCI symbols must match the public
+function declarations. On develop after merge the compatibility job compares
+the default and opt-in libraries from the same revision; PRs also compare
+the default upstream merge base. No external matrix download is required.
+The upstream maintainer controls which checks are required for merge; all
+RCI jobs and existing upstream checks should pass before review readiness.
+The industrial benchmarks are informational and remain in the fork.
+
+Wide intermediates are range-checked before narrowing to double; a finite DOT
+outside the representable range of the dense GMRES Hessenberg storage is
+reported as NONFINITE rather than silently overflowing a cast. This does not
+extend the vector or dense storage representation beyond real double.

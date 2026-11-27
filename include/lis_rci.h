@@ -17,8 +17,7 @@ extern "C" {
  * DONE means the verified absolute residual satisfies max(atol,rtol*||b||).
  * info.residual is the last computed true absolute residual (or NaN);
  * it is +Inf when the norm exceeds DBL_MAX. Use lis_rci_get_residual for
- * the wide value.
- * on interruption it need not describe the most recent iterate.
+ * the wide value. On interruption it need not describe the most recent iterate.
  * Allocation failure or invalid options returns NULL from create.
  * No API/ABI stability promise is made for this experimental interface. */
 typedef struct lis_rci_context lis_rci_context;
