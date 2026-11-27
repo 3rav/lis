@@ -1,0 +1,117 @@
+name: Clean single-pass independent validation
+on:
+  push:
+    branches: ['validation/anchor-single-pass-20261127']
+permissions:
+  contents: read
+jobs:
+  nist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: bcsstk16, reps: 3}
+          - {name: bcsstk17, reps: 1}
+          - {name: bcsstk18, reps: 1}
+    env:
+      OMP_NUM_THREADS: '1'
+      OMP_DYNAMIC: 'FALSE'
+      OPENBLAS_NUM_THREADS: '1'
+      MATRIX: ${{ matrix.name }}
+      REPS: ${{ matrix.reps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool time python3-numpy python3-scipy
+      - name: Build native LIS
+        run: |
+          set -euo pipefail
+          mkdir -p evidence data
+          git rev-parse HEAD > evidence/head.txt
+          printf '%s\n' '9733ba2f1928fc6be3ddce5d419dd2fd68db4ed2' > evidence/clean-code-head.txt
+          ./configure --disable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg --disable-test --disable-shared --enable-static CFLAGS='-O2 -DNDEBUG' > evidence/configure.log 2>&1
+          make -j2 > evidence/build.log 2>&1
+          cc -O2 -DNDEBUG -fopenmp -DHAVE_CONFIG_H -Iinclude tools/lis_anchor_pilot.c tools/bench_anchor_pilot.c src/.libs/liblis.a -lm -o evidence/bench
+      - name: Independent physical audit
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 --max-time 300 "https://math.nist.gov/MatrixMarket/data/Harwell-Boeing/bcsstruc2/$MATRIX.mtx.gz" -o "data/$MATRIX.mtx.gz"
+          gzip -dc "data/$MATRIX.mtx.gz" > "data/$MATRIX.mtx"
+          sha256sum "data/$MATRIX.mtx" > evidence/source.sha256
+          /usr/bin/python3 tools/validation_research/anchor_stage12b_nist.py evidence/bench "data/$MATRIX.mtx" evidence/public --name "$MATRIX" --reps "$REPS" | tee evidence/public.log
+          grep -q '^PUBLIC_GATE=PASS ' evidence/public.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clean-nist-${{ matrix.name }}
+          path: |
+            evidence/
+            !evidence/public/input/*.mtx
+          retention-days: 30
+  abi:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool
+      - name: Compare installed headers and public symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/abi-evidence"
+          out="$RUNNER_TEMP/abi-evidence"
+          git worktree add --detach "$RUNNER_TEMP/base" 6a4ae9c11bb03b028a6477455cb4f9f0a790132d
+          for mode in base clean; do
+            root="$GITHUB_WORKSPACE"
+            if [ "$mode" = base ]; then root="$RUNNER_TEMP/base"; fi
+            (
+              cd "$root"
+              ./configure --disable-mpi --enable-omp --disable-fortran --disable-f90 --disable-saamg --disable-test --enable-shared --disable-static --prefix="$RUNNER_TEMP/install-$mode" CFLAGS='-O2 -DNDEBUG'
+              make -j2
+              make install
+            ) > "$out/$mode-build.log" 2>&1
+            (
+              cd "$RUNNER_TEMP/install-$mode/include"
+              find . -type f -print0 | sort -z | xargs -0 sha256sum
+            ) > "$out/$mode-headers.sha256"
+            so=$(find "$RUNNER_TEMP/install-$mode/lib" -name 'liblis.so.*' -type f | head -n 1)
+            test -n "$so"
+            nm -D --defined-only "$so" | awk '{print $3}' | sort -u > "$out/$mode-symbols.txt"
+          done
+          diff -u "$out/base-headers.sha256" "$out/clean-headers.sha256"
+          comm -23 "$out/base-symbols.txt" "$out/clean-symbols.txt" > "$out/removed.txt"
+          comm -13 "$out/base-symbols.txt" "$out/clean-symbols.txt" > "$out/added.txt"
+          test ! -s "$out/removed.txt"
+          printf '%s\n' lis_fgmres_with_stop lis_solve_kernel_fgmres_stop | sort > "$out/expected.txt"
+          diff -u "$out/expected.txt" "$out/added.txt"
+          echo ABI_SURFACE_GATE=PASS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clean-abi-evidence
+          path: ${{ runner.temp }}/abi-evidence/
+          retention-days: 30
+  alternate-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        flags: ['--enable-complex --disable-mpi', '--enable-mpi --disable-complex']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool libopenmpi-dev openmpi-bin
+      - name: Compile alternate configuration
+        run: |
+          set -euo pipefail
+          ./configure ${{ matrix.flags }} --disable-fortran --disable-f90 --disable-saamg --disable-test --disable-shared --enable-static CFLAGS='-O2 -DNDEBUG'
+          make -j2
+          echo ALTERNATE_BUILD_GATE=PASS
