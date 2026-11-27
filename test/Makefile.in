@@ -177,7 +177,7 @@ test_PROGRAMS = testesubspaceretry$(EXEEXT) etest1$(EXEEXT) \
 	testusereigenrqiguard$(EXEEXT) testusereigenstatus$(EXEEXT) \
 	testusercomplexadjoint$(EXEEXT) \
 	testuserserialcontract$(EXEEXT) testbicgstablinit$(EXEEXT) \
-	$(am__EXEEXT_6)
+	$(am__EXEEXT_6) $(am__EXEEXT_7)
 @ENABLE_HALF_REAL_DOUBLE_TRUE@am__append_1 = testhalfstorage testhalfprobe testhalfdispatch testhalfilukmemory testhalfiluksimd testhalfilut
 @ENABLE_FORTRAN_TRUE@am__append_2 = etest1f etest4f test1f test4f test7f
 @ENABLE_F90_TRUE@am__append_3 = test2f test6f 
@@ -217,6 +217,8 @@ F77LINK = $(LIBTOOL) $(AM_V_lt) --tag=F77 $(AM_LIBTOOLFLAGS) \
 @ENABLE_MPI_TRUE@@ENABLE_OOM_TESTS_TRUE@am__append_8 = testoommpiscale$(EXEEXT)
 @ENABLE_RCI_TRUE@am__append_9 = testrci testrcibridge testrcilarge testrciext testrcifull testrcistate testrcifaults testrcipoisson testrcisweep testrcimodel testrcirange
 @ENABLE_RCI_TRUE@am__append_10 = testrci$(EXEEXT) testrcibridge$(EXEEXT) testrcilarge$(EXEEXT) testrciext$(EXEEXT) testrcifull$(EXEEXT) testrcistate$(EXEEXT) testrcifaults$(EXEEXT) testrcipoisson$(EXEEXT) testrcisweep$(EXEEXT) testrcimodel$(EXEEXT) testrcirange$(EXEEXT)
+@ENABLE_NATIVE_RCI_FULL_TRUE@am__append_11 = testrcinativefull testrcinativenested
+@ENABLE_NATIVE_RCI_FULL_TRUE@am__append_12 = testrcinativefull$(EXEEXT) testrcinativenested$(EXEEXT)
 subdir = test
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
@@ -250,6 +252,9 @@ am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(testdir)" \
 @ENABLE_RCI_TRUE@	testrcistate$(EXEEXT) testrcifaults$(EXEEXT) \
 @ENABLE_RCI_TRUE@	testrcipoisson$(EXEEXT) testrcisweep$(EXEEXT) \
 @ENABLE_RCI_TRUE@	testrcimodel$(EXEEXT) testrcirange$(EXEEXT)
+@ENABLE_NATIVE_RCI_FULL_TRUE@am__EXEEXT_7 =  \
+@ENABLE_NATIVE_RCI_FULL_TRUE@	testrcinativefull$(EXEEXT) \
+@ENABLE_NATIVE_RCI_FULL_TRUE@	testrcinativenested$(EXEEXT)
 PROGRAMS = $(bin_PROGRAMS) $(test_PROGRAMS)
 am_benchautojacobirefresh_OBJECTS = benchautojacobirefresh.$(OBJEXT)
 benchautojacobirefresh_OBJECTS = $(am_benchautojacobirefresh_OBJECTS)
@@ -925,6 +930,18 @@ am__testrcimodel_SOURCES_DIST = testrcimodel.c
 @ENABLE_RCI_TRUE@am_testrcimodel_OBJECTS = testrcimodel.$(OBJEXT)
 testrcimodel_OBJECTS = $(am_testrcimodel_OBJECTS)
 @ENABLE_RCI_TRUE@testrcimodel_DEPENDENCIES = $(am__DEPENDENCIES_1)
+am__testrcinativefull_SOURCES_DIST = testrcinativefull.c
+@ENABLE_NATIVE_RCI_FULL_TRUE@am_testrcinativefull_OBJECTS =  \
+@ENABLE_NATIVE_RCI_FULL_TRUE@	testrcinativefull.$(OBJEXT)
+testrcinativefull_OBJECTS = $(am_testrcinativefull_OBJECTS)
+@ENABLE_NATIVE_RCI_FULL_TRUE@testrcinativefull_DEPENDENCIES =  \
+@ENABLE_NATIVE_RCI_FULL_TRUE@	$(am__DEPENDENCIES_1)
+am__testrcinativenested_SOURCES_DIST = testrcinativenested.c
+@ENABLE_NATIVE_RCI_FULL_TRUE@am_testrcinativenested_OBJECTS =  \
+@ENABLE_NATIVE_RCI_FULL_TRUE@	testrcinativenested.$(OBJEXT)
+testrcinativenested_OBJECTS = $(am_testrcinativenested_OBJECTS)
+@ENABLE_NATIVE_RCI_FULL_TRUE@testrcinativenested_DEPENDENCIES =  \
+@ENABLE_NATIVE_RCI_FULL_TRUE@	$(am__DEPENDENCIES_1)
 am__testrcipoisson_SOURCES_DIST = testrcipoisson.c
 @ENABLE_RCI_TRUE@am_testrcipoisson_OBJECTS = testrcipoisson.$(OBJEXT)
 testrcipoisson_OBJECTS = $(am_testrcipoisson_OBJECTS)
@@ -1284,6 +1301,8 @@ am__depfiles_remade = ./$(DEPDIR)/benchautojacobirefresh.Po \
 	./$(DEPDIR)/testrcibridge.Po ./$(DEPDIR)/testrciext.Po \
 	./$(DEPDIR)/testrcifaults.Po ./$(DEPDIR)/testrcifull.Po \
 	./$(DEPDIR)/testrcilarge.Po ./$(DEPDIR)/testrcimodel.Po \
+	./$(DEPDIR)/testrcinativefull.Po \
+	./$(DEPDIR)/testrcinativenested.Po \
 	./$(DEPDIR)/testrcipoisson.Po ./$(DEPDIR)/testrcirange.Po \
 	./$(DEPDIR)/testrcistate.Po ./$(DEPDIR)/testrcisweep.Po \
 	./$(DEPDIR)/testrcoalloc.Po ./$(DEPDIR)/testrecovery.Po \
@@ -1448,6 +1467,7 @@ SOURCES = $(benchautojacobirefresh_SOURCES) $(benchfrozenilut_SOURCES) \
 	$(testrcibridge_SOURCES) $(testrciext_SOURCES) \
 	$(testrcifaults_SOURCES) $(testrcifull_SOURCES) \
 	$(testrcilarge_SOURCES) $(testrcimodel_SOURCES) \
+	$(testrcinativefull_SOURCES) $(testrcinativenested_SOURCES) \
 	$(testrcipoisson_SOURCES) $(testrcirange_SOURCES) \
 	$(testrcistate_SOURCES) $(testrcisweep_SOURCES) \
 	$(testrcoalloc_SOURCES) $(testrecovery_SOURCES) \
@@ -1571,6 +1591,8 @@ DIST_SOURCES = $(benchautojacobirefresh_SOURCES) \
 	$(am__testrcifull_SOURCES_DIST) \
 	$(am__testrcilarge_SOURCES_DIST) \
 	$(am__testrcimodel_SOURCES_DIST) \
+	$(am__testrcinativefull_SOURCES_DIST) \
+	$(am__testrcinativenested_SOURCES_DIST) \
 	$(am__testrcipoisson_SOURCES_DIST) \
 	$(am__testrcirange_SOURCES_DIST) \
 	$(am__testrcistate_SOURCES_DIST) \
@@ -2226,7 +2248,7 @@ TESTS = testsnapshot$(EXEEXT) test.sh testuserrow$(EXEEXT) \
 	testusereigenrqiguard$(EXEEXT) testusereigenstatus$(EXEEXT) \
 	testusercomplexadjoint$(EXEEXT) \
 	testuserserialcontract$(EXEEXT) testbicgstablinit$(EXEEXT) \
-	$(am__append_10)
+	$(am__append_10) $(am__append_12)
 testthreads_SOURCES = testthreads.c
 testfgcrodr_SOURCES = testfgcrodr.c
 testfgcrodrmaxiter_SOURCES = testfgcrodrmaxiter.c
@@ -2348,6 +2370,10 @@ testbicgstablinit_LDADD = $(LDADD) -lm
 @ENABLE_RCI_TRUE@testrcisweep_LDADD = $(LDADD) -lm
 @ENABLE_RCI_TRUE@testrcimodel_LDADD = $(LDADD) -lm
 @ENABLE_RCI_TRUE@testrcirange_LDADD = $(LDADD) -lm
+@ENABLE_NATIVE_RCI_FULL_TRUE@testrcinativefull_SOURCES = testrcinativefull.c
+@ENABLE_NATIVE_RCI_FULL_TRUE@testrcinativenested_SOURCES = testrcinativenested.c
+@ENABLE_NATIVE_RCI_FULL_TRUE@testrcinativefull_LDADD = $(LDADD) -lm
+@ENABLE_NATIVE_RCI_FULL_TRUE@testrcinativenested_LDADD = $(LDADD) -lm
 all: all-am
 
 .SUFFIXES:
@@ -3133,6 +3159,14 @@ testrcimodel$(EXEEXT): $(testrcimodel_OBJECTS) $(testrcimodel_DEPENDENCIES) $(EX
 	@rm -f testrcimodel$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(testrcimodel_OBJECTS) $(testrcimodel_LDADD) $(LIBS)
 
+testrcinativefull$(EXEEXT): $(testrcinativefull_OBJECTS) $(testrcinativefull_DEPENDENCIES) $(EXTRA_testrcinativefull_DEPENDENCIES) 
+	@rm -f testrcinativefull$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testrcinativefull_OBJECTS) $(testrcinativefull_LDADD) $(LIBS)
+
+testrcinativenested$(EXEEXT): $(testrcinativenested_OBJECTS) $(testrcinativenested_DEPENDENCIES) $(EXTRA_testrcinativenested_DEPENDENCIES) 
+	@rm -f testrcinativenested$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(testrcinativenested_OBJECTS) $(testrcinativenested_LDADD) $(LIBS)
+
 testrcipoisson$(EXEEXT): $(testrcipoisson_OBJECTS) $(testrcipoisson_DEPENDENCIES) $(EXTRA_testrcipoisson_DEPENDENCIES) 
 	@rm -f testrcipoisson$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(testrcipoisson_OBJECTS) $(testrcipoisson_LDADD) $(LIBS)
@@ -3544,6 +3578,8 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testrcifull.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testrcilarge.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testrcimodel.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testrcinativefull.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testrcinativenested.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testrcipoisson.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testrcirange.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/testrcistate.Po@am__quote@ # am--include-marker
@@ -5009,6 +5045,20 @@ testrcirange.log: testrcirange$(EXEEXT)
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
 	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testrcinativefull.log: testrcinativefull$(EXEEXT)
+	@p='testrcinativefull$(EXEEXT)'; \
+	b='testrcinativefull'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+testrcinativenested.log: testrcinativenested$(EXEEXT)
+	@p='testrcinativenested$(EXEEXT)'; \
+	b='testrcinativenested'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
 .test.log:
 	@p='$<'; \
 	$(am__set_b); \
@@ -5249,6 +5299,8 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/testrcifull.Po
 	-rm -f ./$(DEPDIR)/testrcilarge.Po
 	-rm -f ./$(DEPDIR)/testrcimodel.Po
+	-rm -f ./$(DEPDIR)/testrcinativefull.Po
+	-rm -f ./$(DEPDIR)/testrcinativenested.Po
 	-rm -f ./$(DEPDIR)/testrcipoisson.Po
 	-rm -f ./$(DEPDIR)/testrcirange.Po
 	-rm -f ./$(DEPDIR)/testrcistate.Po
@@ -5497,6 +5549,8 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/testrcifull.Po
 	-rm -f ./$(DEPDIR)/testrcilarge.Po
 	-rm -f ./$(DEPDIR)/testrcimodel.Po
+	-rm -f ./$(DEPDIR)/testrcinativefull.Po
+	-rm -f ./$(DEPDIR)/testrcinativenested.Po
 	-rm -f ./$(DEPDIR)/testrcipoisson.Po
 	-rm -f ./$(DEPDIR)/testrcirange.Po
 	-rm -f ./$(DEPDIR)/testrcistate.Po
