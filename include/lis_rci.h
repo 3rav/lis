@@ -16,6 +16,8 @@ extern "C" {
  * entry, without modifying the input. Identity is a valid PRECON response.
  * DONE means the verified absolute residual satisfies max(atol,rtol*||b||).
  * info.residual is the last computed true absolute residual (or NaN);
+ * it is +Inf when the norm exceeds DBL_MAX. Use lis_rci_get_residual for
+ * the wide value.
  * on interruption it need not describe the most recent iterate.
  * Allocation failure or invalid options returns NULL from create.
  * No API/ABI stability promise is made for this experimental interface. */
@@ -37,6 +39,9 @@ int lis_rci_advance(lis_rci_context *c,int callback_code,lis_rci_request *q);
  * Only DONE guarantees convergence. Before start, contains zeros. */
 const double *lis_rci_solution(const lis_rci_context *c);
 int lis_rci_get_info(const lis_rci_context *c,lis_rci_info *info);
+/* Last verified absolute residual in long double, NaN before verification.
+ * Does not change the legacy diagnostic structure or the convergence test. */
+int lis_rci_get_residual(const lis_rci_context *c,long double *residual);
 /* Extended RCI: all dot products and Euclidean norms are external requests.
  * MATVEC/PRECON use in/out; DOT uses in/in2; NORM uses in only.
  * Scalar requests have out == NULL; vector requests have in2 == NULL.

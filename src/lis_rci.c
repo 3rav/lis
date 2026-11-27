@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
+/* These optimizations invalidate the nonfinite-output protocol. */
+#if defined(__FAST_MATH__) || (defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__ > 0)
+#error "experimental RCI requires IEEE nonfinite checks (disable fast/finite-only math)"
+#endif
 
 enum phase {
  IDLE, B_NORM, INITIAL, VERIFY, RES_NORM,
@@ -21,7 +25,7 @@ enum phase {
 struct lis_rci_context {
  lis_rci_options o; lis_rci_info info; enum phase phase; int verify_reason;
  double *mem,*b,*x,*r,*z,*p,*v,*s,*t,*shadow,*ax,*V,*Z,*H,*cs,*sn,*g,*y,*out,*scratch,*lin_dest;
- size_t j, orth_i, update_i, update_k; long double tol,rho,alpha,omega,work,before,lin_a,lin_b;
+ size_t j, orth_i, update_i, update_k; long double tol,rho,alpha,omega,work,before,lin_a,lin_b,residual_wide;
  int fresh, orth_pass, external, update_reason, happy;
  uint64_t token;
  lis_rci_request_ex pending;
@@ -140,7 +144,7 @@ lis_rci_context *lis_rci_create(const lis_rci_options*o){
  size_t n=o->n,m=0,total,tmp,mp=0;if(!mul(n,11,&total))return NULL;
  if(o->method>=LIS_RCI_GMRES){if(!o->restart)return NULL;m=o->restart;if(m>o->maxiter)m=o->maxiter;if(m>n)m=n;if(!add(m,1,&mp)||!mul(mp,n,&tmp)||!add(total,tmp,&total)||!mul(m,n,&tmp)||!add(total,tmp,&total)||!mul(mp,m,&tmp)||!add(total,tmp,&total)||!mul(m,4,&tmp)||!add(total,tmp,&total)||!add(total,1,&total))return NULL;}
  if(!mul(total,sizeof(double),&tmp))return NULL;
- lis_rci_context*c=calloc(1,sizeof(*c));if(!c)return NULL;c->mem=calloc(total,sizeof(double));if(!c->mem){free(c);return NULL;}c->o=*o;c->o.restart=m;c->info.status=LIS_RCI_STATE;c->info.residual=NAN;c->stats.error_rank=UINT32_MAX;
+ lis_rci_context*c=calloc(1,sizeof(*c));if(!c)return NULL;c->mem=calloc(total,sizeof(double));if(!c->mem){free(c);return NULL;}c->o=*o;c->o.restart=m;c->info.status=LIS_RCI_STATE;c->info.residual=NAN;c->residual_wide=NAN;c->stats.error_rank=UINT32_MAX;
  double *d=c->mem;
  c->b=d;d+=n;c->x=d;d+=n;c->r=d;d+=n;c->z=d;d+=n;c->p=d;d+=n;c->v=d;d+=n;c->s=d;d+=n;c->t=d;d+=n;c->shadow=d;d+=n;c->ax=d;d+=n;c->scratch=d;d+=n;
  if(m){c->V=d;d+=mp*n;c->Z=d;d+=m*n;c->H=d;d+=mp*m;c->cs=d;d+=m;c->sn=d;d+=m;c->g=d;d+=mp;c->y=d;}
@@ -149,6 +153,12 @@ lis_rci_context *lis_rci_create(const lis_rci_options*o){
 void lis_rci_destroy(lis_rci_context*c){if(c){free(c->mem);free(c);}}
 const double*lis_rci_solution(const lis_rci_context*c){return c?c->x:NULL;}
 int lis_rci_get_info(const lis_rci_context*c,lis_rci_info*i){if(!c||!i)return LIS_RCI_BADARG;*i=c->info;return 0;}
+int lis_rci_get_residual(const lis_rci_context *c,long double *residual)
+{
+ if(!c||!residual)return LIS_RCI_BADARG;
+ *residual=c->residual_wide;
+ return LIS_RCI_DONE;
+}
 static int cycle(lis_rci_context *c,long double rn,lis_rci_request_ex *q)
 {
  size_t n=c->o.n,m=c->o.restart;
@@ -174,7 +184,7 @@ static int start_impl(lis_rci_context *c,const double *b,const double *x0,
  if(!c||!b||!q)return LIS_RCI_BADARG;
  if(c->phase!=IDLE&&c->phase!=END)return LIS_RCI_STATE;
  size_t n=c->o.n;
- c->info=(lis_rci_info){.residual=NAN};c->external=external;c->verify_reason=0;
+ c->info=(lis_rci_info){.residual=NAN};c->residual_wide=NAN;c->external=external;c->verify_reason=0;
  c->stats=(lis_rci_stats){.last_token=c->token,.error_rank=UINT32_MAX};
  if(!finite_vec(b,n)||(x0&&!finite_vec(x0,n)))return end(c,LIS_RCI_NONFINITE,q);
  memmove(c->b,b,n*sizeof(double));
@@ -228,7 +238,10 @@ static int advance_impl(lis_rci_context *c,uint64_t token,int code,
   /* fall through */
  case RES_VECTOR:return scalar_req(c,RES_NORM,c->r,NULL,q);
  case RES_NORM:
-  c->info.residual=(double)scalar;
+  c->residual_wide=scalar;
+  /* Preserve the actual convergence decision even if the legacy double
+   * diagnostic cannot represent this norm. Avoid an out-of-range cast. */
+  c->info.residual=scalar>DBL_MAX?INFINITY:(double)scalar;
   if(scalar<=c->tol)return end(c,LIS_RCI_DONE,q);
   if(c->verify_reason==LIS_RCI_BREAKDOWN)return end(c,LIS_RCI_BREAKDOWN,q);
   return cycle(c,scalar,q);

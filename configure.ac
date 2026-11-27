@@ -1299,6 +1299,11 @@ if test "x$enable_rci" = xyes; then
   AC_DEFINE([USE_RCI], [1], [Define to 1 when the experimental real-double RCI API is enabled.])
 fi
 if test "x$enable_rci" = xyes; then
+  AC_MSG_CHECKING([for nonfinite-aware floating-point compilation required by experimental RCI])
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#if defined(__FAST_MATH__) || (defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__ > 0)
+#error unsafe finite-only floating point compilation
+#endif]], [[]])],
+    [AC_MSG_RESULT([yes])], [AC_MSG_FAILURE([experimental RCI requires IEEE nonfinite checks; disable fast/finite-only math])])
   AC_MSG_CHECKING([for C11 support required by experimental RCI])
   AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <stddef.h>]], [[_Static_assert(_Generic((double)0,double:1,default:0),"C11 required");]])],
     [AC_MSG_RESULT([yes])], [AC_MSG_FAILURE([experimental RCI requires C11 compiler support])])

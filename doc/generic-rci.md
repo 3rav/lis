@@ -166,3 +166,22 @@ MPI dependencies are required. The archived structural matrix drivers and
 industrial qualification remain on the fork's archive and qualification
 branches. The archived implementation was itself a reconstruction, not the
 unavailable original RC3.
+
+## Numerical contract and recovered audit
+
+RCI requires nonfinite-aware floating-point compilation. GCC/Clang-style
+fast-math and finite-math-only options are rejected by configure and by the
+RCI translation units; these optimizations invalidate NaN output poisoning.
+Other compilers must preserve IEEE nonfinite checks. The legacy double
+residual diagnostic explicitly reports +Inf if the verified absolute norm
+exceeds DBL_MAX. The additive `lis_rci_get_residual` accessor returns the
+stored long-double norm (NaN before verification), without changing the
+convergence decision or any existing public structure.
+
+The recovered independent consensus oracle now tests the actual exported
+functions on 109611 scenarios (forward, reverse and tree reductions).
+The native bridge test checks invalid dimensions, zero and negative Jacobi
+diagonals, nonfinite input, unchanged output on failure and recovery. This
+adapts earlier mock tests; mock-injected LIS matvec errors and allocation
+failures remain separate qualification work. See `generic-rci-abi.md` for
+the proposed compatibility policy. No MPI or opaque device vectors are added.

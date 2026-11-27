@@ -6,6 +6,10 @@
 #include <string.h>
 #include <math.h>
 #include <limits.h>
+/* These optimizations invalidate the nonfinite-output protocol. */
+#if defined(__FAST_MATH__) || (defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__ > 0)
+#error "experimental RCI requires IEEE nonfinite checks (disable fast/finite-only math)"
+#endif
 #if defined(USE_MPI)
 #error Bridge is qualified only for non-MPI LIS
 #endif

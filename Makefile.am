@@ -655,4 +655,4 @@ AUTOMAKE_OPTIONS = dist-zip
 
 EXTRA_DIST += tools/differential_schur_stdlib.py
 
-EXTRA_DIST += doc/generic-rci.md
+EXTRA_DIST += doc/generic-rci.md doc/generic-rci-abi.md
