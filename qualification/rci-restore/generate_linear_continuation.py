@@ -150,9 +150,9 @@ def frame(name,func,path,sha):
             result.append(indent+("\n"+indent).join(code)+"\n"+indent+"resume_"+str(site)+": F->pc=0;\n"+indent+"if(K->retval)")
             pos=tail+1
         elif m[3] in EXTRA_CALLS:
-            child,fields = EXTRA_CALLS[m[3]]
-            assert len(fields)==len(a),(name,m[3],a)
-            for field,val in zip(fields,a):
+            child,param_names = EXTRA_CALLS[m[3]]
+            assert len(param_names)==len(a),(name,m[3],a)
+            for field,val in zip(param_names,a):
                 code.append("K->"+child+"."+field+" = "+val+";")
             code += ["K->"+child+".pc=0; K->"+child+".parent="+str(IDS[name])+";",
                      "F->pc="+str(site)+"; K->active="+str(IDS[child])+"; return L_STEP_AGAIN;"]
