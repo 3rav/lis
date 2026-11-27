@@ -11,7 +11,7 @@ struct lis_rci_recycle_restore {
  double tol,*mem,*scratch;
  uint64_t token,a,p,next_a,next_p;
 };
-static int finite(const double *v,size_t n)
+static int finite_vec(const double *v,size_t n)
 {if(!v)return 0;for(size_t i=0;i<n;i++)if(!isfinite(v[i]))return 0;return 1;}
 static int store(double *out,long double v)
 {if(!isfinite(v)||fabsl(v)>DBL_MAX)return 0;*out=(double)v;return 1;}
@@ -51,7 +51,7 @@ int lis_rci_recycle_restore_begin(lis_rci_recycle_restore *s,size_t k,const doub
 {
  if(!s||!q||!k||k>s->k||!w||(s->flexible?!z:z!=NULL))return LIS_RCI_BADARG;
  if(s->stage)return LIS_RCI_STATE;
- if(!finite(w,k*s->n)||(s->flexible&&!finite(z,k*s->n)))return LIS_RCI_NONFINITE;
+ if(!finite_vec(w,k*s->n)||(s->flexible&&!finite_vec(z,k*s->n)))return LIS_RCI_NONFINITE;
  s->requested=k;s->j=s->rank=0;s->next_a=a;s->next_p=p;s->code=0;
  memmove(staged(s,0,0),w,k*s->n*sizeof(double));
  if(s->flexible)memmove(staged(s,1,0),z,k*s->n*sizeof(double));
@@ -91,7 +91,7 @@ int lis_rci_recycle_restore_advance(lis_rci_recycle_restore *s,uint64_t token,ui
  if(token!=s->token)return LIS_RCI_PROTOCOL;
  if(a!=s->next_a||p!=s->next_p)return fail(s,LIS_RCI_PROTOCOL,q);
  if(code){s->code=code;return fail(s,LIS_RCI_CALLBACK,q);}
- if(!finite(staged(s,s->stage==LIS_RCI_OP_PRECON?1:2,s->j),s->n))return fail(s,LIS_RCI_NONFINITE,q);
+ if(!finite_vec(staged(s,s->stage==LIS_RCI_OP_PRECON?1:2,s->j),s->n))return fail(s,LIS_RCI_NONFINITE,q);
  if(s->stage==LIS_RCI_OP_PRECON)return issue(s,LIS_RCI_OP_A,q);
  int e=process_column(s);if(e)return fail(s,e,q);
  if(++s->j<s->requested)return issue(s,s->flexible?LIS_RCI_OP_A:LIS_RCI_OP_PRECON,q);
@@ -124,7 +124,7 @@ static int ready(lis_rci_recycle_restore *s,uint64_t a,uint64_t p)
 int lis_rci_recycle_restore_project(lis_rci_recycle_restore *s,uint64_t a,uint64_t p,double *x,double *r)
 {
  int e=ready(s,a,p);if(e)return e;
- size_t n=s->n;if(x==r||!finite(x,n)||!finite(r,n))return LIS_RCI_BADARG;
+ size_t n=s->n;if(x==r||!finite_vec(x,n)||!finite_vec(r,n))return LIS_RCI_BADARG;
  double *xx=s->scratch,*rr=xx+n;
  memcpy(xx,x,n*sizeof(double));memcpy(rr,r,n*sizeof(double));
  for(size_t j=0;j<s->committed;j++){
@@ -138,7 +138,7 @@ int lis_rci_recycle_restore_project(lis_rci_recycle_restore *s,uint64_t a,uint64
 int lis_rci_recycle_restore_direction(lis_rci_recycle_restore *s,uint64_t a,uint64_t p,double *w,double *z,double *az)
 {
  int e=ready(s,a,p);if(e)return e;
- size_t n=s->n;if(w==z||w==az||z==az||!finite(w,n)||!finite(z,n)||!finite(az,n))return LIS_RCI_BADARG;
+ size_t n=s->n;if(w==z||w==az||z==az||!finite_vec(w,n)||!finite_vec(z,n)||!finite_vec(az,n))return LIS_RCI_BADARG;
  double *arr[3]={w,z,az},*dst[3]={s->scratch,s->scratch+n,s->scratch+2*n};
  for(size_t k=0;k<3;k++)memcpy(dst[k],arr[k],n*sizeof(double));
  for(size_t j=0;j<s->committed;j++){

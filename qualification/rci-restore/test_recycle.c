@@ -71,8 +71,8 @@ static int run(int flex)
   if(!flex){op(LIS_RCI_OP_PRECON,v,ax,0);for(int i=0;i<N;i++)C(fabs(ax[i]-p[i])<1e-12);}
  }
  /* Each injected error preserves all three committed arrays byte-for-byte. */
- for(int stop=0;stop<(flex?K:2*K);stop++)for(int fault=0;fault<4;fault++){
-  status=lis_rci_recycle_restore_refresh(s,8,9,&q);C(status>0);
+ for(int refresh=0;refresh<2;refresh++)for(int stop=0;stop<(flex?1:2)*(refresh?2:K);stop++)for(int fault=0;fault<4;fault++){
+  status=refresh?lis_rci_recycle_restore_refresh(s,8,9,&q):lis_rci_recycle_restore_begin(s,K,w,flex?z:NULL,8,9,&q);C(status>0);
   for(int i=0;i<stop;i++){op(q.operation,q.in,q.out,1);status=lis_rci_recycle_restore_advance(s,q.token,8,9,0,&q);C(status>0);}
   if(fault==0){C(lis_rci_recycle_restore_advance(s,q.token,8,9,71,&q)==LIS_RCI_CALLBACK);}
   else if(fault==1){C(lis_rci_recycle_restore_advance(s,q.token,9,9,0,&q)==LIS_RCI_PROTOCOL);}
@@ -89,6 +89,6 @@ static int run(int flex)
 int main(void)
 {
  C(!run(0));C(!run(1));
- puts("RECYCLE PASS: fixed U/ZU/C and flexible W/Z/C, rank drop, two RHS, direction projection, refresh, 36 transactional phase faults");
+ puts("RECYCLE PASS: fixed U/ZU/C and flexible W/Z/C, rank drop, two RHS, direction projection, refresh, 60 transactional phase faults");
  return 0;
 }
