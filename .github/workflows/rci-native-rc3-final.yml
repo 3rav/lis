@@ -13,16 +13,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {name: legacy-serial32, scalar: real, omp: no, int64: no, rci: yes, sanitize: no}
-          - {name: legacy-openmp64, scalar: real, omp: yes, int64: yes, rci: yes, sanitize: no}
-          - {name: disabled-serial, scalar: real, omp: no, int64: no, rci: no, sanitize: no}
-          - {name: native-real, scalar: real, omp: no, int64: no, rci: native, sanitize: no}
-          - {name: native-longdouble, scalar: longdouble, omp: no, int64: no, rci: native, sanitize: no}
-          - {name: native-binary128, scalar: binary128, omp: yes, int64: yes, rci: native, sanitize: no}
-          - {name: native-complex, scalar: complex, omp: yes, int64: yes, rci: native, sanitize: no}
-          - {name: native-complex-longdouble, scalar: complex-longdouble, omp: no, int64: no, rci: native, sanitize: no}
-          - {name: native-complex-binary128, scalar: complex-binary128, omp: yes, int64: yes, rci: native, sanitize: no}
-          - {name: native-asan-ubsan, scalar: real, omp: no, int64: yes, rci: native, sanitize: yes}
+          - {name: legacy-serial32, scalar: real, omp: 'no', int64: 'no', rci: 'yes', sanitize: 'no'}
+          - {name: legacy-openmp64, scalar: real, omp: 'yes', int64: 'yes', rci: 'yes', sanitize: 'no'}
+          - {name: disabled-serial, scalar: real, omp: 'no', int64: 'no', rci: 'no', sanitize: 'no'}
+          - {name: native-real, scalar: real, omp: 'no', int64: 'no', rci: native, sanitize: 'no'}
+          - {name: native-longdouble, scalar: longdouble, omp: 'no', int64: 'no', rci: native, sanitize: 'no'}
+          - {name: native-binary128, scalar: binary128, omp: 'yes', int64: 'yes', rci: native, sanitize: 'no'}
+          - {name: native-complex, scalar: complex, omp: 'yes', int64: 'yes', rci: native, sanitize: 'no'}
+          - {name: native-complex-longdouble, scalar: complex-longdouble, omp: 'no', int64: 'no', rci: native, sanitize: 'no'}
+          - {name: native-complex-binary128, scalar: complex-binary128, omp: 'yes', int64: 'yes', rci: native, sanitize: 'no'}
+          - {name: native-asan-ubsan, scalar: real, omp: 'no', int64: 'yes', rci: native, sanitize: 'yes'}
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
