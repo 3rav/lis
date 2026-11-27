@@ -72,9 +72,12 @@ static int sequence(int mode,answer out[3],int fault_rep,uint64_t fail_at,int ki
   }
   C(!lis_matrix_set_type(A,LIS_MATRIX_CSR));C(!lis_matrix_assemble(A));
   C(!lis_vector_duplicate(A,&b));C(!lis_vector_duplicate(A,&x));
-  double exact[N];for(int i=0;i<N;i++)exact[i]=sin(.19*i+.1*rep)+.4;
+  LIS_SCALAR exact[N];for(int i=0;i<N;i++)exact[i]=sin(.19*i+.1*rep)+.4;
+#ifdef _COMPLEX
+  for(int j=0;j<N;j++)exact[j]+=I*(.15+.007*j);
+#endif
   for(LIS_INT i=0;i<N;i++){
-   double rhs=(2.6+.008*i+shift)*exact[i]-(i?.7*exact[i-1]:0)-(i+1<N?1.1*exact[i+1]:0);
+   LIS_SCALAR rhs=(2.6+.008*i+shift)*exact[i]-(i?.7*exact[i-1]:0)-(i+1<N?1.1*exact[i+1]:0);
    C(!lis_vector_set_value(LIS_INS_VALUE,i,rhs,b));C(!lis_vector_set_value(LIS_INS_VALUE,i,.1,x));
   }
   stop=rep==fault_rep?fail_at:0;fault_kind=kind;forced_status=0;mat=pre=0;

@@ -24,7 +24,9 @@ def native(suffix):
 
 g.SPECS = [g.SPECS[0]] + [(name, native(suffix), p, sha) for name, suffix, _, _ in specs]
 g.IDS = {name:i+1 for i,(name,*_) in enumerate(g.SPECS)}
-g.REAL_ONLY = True
+import sys
+g.COMPLEX_ONLY = '--complex' in sys.argv
+g.REAL_ONLY = not g.COMPLEX_ONLY
 g.EXTRA_CALLS = {native(suffix):(name, params) for name,suffix,params,_ in specs if suffix}
 g.EXPECTED_COUNTS = {"initial":2, **{name:count for name,_,_,count in specs}}
 original_extract = g.extract

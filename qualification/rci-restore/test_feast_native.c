@@ -10,7 +10,7 @@
 #include <string.h>
 #define N 4
 #define C(x) do{if(!(x)){fprintf(stderr,"FEAST FULL FAIL %d: %s\n",__LINE__,#x);rc=1;goto cleanup;}}while(0)
-typedef struct {LIS_INT nev,iter[4],iter2[4];LIS_REAL value[4],resid[4],vectors[16];} answer;
+typedef struct {LIS_INT nev,iter[4],iter2[4];LIS_REAL value[4],resid[4];LIS_SCALAR vectors[16];} answer;
 static int equal_answer(const answer *a,const answer *b)
 {
  if(a->nev!=b->nev)return 0;
@@ -88,7 +88,13 @@ static int solve(int mode,int generalized,int fail,int fault,answer *a)
  C(!err&&e->retcode==LIS_SUCCESS);C(e->nev==2);
  a->nev=e->nev;
  for(LIS_INT i=0;i<e->nev;i++){
-  a->value[i]=e->evalue[i];a->resid[i]=e->resid[i];a->iter[i]=e->iter[i];a->iter2[i]=e->iter2[i];
+  #ifdef _COMPLEX
+  C(fabs(cimag(e->evalue[i]))<1e-7);
+  a->value[i]=(LIS_REAL)creal(e->evalue[i]);
+#else
+  a->value[i]=e->evalue[i];
+#endif
+  a->resid[i]=e->resid[i];a->iter[i]=e->iter[i];a->iter2[i]=e->iter2[i];
   C(e->evector[i]);memcpy(a->vectors+N*i,e->evector[i]->value,N*sizeof(LIS_SCALAR));
   printf("FEAST pair gen=%d mode=%d index=%lld value=%.17g residual=%.17g\n",generalized,mode,(long long)i,(double)a->value[i],(double)a->resid[i]);
   C((fabs(a->value[i]-2)<1e-6||fabs(a->value[i]-4)<1e-6)&&a->resid[i]<=1e-7);
@@ -96,11 +102,12 @@ static int solve(int mode,int generalized,int fail,int fault,answer *a)
   double ax2=0,bx2=0,r2=0;
   for(int j=0;j<N;j++){
    double bj=generalized?1+.2*j:1;
-   double bx=bj*a->vectors[N*i+j],ax=lambda[j]*bx;
-   ax2+=ax*ax;bx2+=bx*bx;
-   double delta=ax-a->value[i]*bx;r2+=delta*delta;
+   LIS_SCALAR bx=bj*a->vectors[N*i+j],ax=lambda[j]*bx;
+   double abx=(double)fabs(bx),aax=(double)fabs(ax);
+   ax2+=aax*aax;bx2+=abx*abx;
+   double delta=(double)fabs(ax-a->value[i]*bx);r2+=delta*delta;
   }
-  C(sqrt(r2)/(sqrt(ax2)+fabs(a->value[i])*sqrt(bx2))<1e-7);
+  C((double)fabs(sqrt(r2))/( (double)fabs(sqrt(ax2))+(double)fabs(a->value[i])*(double)fabs(sqrt(bx2)))<1e-7);
  }
  C((fabs(a->value[0]-2)<1e-6&&fabs(a->value[1]-4)<1e-6)||(fabs(a->value[0]-4)<1e-6&&fabs(a->value[1]-2)<1e-6));
 cleanup:

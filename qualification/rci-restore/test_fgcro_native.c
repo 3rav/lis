@@ -69,10 +69,13 @@ static int sequence(int mode,answer out[3],int fail_rep,uint64_t fail_at,int kin
  C(!lis_vector_duplicate(A,&b));C(!lis_vector_duplicate(A,&x));
  lis_rci_native_fgcro_test_select(mode==0,mode==2?external:NULL);
  for(int rep=0;rep<3;rep++){
-  double exact[N];
+  LIS_SCALAR exact[N];
   for(int i=0;i<N;i++)exact[i]=sin(.19*i+.1*rep)+.4;
+#ifdef _COMPLEX
+  for(int j=0;j<N;j++)exact[j]+=I*(.15+.007*j);
+#endif
   for(LIS_INT i=0;i<N;i++){
-   double rhs=(2.6+.008*i)*exact[i]-(i?.7*exact[i-1]:0)-(i+1<N?1.1*exact[i+1]:0);
+   LIS_SCALAR rhs=(2.6+.008*i)*exact[i]-(i?.7*exact[i-1]:0)-(i+1<N?1.1*exact[i+1]:0);
    C(!lis_vector_set_value(LIS_INS_VALUE,i,rhs,b));C(!lis_vector_set_value(LIS_INS_VALUE,i,.1,x));
   }
   stop=rep==fail_rep?fail_at:0;fault=kind;terminal=0;stale=0;observed=0;

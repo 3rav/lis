@@ -20,6 +20,7 @@ SPECS = [
 ]
 IDS = {name:i+1 for i,(name,*_) in enumerate(SPECS)}
 REAL_ONLY = False
+COMPLEX_ONLY = False
 EXTRA_CALLS = {}
 EXPECTED_COUNTS = {"initial":2,"cg":3,"bi":5,"gm":5,"fgm":4}
 def digest(data):
@@ -58,8 +59,8 @@ def no_quad(s):
         if m:
             kind,arg=m[1],m[2].strip()
             if kind in ("ifdef","ifndef","if"):
-                known=(arg=="USE_QUAD_PRECISION" or (REAL_ONLY and arg in ("_COMPLEX","USE_MPI"))) and kind in ("ifdef","ifndef")
-                active=(kind=="ifndef") if known else True
+                known=(arg=="USE_QUAD_PRECISION" or (REAL_ONLY and arg in ("_COMPLEX","USE_MPI")) or (COMPLEX_ONLY and arg in ("_COMPLEX","USE_MPI"))) and kind in ("ifdef","ifndef")
+                active=((kind=="ifdef") if COMPLEX_ONLY and arg=="_COMPLEX" else (kind=="ifndef")) if known else True
                 stack.append((active,known))
                 if parent and not known: out.append(line)
             elif kind=="else":

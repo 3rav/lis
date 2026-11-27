@@ -1,0 +1,33 @@
+name: RCI native complex scalar qualification
+on:
+  push:
+    branches: ['qualification/rci-native-complex-20261127']
+permissions:
+  contents: read
+jobs:
+  complex:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        scalar: [complex, complex-binary128]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 qualification/rci-restore/qualify_linear_native.py
+          for n in gcro fgcro feast; do python3 "qualification/rci-restore/qualify_${n}_native.py" --complex; done
+          opts=(--disable-rci --enable-shared --disable-mpi --disable-quad --disable-fortran --disable-f90 --disable-saamg --disable-omp --enable-complex)
+          if [ "${{ matrix.scalar }}" = complex-binary128 ]; then opts+=(--enable-longdouble); fi
+          ./configure "${opts[@]}"
+          grep -q '^#define _COMPLEX 1' include/lis_config.h
+          if [ "${{ matrix.scalar }}" = complex-binary128 ]; then grep -q '^#define HAVE_QUADMATH_H 1' include/lis_config.h; fi
+          make -C src -j2
+          export OMP_NUM_THREADS=1
+          for t in linear_precision gcro_native fgcro_native feast_native; do
+            cc -std=gnu11 -DHAVE_CONFIG_H -O2 -Iinclude -Iqualification/rci-restore/ "qualification/rci-restore/test_$t.c" -Lsrc/.libs -Wl,-rpath,"$PWD/src/.libs" -llis -lm -lquadmath -o "$RUNNER_TEMP/$t"
+            "$RUNNER_TEMP/$t"
+            echo "COMPLEX DIFFERENTIAL PASS $t"
+          done

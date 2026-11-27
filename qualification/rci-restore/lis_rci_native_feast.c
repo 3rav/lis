@@ -1,9 +1,17 @@
 /* Qualification-only native full FEAST continuation. */
 #include "lis_rci_native_feast.h"
-#if defined(USE_MPI)||defined(USE_QUAD_PRECISION)||defined(_COMPLEX)
-#error "native FEAST continuation candidate requires real non-MPI without quad solver mode"
+#if defined(USE_MPI)||defined(USE_QUAD_PRECISION)
+#error "native FEAST continuation candidate requires non-MPI without quad solver mode"
 #endif
 #include "feast_native_continuation.inc"
+static int native_scalar_finite(LIS_SCALAR x)
+{
+#ifdef _COMPLEX
+ return isfinite(creal(x))&&isfinite(cimag(x));
+#else
+ return isfinite(x);
+#endif
+}
 static int nf_return(lis_rci_native_feast *K,int parent,LIS_INT rc)
 {
  K->active=parent;K->completion=rc;
@@ -16,7 +24,7 @@ static int nf_return(lis_rci_native_feast *K,int parent,LIS_INT rc)
 static int nf_finite(LIS_VECTOR x)
 {
  if(!x||!x->value)return 0;
- for(LIS_INT i=0;i<x->n;i++)if(!isfinite(x->value[i]))return 0;
+ for(LIS_INT i=0;i<x->n;i++)if(!native_scalar_finite(x->value[i]))return 0;
  return 1;
 }
 static void nf_poison(LIS_VECTOR x){for(LIS_INT i=0;i<x->n;i++)x->value[i]=NAN;}
