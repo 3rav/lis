@@ -1,0 +1,35 @@
+name: LDLT LLVM Archer diagnostic
+on:
+  push:
+    branches: [validation/ldlt-llvm-archer-20261127]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tsan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install LLVM OpenMP and Archer
+        run: |
+          set -euo pipefail
+          apt_options=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o Acquire::Retries=3)
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y clang-18 libomp-18-dev
+      - name: Build and run instrumented OpenMP regression
+        run: |
+          set -euo pipefail
+          d=experimental/native-ldlt
+          archer="$(find /usr/lib/llvm-18 -name libarcher.so -print -quit)"
+          test -f "$archer"
+          clang-18 -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -fsanitize=thread -fno-omit-frame-pointer -I"$d" "$d"/schur_simd.c "$d"/test_schur_omp.c -lm -o ldlt-archer
+          OMP_NUM_THREADS=4 OMP_DYNAMIC=FALSE OMP_TOOL=enabled OMP_TOOL_LIBRARIES="$archer" TSAN_OPTIONS=ignore_noninstrumented_modules=1:halt_on_error=1 ./ldlt-archer 2>&1 | tee archer.log
+          grep -Fx 'Schur OpenMP 121/121 PASS' archer.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ldlt-archer-diagnostic
+          path: archer.log
