@@ -221,6 +221,11 @@ static int benchmark_grid(int mode,LIS_INT width)
 {
     const LIS_INT n=width*width;
     const int steps=6;
+    /* Natural ordering on the 160x160 grid needs about 8M factor
+     * entries. Keep the same explicit cap for all four modes at
+     * each size, without relaxing any convergence criterion. */
+    const LIS_INT fill_cap=width>80?12000000:2000000;
+    char cap_option[64];
     const char *names[]={"legacy","symbolic","symbolic-md","symbolic-md-reuse"};
     const char *opts[]={"-ilutp_symbolic 0 -ilutp_md 0 -ilutp_reuse 0",
         "-ilutp_symbolic 1 -ilutp_md 0 -ilutp_reuse 0",
@@ -249,7 +254,9 @@ static int benchmark_grid(int mode,LIS_INT width)
     for(i=0;i<n;i++)for(k=A->ptr[i]+1;k<A->ptr[i+1];k++)
         CHECK(A->index[k-1]<A->index[k]);
     OK(lis_solver_create(&s));
-    OK(lis_solver_set_option("-i fgmres -p ilut -ilutp 1 -ilutp_threshold 0 -ilutp_full 1 -ilutp_full_limit 2000000 -tol 1e-12 -maxiter 40 -restart 20 -print none",s));
+    OK(lis_solver_set_option("-i fgmres -p ilut -ilutp 1 -ilutp_threshold 0 -ilutp_full 1 -tol 1e-12 -maxiter 40 -restart 20 -print none",s));
+    snprintf(cap_option,sizeof(cap_option),"-ilutp_full_limit %d",(int)fill_cap);
+    OK(lis_solver_set_option(cap_option,s));
     OK(lis_solver_set_option((char*)opts[mode],s));
     OK(lis_solver_set_sequence_precon_refresh_policy(s,mode==3?
         LIS_SEQUENCE_PRECON_REFRESH_FROZEN_PATTERN:LIS_SEQUENCE_PRECON_REFRESH_SAFE));
@@ -301,8 +308,8 @@ static int benchmark_grid(int mode,LIS_INT width)
     }
     CHECK(creates-bc==(mode==3?1:steps));
     CHECK(refreshes-br==(mode==3?steps-1:0));
-    printf("BENCH mode=%s n=%d nnz=%d fill=%d first_s=%.9g first_setup_s=%.9g next_mean_s=%.9g next_setup_mean_s=%.9g max_residual=%.9g max_forward_error=%.9g creates=%d refreshes=%d\n",
-           names[mode],(int)n,(int)A->nnz,(int)fill,first,first_setup,
+    printf("BENCH mode=%s n=%d nnz=%d fill=%d fill_cap=%d first_s=%.9g first_setup_s=%.9g next_mean_s=%.9g next_setup_mean_s=%.9g max_residual=%.9g max_forward_error=%.9g creates=%d refreshes=%d\n",
+           names[mode],(int)n,(int)A->nnz,(int)fill,(int)fill_cap,first,first_setup,
            subsequent/(steps-1),subsequent_setup/(steps-1),maxres,maxerr,creates-bc,refreshes-br);
     failed=0;
 done:
@@ -377,6 +384,7 @@ int main(int argc,char **argv)
      * from the optimized build, not the instrumented ASan build. */
     for(i=0;i<4;i++)CHECK(!benchmark_grid((int)i,40));
     for(i=0;i<4;i++)CHECK(!benchmark_grid((int)i,80));
+    for(i=0;i<4;i++)CHECK(!benchmark_grid((int)i,160));
 #endif
     failed=0;
 done:
