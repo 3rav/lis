@@ -51,6 +51,7 @@
 	#include <mpi.h>
 #endif
 #include "lislib.h"
+#include "lis_matrix_materialize.h"
 
 /***************************************
  * Lanczos Iteration                   *
@@ -3201,6 +3202,37 @@ lis_egli_solve_with_retry(
 }
 
 
+/* Keep the owned shifted CSR alive as long as its preconditioner.
+ * Do not materialize for operator-capable preconditioners, or change
+ * the existing distributed operator path. */
+static LIS_INT
+lis_egli_create_shifted_operator(
+        LIS_MATRIX A,LIS_MATRIX B,LIS_SCALAR shift,
+        LIS_SOLVER solver,LIS_MATRIX *out)
+{
+        LIS_INT err, type;
+        LIS_MATRIX op = NULL;
+
+        *out = NULL;
+        err = lis_matrix_create_operator(1.0,A,-shift,B,&op);
+        if( err ) return err;
+
+        type = solver->options[LIS_OPTIONS_PRECON];
+        if( op->nprocs==1 &&
+            (type==LIS_PRECON_TYPE_MFAMG ||
+             type==LIS_PRECON_TYPE_MFAMG_ILUTP ||
+             (type==LIS_PRECON_TYPE_ILUT &&
+              solver->ilutp_enabled)) )
+        {
+                err = lis_matrix_materialize_csr_owned(op,out);
+                lis_matrix_destroy(op);
+                return err;
+        }
+
+        *out = op;
+        return LIS_SUCCESS;
+}
+
 static LIS_INT
 lis_egli_replace_shifted_operator(
         LIS_MATRIX A,
@@ -3216,9 +3248,8 @@ lis_egli_replace_shifted_operator(
 
         trial_operator = NULL;
 
-        err = lis_matrix_create_operator(
-                1.0,A,-shift,B,
-                &trial_operator);
+        err = lis_egli_create_shifted_operator(
+                A,B,shift,solver,&trial_operator);
         if( err )
         {
                 return err;
@@ -3578,16 +3609,6 @@ static LIS_INT lis_egli_transformed(LIS_ESOLVER esolver)
 		tr[i] = 0.0;
 	}
 
-	if( oshift!=0.0 )
-	{
-		err = lis_matrix_create_operator(
-			1.0,A,-oshift,B,&Sop);
-
-		if( err ) goto cleanup;
-
-		S = Sop;
-	}
-
 	err = lis_solver_create(&solver);
 	if( err ) goto cleanup;
 
@@ -3601,6 +3622,13 @@ static LIS_INT lis_egli_transformed(LIS_ESOLVER esolver)
 
 	err = lis_solver_set_optionC(solver);
 	if( err ) goto cleanup;
+
+	if( oshift!=0.0 )
+	{
+		err = lis_egli_create_shifted_operator(A,B,oshift,solver,&Sop);
+		if( err ) goto cleanup;
+		S = Sop;
+	}
 
 	lis_solver_get_solver(solver,&nsol);
 	lis_solver_get_precon(solver,&precon_type);
@@ -7044,21 +7072,6 @@ lis_egli_block_transformed(
         block_rank[i] = 0;
     }
 
-    if( requested_shift!=0.0 )
-    {
-        err = lis_matrix_create_operator(
-            1.0,
-            A,
-            -requested_shift,
-            B,
-            &Sop);
-
-        if( err )
-            goto cleanup;
-
-        S = Sop;
-    }
-
     err = lis_solver_create(
         &solver);
 
@@ -7081,11 +7094,15 @@ lis_egli_block_transformed(
     if( err )
         goto cleanup;
 
-    solver->A = S;
+    if( requested_shift!=0.0 )
+    {
+        err = lis_egli_create_shifted_operator(
+            A,B,requested_shift,solver,&Sop);
+        if( err ) goto cleanup;
+        S = Sop;
+    }
 
-    err = lis_precon_create(
-        solver,
-        &precon);
+    err = lis_esolver_rebuild_precon(S,solver,&precon);
 
     if( err )
         goto cleanup;
