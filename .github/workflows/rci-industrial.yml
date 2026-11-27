@@ -1,4 +1,4 @@
-name: Public structural engineering RCI diagnostic
+name: BCSSTK17 stronger native preconditioners
 on:
   push:
     branches: ['qualification/rci-industrial-20261127']
@@ -13,7 +13,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {name: bcsstk14, n: 1806, nz: 32630}
           - {name: bcsstk17, n: 10974, nz: 219812}
     env:
       OMP_NUM_THREADS: '4'
@@ -61,5 +60,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -D_LONG__LONG -fopenmp -I"$RUNNER_TEMP/install/include" qualification/rci-reconstructed/industrial_native.c -L"$RUNNER_TEMP/install/lib" -Wl,-rpath,"$RUNNER_TEMP/install/lib" -llis -lm -o "$RUNNER_TEMP/industrial"
+          cc -std=gnu11 -O2 -g -DHAVE_CONFIG_H -D_LONG__LONG -fopenmp -I"$RUNNER_TEMP/install/include" qualification/rci-reconstructed/industrial_strong.c -L"$RUNNER_TEMP/install/lib" -Wl,-rpath,"$RUNNER_TEMP/install/lib" -llis -lm -o "$RUNNER_TEMP/industrial"
           timeout 360 "$RUNNER_TEMP/industrial" "$RUNNER_TEMP/matrix.mtx" "${{ matrix.n }}" "${{ matrix.nz }}"
