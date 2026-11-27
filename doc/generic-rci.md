@@ -152,3 +152,17 @@ validates the input once rather than twice. NaN output poisoning, input/output
 finite checks, token validation and public operation counters are preserved.
 These changes do not alter the request protocol or expose opaque/device
 vectors. Timing depends on machine, compiler, method and callback cost.
+
+## Retained earlier qualification sources
+
+The earlier reconstructed integrated candidate included three additional
+standalone tests. Their source bodies are retained as `test/testrcisweep.c`
+(previously `test_rci.c`), `test/testrcifaults.c` (`test_faults.c`) and
+`test/testrcipoisson.c` (`test_poisson.c`). These restore the earlier size,
+restart, preconditioner and initial-guess sweep, fault injection at every
+legacy request, and scaled two-dimensional Poisson systems. They are built and
+executed alongside the later three-mode tests. No external matrix files or
+MPI dependencies are required. The archived structural matrix drivers and
+industrial qualification remain on the fork's archive and qualification
+branches. The archived implementation was itself a reconstruction, not the
+unavailable original RC3.
