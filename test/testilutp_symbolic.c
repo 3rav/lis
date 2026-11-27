@@ -72,10 +72,10 @@ static int solve_compare(LIS_MATRIX A,LIS_SOLVER s,LIS_VECTOR b,LIS_VECTOR x,LIS
     if(lis_solve_sequence(A,b,y,fresh)||lis_solver_get_status(fresh,&status)||status!=LIS_SUCCESS)goto done;
     q=fresh->sequence_precon;
     if(!q||!q->ilutp_symbolic_factor||!q->ilutp_symbolic_valid)goto done;
-    for(i=0;i<N;i++) {
-        if(p->ilut_perm[i]!=q->ilut_perm[i] || fabs(p->D->value[i]-q->D->value[i])>1e-12 || p->L->nnz[i]!=q->L->nnz[i] || p->U->nnz[i]!=q->U->nnz[i])goto done;
-        for(j=0;j<p->L->nnz[i];j++)if(p->L->index[i][j]!=q->L->index[i][j] || fabs(p->L->value[i][j]-q->L->value[i][j])>1e-12)goto done;
-        for(j=0;j<p->U->nnz[i];j++)if(p->U->index[i][j]!=q->U->index[i][j] || fabs(p->U->value[i][j]-q->U->value[i][j])>1e-12)goto done;
+    for(i=0;i<A->n;i++) {
+        if(p->ilut_perm[i]!=q->ilut_perm[i] || !isfinite((double)p->D->value[i]) || !isfinite((double)q->D->value[i]) || fabs(p->D->value[i]-q->D->value[i])>1e-12 || p->L->nnz[i]!=q->L->nnz[i] || p->U->nnz[i]!=q->U->nnz[i])goto done;
+        for(j=0;j<p->L->nnz[i];j++)if(p->L->index[i][j]!=q->L->index[i][j] || !isfinite((double)p->L->value[i][j]) || !isfinite((double)q->L->value[i][j]) || fabs(p->L->value[i][j]-q->L->value[i][j])>1e-12)goto done;
+        for(j=0;j<p->U->nnz[i];j++)if(p->U->index[i][j]!=q->U->index[i][j] || !isfinite((double)p->U->value[i][j]) || !isfinite((double)q->U->value[i][j]) || fabs(p->U->value[i][j]-q->U->value[i][j])>1e-12)goto done;
     }
     if(lis_vector_axpy(-1,x,y)||lis_vector_nrm2(y,&delta))goto done;
     if(!isfinite(delta)||delta/tnorm>1e-10)goto done;
@@ -84,6 +84,63 @@ static int solve_compare(LIS_MATRIX A,LIS_SOLVER s,LIS_VECTOR b,LIS_VECTOR x,LIS
 done:
     if(fresh)lis_solver_destroy(fresh);
     if(y)lis_vector_destroy(y);
+    return failed;
+}
+/* A 6 x 8 grid has cycles and nontrivial elimination fill even after
+ * minimum-degree ordering. Opposite diagonal signs give an indefinite
+ * symmetric matrix when symmetric_values is true; the other case uses
+ * nonsymmetric values on the same symmetric sparsity graph. Strict
+ * diagonal dominance keeps the no-pivot reference well conditioned. */
+static int test_grid(int symmetric_values)
+{
+    const LIS_INT n=48, width=8;
+    LIS_MATRIX A=NULL;
+    LIS_SOLVER s=NULL;
+    LIS_VECTOR b=NULL,x=NULL,t=NULL,r=NULL;
+    LIS_INT i,j,k,fill=0;
+    int before_create,before_refresh,failed=1;
+    OK(lis_matrix_create(LIS_COMM_WORLD,&A));
+    OK(lis_matrix_set_size(A,0,n));
+    for(i=0;i<n;i++)for(j=0;j<n;j++) {
+        if(i==j) {
+            OK(lis_matrix_set_value(LIS_INS_VALUE,i,j,
+                (symmetric_values && i%2 ? -1.0 : 1.0)*(6.0+0.03*i),A));
+        } else if((i/width==j/width && (i-j==1 || j-i==1)) ||
+                  i-j==width || j-i==width) {
+            double v=symmetric_values ? -0.25-0.01*((i+j)%7) :
+                                      -0.15-0.01*((2*i+j)%11);
+            OK(lis_matrix_set_value(LIS_INS_VALUE,i,j,v,A));
+        }
+    }
+    OK(lis_matrix_set_type(A,LIS_MATRIX_CSR));
+    OK(lis_matrix_assemble(A));
+    OK(setup(&s));
+    OK(lis_vector_duplicate(A,&b)); OK(lis_vector_duplicate(A,&x));
+    OK(lis_vector_duplicate(A,&t)); OK(lis_vector_duplicate(A,&r));
+    for(i=0;i<n;i++)t->value[i]=0.5+0.1*(i%13);
+    CHECK(!solve_compare(A,s,b,x,t,r));
+    for(i=0;i<n;i++)
+        fill+=s->sequence_precon->L->nnz[i]+s->sequence_precon->U->nnz[i];
+    CHECK(fill>A->nnz-n);
+    before_create=creates; before_refresh=refreshes;
+    for(i=0;i<n;i++)for(k=A->ptr[i];k<A->ptr[i+1];k++) {
+        j=A->index[k];
+        A->value[k]*=1.0+0.02*((i+j)%9);
+    }
+    OK(lis_matrix_mark_values_changed(A));
+    CHECK(!solve_compare(A,s,b,x,t,r));
+    CHECK(creates-before_create==1 && refreshes-before_refresh==1);
+    printf("PASS grid %s n=%d factor_offdiag=%d input_offdiag=%d\\n",
+           symmetric_values?"indefinite":"nonsymmetric",
+           (int)n,(int)fill,(int)(A->nnz-n));
+    failed=0;
+done:
+    if(s)lis_solver_destroy(s);
+    if(b)lis_vector_destroy(b);
+    if(x)lis_vector_destroy(x);
+    if(t)lis_vector_destroy(t);
+    if(r)lis_vector_destroy(r);
+    if(A)lis_matrix_destroy(A);
     return failed;
 }
 int main(int argc,char **argv)
@@ -140,6 +197,8 @@ int main(int argc,char **argv)
     CHECK(creates>before_create && refreshes==before_refresh && s->sequence_precon->ilutp_reuse==NULL);
     CHECK(s->sequence_precon->ilutp_symbolic_factor && s->sequence_precon->ilutp_symbolic_valid);
     puts("PASS sequence option snapshot rebuild");
+    CHECK(!test_grid(0));
+    CHECK(!test_grid(1));
     failed=0;
 done:
     if(s)lis_solver_destroy(s);
