@@ -1,0 +1,52 @@
+name: RCI local overhead comparison
+on:
+  push:
+    branches: ['qualification/rci-local-overhead-20261127']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Compare old and optimized kernels on the same runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show 98e9a99bcff7bdbf972186b232016cec26d5dfd2:src/lis_rci.c > "$RUNNER_TEMP/baseline.c"
+          git show 98e9a99bcff7bdbf972186b232016cec26d5dfd2:include/lis_rci.h > "$RUNNER_TEMP/lis_rci.h"
+          cc -O3 -std=c11 -fopenmp -I"$RUNNER_TEMP" "$RUNNER_TEMP/baseline.c" qualification/rci-overhead.c -lm -o "$RUNNER_TEMP/old"
+          cc -O3 -std=c11 -fopenmp -Iinclude src/lis_rci.c qualification/rci-overhead.c -lm -o "$RUNNER_TEMP/new"
+          export OMP_DYNAMIC=FALSE
+          for threads in 1 4; do
+            export OMP_NUM_THREADS="$threads"
+            for rep in 1 2 3; do
+              if [ "$rep" = 2 ]; then order="new old"; else order="old new"; fi
+              for version in $order; do
+                "$RUNNER_TEMP/$version" > "$RUNNER_TEMP/$version-$threads-$rep.csv"
+              done
+            done
+          done
+          python3 - <<'PY'
+          import csv, os, statistics
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])
+          for threads in (1,4):
+              tables={}
+              for version in ("old","new"):
+                  for rep in (1,2,3):
+                      with (root/f"{version}-{threads}-{rep}.csv").open() as f:
+                          tables[version,rep]=list(csv.reader(f))
+              assert all(len(v)==20 for v in tables.values())
+              for i in range(20):
+                  signature=tables["old",1][i][:6]
+                  assert all(v[i][:6]==signature for v in tables.values()), (threads,signature)
+                  a=statistics.median(float(tables["old",r][i][6]) for r in (1,2,3))
+                  b=statistics.median(float(tables["new",r][i][6]) for r in (1,2,3))
+                  print(f"RCI BENCH threads={threads} n={signature[0]} method={signature[1]} repeats={signature[2]} old={a:.6f}s new={b:.6f}s speedup={a/b:.3f}x")
+          print("RCI BENCH 40 signatures match; residual gates passed in every repetition")
+          PY
